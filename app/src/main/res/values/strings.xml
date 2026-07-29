@@ -378,6 +378,7 @@
     <string name="achievement_no_recovery_body">補完なしで7日連続記録する</string>
     <string name="achievement_recovery_title">欠測補完成功</string>
     <string name="achievement_recovery_body">欠測した歩数を補完する</string>
+    <string name="achievement_unknown_title">新しい達成記録</string>
     <string name="achievement_progress_1000_steps">%1$s / 1,000歩</string>
     <string name="achievement_progress_three_days">%1$s / 3日</string>
     <string name="achievement_progress_seven_days">%1$s / 7日</string>

@@ -415,31 +415,11 @@ class LocalGameRepository(
     }
 
     private fun achievementTitle(id: String): String {
-        val resource = mapOf(
-            "first_1000_steps" to R.string.achievement_first_1000_title,
-            "three_day_streak" to R.string.achievement_three_days_title,
-            "seven_day_streak" to R.string.achievement_seven_days_title,
-            "first_win" to R.string.achievement_first_win_title,
-            "three_wins" to R.string.achievement_three_wins_title,
-            "five_wins" to R.string.achievement_five_wins_title,
-            "daily_10000_steps" to R.string.achievement_daily_10000_title,
-            "daily_20000_steps" to R.string.achievement_daily_20000_title,
-            "silver_promotion" to R.string.achievement_silver_title,
-            "season_10_matches" to R.string.achievement_ten_matches_title,
-            "seven_days_no_recovery" to R.string.achievement_no_recovery_title,
-            "gap_recovery_success" to R.string.achievement_recovery_title,
-        )[id]
-        return resource?.let(context::getString) ?: id
+        return GameNotificationPresentation.achievementTitle(id, context::getString)
     }
 
-    private fun MatchOutcome.notificationName() = when (this) {
-        MatchOutcome.WIN -> R.string.game_outcome_win
-        MatchOutcome.LOSS -> R.string.game_outcome_loss
-        MatchOutcome.DRAW -> R.string.game_outcome_draw
-        MatchOutcome.NO_CONTEST -> R.string.game_outcome_no_contest
-        MatchOutcome.IN_PROGRESS -> R.string.game_outcome_in_progress
-        MatchOutcome.CANCELLED -> R.string.game_outcome_cancelled
-    }.let(context::getString)
+    private fun MatchOutcome.notificationName() =
+        GameNotificationPresentation.matchOutcomeName(this, context::getString)
 
     private fun seasonId(date: LocalDate) = "%04d-%02d".format(date.year, date.monthValue)
 }

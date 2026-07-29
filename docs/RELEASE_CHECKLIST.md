@@ -41,3 +41,23 @@
 - [x] Release APK / AABエントリとRelease ManifestのDebug/Fake識別子0件
 - [ ] SOV41 TalkBackでグラフ全体・個別棒を確認
 - [ ] Android設定で既存通知チャネルの新名称を確認
+
+## Phase 6.7 実機手動QA（コード完成条件とは分離）
+
+以下はコード側の未完成項目ではなく、SOV41等の実機で公開前に確認する未完了QA項目。
+
+- [ ] Light表示
+- [ ] Dark表示
+- [ ] 文字サイズ200%
+- [ ] Landscape
+- [ ] TalkBack実読み上げ
+- [ ] 通知チャネル名
+- [ ] 通知本文
+- [ ] 端末Locale変更
+- [ ] ZIPエクスポート
+- [ ] チャレンジ記録初期化
+- [ ] 全データ削除
+- [ ] force-stop
+- [ ] am crash（クラッシュ起点のプロセス再生成として確認）
+- [ ] 物理歩行
+- [ ] Health Connect実Provider
