@@ -29,3 +29,8 @@ assumptions: 0.70 m step length, 60 kg applied weight, and formula version 1.
 Daily `unclassifiedStepsQuality` is `UNKNOWN` when the count is zero and `RECOVERED`
 when it is positive. These migration values are historical evidence and are not
 rewritten by later profile changes.
+# Version 3
+
+`tracking_gap_records` は欠測区間、理由、状態、回復歩数、品質、origin、監査時刻を保存する。
+`processed_external_step_records` は外部 record ID と fingerprint、適用歩数を保存し冪等性を担保する。
+Migration 2→3 は既存の時間別、日次、セッション、processing state を変更せず新規表だけを作る。

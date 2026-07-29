@@ -193,3 +193,12 @@ On 2026-07-29, SOV41 (`QV7209CF25`, Android 11) passed the dedicated Room 1 to 2
 migration instrumentation test (1/1) and the complete debug instrumentation suite
 (13/13), including DAO and Compose UI coverage. These results validate synthetic and
 database behavior only and do not close the physical gates above.
+# Phase 4
+
+2026-07-29 に SOV41 `QV7209CF25` / Android 11 (API 30) で 16 件の instrumentation を実行し成功した。
+端末の package 一覧に Health Connect Provider はなく、実 SDK availability 呼出がクラッシュしないこと、
+Fake source の 100 歩補完と二重実行防止、Migration 2→3、DAO、Compose UI を確認した。
+
+実 Provider がないため、権限拒否・許可、実 StepsRecord 読取、実 DataOrigin は公開前ゲートとして残る。
+Provider がない場合も通常の Step Counter 計測を継続する。
+物理歩行試験も引き続き未完了である。

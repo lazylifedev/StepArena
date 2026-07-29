@@ -17,7 +17,12 @@ import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 
 @Composable
-fun SettingsScreen(onProfile: () -> Unit, onDiagnostics: () -> Unit) {
+fun SettingsScreen(
+    onProfile: () -> Unit,
+    onDiagnostics: () -> Unit,
+    onRecoverySettings: () -> Unit = {},
+    onRecoveryHistory: () -> Unit = {},
+) {
     Column(
         Modifier.fillMaxSize().padding(StepArenaSpacing.md).testTag("settings_list"),
         verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.md),
@@ -25,6 +30,8 @@ fun SettingsScreen(onProfile: () -> Unit, onDiagnostics: () -> Unit) {
         Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineMedium)
         SettingRow(stringResource(R.string.settings_profile), onProfile)
         SettingRow(stringResource(R.string.settings_diagnostics), onDiagnostics)
+        SettingRow("Health Connect と計測復旧", onRecoverySettings)
+        SettingRow("補完履歴", onRecoveryHistory)
     }
 }
 

@@ -38,6 +38,8 @@ import com.lazyapps.steparena.tracking.StepTrackingState
 import com.lazyapps.steparena.feature.records.RecordsScreen
 import com.lazyapps.steparena.feature.settings.ProfileSettingsScreen
 import com.lazyapps.steparena.feature.settings.SettingsScreen
+import com.lazyapps.steparena.feature.settings.RecoverySettingsScreen
+import com.lazyapps.steparena.feature.diagnostics.RecoveryHistoryScreen
 
 enum class AppDestination(val route: String, val labelRes: Int) {
     HOME("home", R.string.nav_home),
@@ -100,10 +102,14 @@ fun StepArenaApp(
                     SettingsScreen(
                         onProfile = { navController.navigate("settings/profile") },
                         onDiagnostics = { navController.navigate("settings/diagnostics") },
+                        onRecoverySettings = { navController.navigate("settings/recovery") },
+                        onRecoveryHistory = { navController.navigate("settings/recovery-history") },
                     )
                 }
                 composable("settings/profile") { ProfileSettingsScreen() }
                 composable("settings/diagnostics") { TrackingDiagnosticsScreen(trackingState) }
+                composable("settings/recovery") { RecoverySettingsScreen() }
+                composable("settings/recovery-history") { RecoveryHistoryScreen() }
             }
         }
     }

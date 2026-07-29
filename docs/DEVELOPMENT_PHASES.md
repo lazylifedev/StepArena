@@ -45,3 +45,8 @@ Phase 3.2 separates continuous tracking from manual walking, adds manual UUID
 lifecycle/UI/notification actions, automatic-to-manual priority, midnight splitting,
 process restoration through Room, stale-action rejection, and a dedicated Room 1 to 2
 migration test. Physical walking validation remains an explicit pre-release gate.
+# Phase 4
+
+任意の Health Connect Steps 読取、欠測 gap の永続化、外部 record の冪等管理、
+Heartbeat の段階判定、一意 Periodic Work、停止通知、設定・診断・補完履歴を追加する。
+Health Connect 書込み、距離・ExerciseSession 統合、自動 Service 再起動は対象外とする。

@@ -7,6 +7,9 @@ import com.lazyapps.steparena.core.database.entity.ActivityProcessingStateEntity
 import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.WalkingSessionEntity
+import com.lazyapps.steparena.core.database.entity.TrackingGapRecordEntity
+import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEntity
+import com.lazyapps.steparena.recovery.TrackingGapStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -51,4 +54,31 @@ interface ActivityProcessingStateDao {
     @Query("SELECT * FROM activity_processing_state WHERE `key` = 'sensor'")
     suspend fun get(): ActivityProcessingStateEntity?
     @Upsert suspend fun upsert(state: ActivityProcessingStateEntity)
+}
+
+@Dao
+interface TrackingGapDao {
+    @Upsert suspend fun upsert(record: TrackingGapRecordEntity)
+    @Query("SELECT * FROM tracking_gap_records WHERE id = :id") suspend fun get(id: String): TrackingGapRecordEntity?
+    @Query("SELECT * FROM tracking_gap_records WHERE fingerprint = :fingerprint LIMIT 1")
+    suspend fun byFingerprint(fingerprint: String): TrackingGapRecordEntity?
+    @Query("SELECT * FROM tracking_gap_records ORDER BY startedAtEpochMillis DESC")
+    fun observeHistory(): Flow<List<TrackingGapRecordEntity>>
+    @Query("SELECT * FROM tracking_gap_records WHERE status IN ('DETECTED','RECOVERY_PENDING','PARTIALLY_RECOVERED','UNRESOLVED','USER_REVIEW_REQUIRED') ORDER BY startedAtEpochMillis")
+    suspend fun unresolved(): List<TrackingGapRecordEntity>
+    @Query("SELECT COUNT(*) FROM tracking_gap_records WHERE status IN ('DETECTED','RECOVERY_PENDING','PARTIALLY_RECOVERED','UNRESOLVED','USER_REVIEW_REQUIRED')")
+    fun observeUnresolvedCount(): Flow<Int>
+    @Query("UPDATE tracking_gap_records SET status = :status, reviewedAtEpochMillis = :reviewedAt, updatedAtEpochMillis = :reviewedAt WHERE id = :id")
+    suspend fun updateStatus(id: String, status: TrackingGapStatus, reviewedAt: Long)
+}
+
+@Dao
+interface ProcessedExternalStepRecordDao {
+    @Upsert suspend fun upsert(record: ProcessedExternalStepRecordEntity)
+    @Query("SELECT * FROM processed_external_step_records WHERE fingerprint = :fingerprint LIMIT 1")
+    suspend fun byFingerprint(fingerprint: String): ProcessedExternalStepRecordEntity?
+    @Query("SELECT * FROM processed_external_step_records WHERE recordId = :recordId AND dataOriginPackage = :origin LIMIT 1")
+    suspend fun byRecordId(recordId: String, origin: String): ProcessedExternalStepRecordEntity?
+    @Query("SELECT COALESCE(SUM(appliedSteps), 0) FROM processed_external_step_records WHERE startedAtEpochMillis < :end AND endedAtEpochMillis > :start")
+    suspend fun appliedInRange(start: Long, end: Long): Long
 }
