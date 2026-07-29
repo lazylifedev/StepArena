@@ -192,8 +192,8 @@ class LocalGameRepository(
             GameNotificationType.MATCH_RESULT,
             match.id,
             "match:${match.id}",
-            "対戦結果",
-            "${match.opponentName}との対戦は${result.name}でした",
+            "今日のチャレンジ結果",
+            "チャレンジ結果は${result.notificationName()}でした",
             "match",
             now,
         )
@@ -204,8 +204,8 @@ class LocalGameRepository(
                 GameNotificationType.PROMOTION,
                 match.id,
                 "promotion:${match.id}:${afterRank.displayName}",
-                "ランク昇格",
-                "${beforeRank.displayName}から${afterRank.displayName}へ昇格しました",
+                "歩行ランクが更新されました",
+                "${beforeRank.displayName}から${afterRank.displayName}へ更新されました",
                 "rank",
                 now,
             )
@@ -273,7 +273,7 @@ class LocalGameRepository(
                 val band = LeagueRanking.resultBand(rank)
                 createNotification(
                     GameNotificationType.WEEKLY_LEAGUE, current.id, "league:${current.id}",
-                    "週間リーグ確定", "最終順位は${rank}位（${band.name}）でした", "league", now,
+                    "週間グループを集計しました", "今週の順位は${rank}位でした", "league", now,
                 )
             }
         }
@@ -320,7 +320,7 @@ class LocalGameRepository(
                 )
                 createNotification(
                     GameNotificationType.SEASON, current.id, "season:${current.id}",
-                    "シーズン確定", "${current.id}シーズンの結果が確定しました", "season", now,
+                    "月間記録を集計しました", "今月の歩行記録が確定しました", "season", now,
                 )
             }
         }
@@ -408,16 +408,25 @@ class LocalGameRepository(
         "first_1000_steps" to "初回1,000歩",
         "three_day_streak" to "3日連続計測",
         "seven_day_streak" to "7日連続計測",
-        "first_win" to "初勝利",
-        "three_wins" to "3連勝",
-        "five_wins" to "5連勝",
+        "first_win" to "初めての目標達成",
+        "three_wins" to "3回連続達成",
+        "five_wins" to "5回連続達成",
         "daily_10000_steps" to "1日10,000歩",
         "daily_20000_steps" to "1日20,000歩",
-        "silver_promotion" to "Silver昇格",
-        "season_10_matches" to "1シーズン10試合",
+        "silver_promotion" to "Silver到達",
+        "season_10_matches" to "月間10チャレンジ",
         "seven_days_no_recovery" to "補完なし7日連続",
         "gap_recovery_success" to "欠測補完成功",
     )[id] ?: id
+
+    private fun MatchOutcome.notificationName() = when (this) {
+        MatchOutcome.WIN -> "目標達成"
+        MatchOutcome.LOSS -> "あと一歩"
+        MatchOutcome.DRAW -> "同じ歩数"
+        MatchOutcome.NO_CONTEST -> "判定対象外"
+        MatchOutcome.IN_PROGRESS -> "集計中"
+        MatchOutcome.CANCELLED -> "記録なし"
+    }
 
     private fun seasonId(date: LocalDate) = "%04d-%02d".format(date.year, date.monthValue)
 }

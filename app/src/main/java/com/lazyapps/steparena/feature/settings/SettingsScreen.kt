@@ -6,6 +6,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DataUsage
+import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MotionPhotosOn
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,21 +54,22 @@ fun SettingsScreen(
     ) {
         Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineMedium)
         SettingsHeading("計測")
-        SettingRow("Health Connectと計測復旧", onRecoverySettings)
-        SettingRow("補完履歴", onRecoveryHistory)
-        SettingRow(stringResource(R.string.settings_diagnostics), onDiagnostics)
+        SettingRow(Icons.Default.HealthAndSafety, "Health Connect", "未接続・任意の歩数補完", onRecoverySettings)
+        SettingRow(Icons.Default.DirectionsWalk, "補完履歴", "補完された歩数の確認", onRecoveryHistory)
+        SettingRow(Icons.Default.Info, stringResource(R.string.settings_diagnostics), "計測状態と権限の確認", onDiagnostics)
         SettingsHeading("プロフィール・計算")
-        SettingRow(stringResource(R.string.settings_profile), onProfile)
+        SettingRow(Icons.Default.Person, stringResource(R.string.settings_profile), "歩幅と消費カロリーの設定", onProfile)
         SettingsHeading("ゲーム")
         GameNotificationSetting()
-        SettingRow("ゲーム説明をもう一度見る", onReplayOnboarding)
+        SettingRow(Icons.Default.DirectionsWalk, "チャレンジ説明をもう一度見る", "端末内パートナーと歩数ルール", onReplayOnboarding)
+        SettingRow(Icons.Default.MotionPhotosOn, "画面の動き", "標準", {})
         SettingsHeading("データ管理")
-        SettingRow("使用状況・書き出し・削除", onDataManagement)
+        SettingRow(Icons.Default.DataUsage, "データ管理", "書き出し・初期化・全削除", onDataManagement)
         SettingsHeading("アプリ情報")
-        SettingRow("プライバシーポリシー", onPrivacy)
-        SettingRow("利用上の注意・免責", onTerms)
-        SettingRow("オープンソースライセンス", onLicenses)
-        SettingRow("バージョンとアプリ情報", onAbout)
+        SettingRow(Icons.Default.Info, "プライバシーポリシー", "データの取り扱い", onPrivacy)
+        SettingRow(Icons.Default.Info, "利用上の注意・免責", "安全に利用するための情報", onTerms)
+        SettingRow(Icons.Default.Info, "オープンソースライセンス", "利用しているソフトウェア", onLicenses)
+        SettingRow(Icons.Default.Info, "バージョンとアプリ情報", "StepArenaについて", onAbout)
     }
 }
 
@@ -80,10 +92,11 @@ private fun GameNotificationSetting() {
         mutableStateOf(preferences.getBoolean(GameNotificationDispatcher.KEY_ENABLED, false))
     }
     GlassSurface(Modifier.fillMaxWidth().testTag("game_notification_setting")) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Default.Notifications, contentDescription = null)
             Column(Modifier.weight(1f)) {
-                Text("ゲーム結果の通知", style = MaterialTheme.typography.titleMedium)
-                Text("対戦・昇格・実績・リーグ・シーズンを通知します（22:00〜8:00を除く）")
+                Text("チャレンジ記録の通知", style = MaterialTheme.typography.titleMedium)
+                Text("目標達成・歩行ランク・達成記録を通知（22:00〜8:00を除く）")
             }
             Switch(
                 checked = enabled,
@@ -99,8 +112,20 @@ private fun GameNotificationSetting() {
 }
 
 @Composable
-private fun SettingRow(label: String, onClick: () -> Unit) {
-    GlassSurface(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onClick)) {
-        Text(label, style = MaterialTheme.typography.titleMedium)
+private fun SettingRow(icon: ImageVector, label: String, supporting: String, onClick: () -> Unit) {
+    GlassSurface(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(
+            onClickLabel = "${label}を開く",
+            onClick = onClick,
+        ),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, contentDescription = null)
+            Column(Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.titleMedium)
+                Text(supporting, style = MaterialTheme.typography.bodyMedium)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null)
+        }
     }
 }

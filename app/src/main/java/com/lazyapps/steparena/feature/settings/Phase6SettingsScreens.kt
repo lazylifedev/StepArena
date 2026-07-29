@@ -69,7 +69,7 @@ fun DataManagementScreen(onDeleted: () -> Unit) {
     if (gameConfirm > 0) AlertDialog(
         onDismissRequest = { gameConfirm = 0 },
         title = { Text(if (gameConfirm == 1) "ゲーム進行を初期化しますか？" else "本当に初期化しますか？") },
-        text = { Text("ランク、対戦履歴、リーグ、シーズン、実績を削除します。歩数記録とプロフィールは残ります。") },
+        text = { Text("歩行ランク、チャレンジ履歴、週間グループ、月間記録、達成記録を削除します。歩数記録とプロフィールは残ります。") },
         confirmButton = {
             Button(onClick = {
                 if (gameConfirm == 1) gameConfirm = 2 else scope.launch {
@@ -119,7 +119,7 @@ fun DataManagementScreen(onDeleted: () -> Unit) {
     Text(
         "時間別 ${u.hourly}件 / 日次 ${u.daily}件 / セッション ${u.sessions}件\n" +
             "欠測 ${u.gaps}件 / Health Connect処理済み ${u.processedExternal}件\n" +
-            "試合 ${u.matches}件 / リーグ ${u.leagues}件 / シーズン ${u.seasons}件 / 実績 ${u.achievements}件\n" +
+            "チャレンジ ${u.matches}件 / 週間グループ ${u.leagues}件 / 月間記録 ${u.seasons}件 / 達成記録 ${u.achievements}件\n" +
             "通知 ${u.notificationEvents}件 / DB ${u.databaseBytes?.let(::formatBytes) ?: "取得できません"} / " +
             "設定 ${u.dataStoreBytes?.let(::formatBytes) ?: "取得できません"}\n" +
             "記録範囲 ${u.oldestDate ?: "なし"} ～ ${u.newestDate ?: "なし"}",
@@ -156,7 +156,7 @@ Health Connectは任意・既定OFFで、READ_STEPSだけを欠測補完に使�
 private val termsText = """
 StepArenaは医療機器ではありません。歩数、距離、カロリー、速度には誤差があり、端末やOSによって計測できない場合があります。
 歩きながら端末を操作せず、交通・周辺環境と体調を優先してください。ゲーム結果のための無理な運動は避けてください。
-必要な記録はエクスポートしてください。対戦相手はローカル生成NPCで、実在ユーザーではありません。
+必要な記録はエクスポートしてください。チャレンジパートナーは端末内で自動生成され、実在ユーザーではありません。
 """.trimIndent()
 
 private val licenseText = """

@@ -84,7 +84,7 @@ class GameNotificationDispatcher(
                 config.channelName,
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "対戦結果、昇格、実績、リーグ、シーズンのお知らせ"
+                description = "チャレンジ結果、歩行ランク、達成記録、週間・月間記録のお知らせ"
                 enableVibration(false)
             }
             context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)

@@ -1,5 +1,9 @@
 # StepArena
 
+StepArena は、毎日の歩数を端末内で自動生成されたチャレンジパートナーと比べながら記録できる歩数計アプリです。実在ユーザーとのオンライン対戦ではありません。
+
+公開 UI の用語方針は [docs/USER_FACING_TERMINOLOGY.md](docs/USER_FACING_TERMINOLOGY.md)、Phase 6.3 の確認項目は [docs/UI_RELEASE_REVIEW.md](docs/UI_RELEASE_REVIEW.md) を参照してください。
+
 StepArenaは、端末の歩数センサーで日々の活動を記録し、ローカル生成NPCとの毎日の対戦を楽しむAndroidアプリです。アカウント、ログイン、クラウド同期、オンライン対戦、広告はありません。
 
 > スクリーンショットはGoogle Play公開用画像の確定後に掲載します。撮影計画は `docs/STORE_SCREENSHOT_PLAN.md` を参照してください。

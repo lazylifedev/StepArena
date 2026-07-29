@@ -314,9 +314,6 @@ private fun HomeReadyContent(
             )
         }
         item {
-            MotionPreview(uiState.motionLevel) { onAction(HomeAction.SetMotion(it)) }
-        }
-        item {
             Spacer(
                 Modifier
                     .fillMaxWidth()

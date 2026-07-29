@@ -14,6 +14,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -102,7 +110,13 @@ fun StepArenaApp(
                                     restoreState = true
                                 }
                             },
-                            icon = { Text(destinationSymbol(destination)) },
+                            icon = {
+                                androidx.compose.material3.Icon(
+                                    imageVector = destinationIcon(destination),
+                                    contentDescription = null,
+                                    modifier = Modifier.clearAndSetSemantics { },
+                                )
+                            },
                             label = { Text(stringResource(destination.labelRes)) },
                         )
                     }
@@ -180,10 +194,10 @@ private fun transitionsFor(level: MotionLevel): Pair<EnterTransition, ExitTransi
         MotionLevel.OFF -> Pair(EnterTransition.None, ExitTransition.None)
     }
 
-private fun destinationSymbol(destination: AppDestination): String = when (destination) {
-    AppDestination.HOME -> "⌂"
-    AppDestination.MATCH -> "VS"
-    AppDestination.RECORDS -> "▥"
-    AppDestination.ACHIEVEMENTS -> "◇"
-    AppDestination.SETTINGS -> "⚙"
+private fun destinationIcon(destination: AppDestination): ImageVector = when (destination) {
+    AppDestination.HOME -> Icons.Default.Home
+    AppDestination.MATCH -> Icons.Default.DirectionsWalk
+    AppDestination.RECORDS -> Icons.Default.BarChart
+    AppDestination.ACHIEVEMENTS -> Icons.Default.EmojiEvents
+    AppDestination.SETTINGS -> Icons.Default.Settings
 }

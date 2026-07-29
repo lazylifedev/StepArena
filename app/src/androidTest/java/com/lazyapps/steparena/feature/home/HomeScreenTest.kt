@@ -87,9 +87,9 @@ class HomeScreenTest {
         composeRule.setContent {
             StepArenaTheme { StepArenaApp(readyState, {}) }
         }
-        composeRule.onNodeWithText("マッチ").performClick()
+        composeRule.onNodeWithText("チャレンジ").performClick()
         composeRule.onNodeWithText(
-            "現在の対戦相手は、あなたの活動量に合わせて生成されるローカル対戦データです。",
+            "毎日の歩数を、端末内で自動生成されたパートナーと比べます。実在するユーザーとのオンライン対戦ではありません。",
         ).assertIsDisplayed()
     }
 

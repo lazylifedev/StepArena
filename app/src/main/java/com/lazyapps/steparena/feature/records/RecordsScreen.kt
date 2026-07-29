@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
@@ -62,18 +65,16 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
     ) {
         item { Text(stringResource(R.string.records_title), style = MaterialTheme.typography.headlineMedium) }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                RecordPeriod.entries.forEach {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(listOf(RecordPeriod.HOURLY, RecordPeriod.DAILY, RecordPeriod.SESSIONS)) {
                     FilterChip(
                         selected = period == it,
-                        onClick = { if (it == RecordPeriod.HOURLY || it == RecordPeriod.SESSIONS) period = it },
-                        enabled = it == RecordPeriod.HOURLY || it == RecordPeriod.SESSIONS,
+                        onClick = { period = it },
                         label = { Text(stringResource(periodLabelRes(it))) },
                     )
                 }
             }
         }
-        item { Text(stringResource(R.string.records_future_period)) }
         if (period == RecordPeriod.SESSIONS) {
             if (sessions.isEmpty()) item { EmptyRecords("歩行セッションはまだありません") }
             items(sessions, key = { it.id }) { session ->
@@ -81,8 +82,8 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
             }
         } else {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    RecordMetric.entries.forEach {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(RecordMetric.entries) {
                         FilterChip(
                             selected = metric == it,
                             onClick = { metric = it },
@@ -93,10 +94,17 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
             }
             if (hours.isEmpty()) item { EmptyRecords("今日の活動記録はまだありません") }
             else {
-                item { HourChart(hours, metric) { selectedHour = it } }
-                selectedHour?.let { hour -> item { HourDetail(hour) } }
-                if (period != RecordPeriod.HOURLY) {
-                    item { Text("日・週・月表示は蓄積済みの日次データを使用します") }
+                if (period == RecordPeriod.DAILY) {
+                    item {
+                        GlassSurface(Modifier.fillMaxWidth().testTag("daily_summary")) {
+                            Text("今日", style = MaterialTheme.typography.titleMedium)
+                            Text("${hours.sumOf { it.steps }}歩", style = MaterialTheme.typography.headlineSmall)
+                            Text("時間別の記録を合計して表示しています")
+                        }
+                    }
+                } else {
+                    item { HourChart(hours, metric) { selectedHour = it } }
+                    selectedHour?.let { hour -> item { HourDetail(hour) } }
                 }
             }
         }
@@ -112,8 +120,14 @@ private fun HourChart(
 ) {
     val ordered = records.sortedBy { it.periodStartEpochMillis }
     val maximum = ordered.maxOfOrNull { metricValue(it, metric) }?.coerceAtLeast(1.0) ?: 1.0
-    GlassSurface(Modifier.fillMaxWidth().testTag("hourly_chart")) {
-        Text("${ordered.size}時間")
+    val totalSteps = ordered.sumOf { it.steps }
+    val maxRecord = ordered.maxByOrNull { metricValue(it, metric) }
+    val chartDescription = "今日の${metricLabel(metric)}グラフ。合計${formatNumber(totalSteps)}歩。" +
+        (maxRecord?.let { "最も多い時間帯は${it.hourOfDay}時台で${formatNumber(it.steps)}歩です。" } ?: "")
+    GlassSurface(Modifier.fillMaxWidth().testTag("hourly_chart").semantics {
+        contentDescription = chartDescription
+    }) {
+        Text("今日の${metricLabel(metric)}")
         Row(
             modifier = Modifier.fillMaxWidth().height(150.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -133,7 +147,11 @@ private fun HourChart(
                 }
             }
         }
-        Text("0時　　　　　　　　　12時　　　　　　　　　23時")
+        Box(Modifier.fillMaxWidth()) {
+            Text("0時", modifier = Modifier.align(Alignment.CenterStart))
+            Text("12時", modifier = Modifier.align(Alignment.Center))
+            Text("23時", modifier = Modifier.align(Alignment.CenterEnd))
+        }
     }
 }
 
@@ -212,3 +230,5 @@ private fun format(value: Double?, pattern: String, divisor: Double = 1.0): Stri
     value?.takeIf { it.isFinite() }?.let { String.format(Locale.getDefault(), pattern, it / divisor) } ?: "―"
 private fun formatTime(epoch: Long): String = DateTimeFormatter.ofPattern("M/d HH:mm")
     .format(Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault()))
+private fun formatNumber(value: Number): String =
+    java.text.NumberFormat.getNumberInstance(Locale.JAPAN).format(value)
