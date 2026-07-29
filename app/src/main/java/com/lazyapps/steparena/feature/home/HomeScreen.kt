@@ -362,6 +362,13 @@ private fun TrackingPanel(
             isHealthy = snapshot.trackingStatus == TrackingStatus.ACTIVE,
             motionLevel = motionLevel,
         )
+        if (snapshot.trackingStatus == TrackingStatus.MAY_BE_STOPPED) {
+            Text(
+                stringResource(R.string.tracking_sensor_warning),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         snapshot.lastHealthyAt?.let {
             Spacer(Modifier.height(StepArenaSpacing.xs))
             Text(

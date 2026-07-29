@@ -84,7 +84,8 @@ class HomeViewModel(
                     PersistentTrackingStatus.BATTERY_RESTRICTED ->
                         TrackingStatus.BATTERY_SETTING_REQUIRED
                     PersistentTrackingStatus.SERVICE_HEARTBEAT_STALE,
-                    PersistentTrackingStatus.SENSOR_DATA_STALE -> TrackingStatus.MAY_BE_STOPPED
+                    PersistentTrackingStatus.SENSOR_DATA_STALE,
+                    PersistentTrackingStatus.ERROR -> TrackingStatus.MAY_BE_STOPPED
                     else -> TrackingStatus.NOT_STARTED
                 }
                 _uiState.update {

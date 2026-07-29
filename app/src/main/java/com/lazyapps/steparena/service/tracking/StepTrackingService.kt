@@ -38,10 +38,12 @@ import com.lazyapps.steparena.tracking.TrackingStatus
 import com.lazyapps.steparena.tracking.TrackingStopReason
 import com.lazyapps.steparena.tracking.readPreviousExit
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -67,6 +69,10 @@ class StepTrackingService : Service(), SensorEventListener {
     private var lastNotifiedAt = Instant.EPOCH
     private var heartbeatJob: Job? = null
     private var fakeSensorMode = false
+    private var stepCounterRegistered = false
+    private var stepDetectorRegistered = false
+    private val sensorSamples = Channel<SensorSample>(Channel.UNLIMITED)
+    private var sensorConsumerJob: Job? = null
     private val sensorEventClock = RealtimeSensorEventClock()
     private var sessionTimeoutJob: Job? = null
     private var manualStartRequested = false
@@ -78,6 +84,17 @@ class StepTrackingService : Service(), SensorEventListener {
         activityRepository = (application as StepArenaApplication).activityRepository
         sensorManager = getSystemService(SensorManager::class.java)
         createNotificationChannel()
+        sensorConsumerJob = scope.launch {
+            for (sample in sensorSamples) {
+                when (sample) {
+                    is SensorSample.Counter -> {
+                        acceptSensorValue(sample.raw, sample.at)
+                        sample.completed?.complete(Unit)
+                    }
+                    is SensorSample.Detector -> activityRepository.recordDetector(sample.at)
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -149,13 +166,14 @@ class StepTrackingService : Service(), SensorEventListener {
                     stopSelf()
                     return@launch
                 }
-                if (!fakeSensorMode) {
-                    sensorManager.unregisterListener(this@StepTrackingService)
-                    fakeSensorMode = true
-                    setDebugFakeModePersisted(true)
-                    logEvent("fake_sensor_enabled", detail = "real_sensor_unregistered")
-                }
-                acceptSensorValue(value)
+                fakeSensorMode = true
+                logEvent("fake_sensor_enabled", detail = "current_intent_only")
+                val completed = CompletableDeferred<Unit>()
+                sensorSamples.send(SensorSample.Counter(value, Instant.now(), completed))
+                completed.await()
+                fakeSensorMode = false
+                logEvent("fake_sensor_disabled", detail = "intent_completed")
+                if (!stepCounterRegistered) restoreAndRegister()
             }
             return START_STICKY
         }
@@ -189,15 +207,7 @@ class StepTrackingService : Service(), SensorEventListener {
         val permissionGranted = ContextCompat.checkSelfPermission(
             this, Manifest.permission.ACTIVITY_RECOGNITION,
         ) == PackageManager.PERMISSION_GRANTED
-        if (BuildConfig.DEBUG && isDebugFakeModePersisted()) {
-            fakeSensorMode = true
-            state = repository.update { it.copy(trackingStatus = TrackingStatus.TRACKING) }
-            logEvent("fake_sensor_restored", detail = "real_sensor_not_registered")
-            startHeartbeat()
-            if (manualStartRequested) startManualWalk()
-            else updateNotificationIfNeeded(now, force = true)
-            return
-        }
+        fakeSensorMode = false
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         if (!permissionGranted || sensor == null) {
             val status = if (sensor == null) {
@@ -206,21 +216,33 @@ class StepTrackingService : Service(), SensorEventListener {
                 TrackingStatus.PERMISSION_REQUIRED
             }
             state = repository.update {
-                it.copy(trackingStatus = status, trackingRequested = false)
+                it.copy(
+                    trackingStatus = status,
+                    trackingRequested = false,
+                    stepCounterRegistered = false,
+                    stepDetectorRegistered = false,
+                    serviceRunning = false,
+                )
             }
             logEvent("sensor_registration_blocked", detail = status.name)
             stopSelf()
             return
         }
-        val registered = sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-        sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
+        stepCounterRegistered =
+            sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        stepDetectorRegistered = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
-        }
+        } ?: false
         state = repository.update {
-            it.copy(trackingStatus = if (registered) TrackingStatus.TRACKING else TrackingStatus.ERROR)
+            it.copy(
+                trackingStatus = if (stepCounterRegistered) TrackingStatus.TRACKING else TrackingStatus.ERROR,
+                stepCounterRegistered = stepCounterRegistered,
+                stepDetectorRegistered = stepDetectorRegistered,
+                serviceRunning = stepCounterRegistered,
+            )
         }
-        logEvent("sensor_registration", detail = registered.toString())
-        if (!registered) {
+        logEvent("sensor_registration", detail = stepCounterRegistered.toString())
+        if (!stepCounterRegistered) {
             stopSelf()
             return
         }
@@ -248,7 +270,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 delay(HEARTBEAT_INTERVAL_MILLIS)
                 val heartbeat = Instant.now()
                 state = repository.update {
-                    it.copy(lastHeartbeatAt = heartbeat, trackingStatus = TrackingStatus.TRACKING)
+                    heartbeatState(it, heartbeat)
                 }
                 logEvent("heartbeat")
                 updateNotificationIfNeeded(heartbeat, force = true)
@@ -266,12 +288,12 @@ class StepTrackingService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent) {
         val eventAt = sensorEventClock.toInstant(event.timestamp)
         if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
-            scope.launch { activityRepository.recordDetector(eventAt) }
+            sensorSamples.trySend(SensorSample.Detector(eventAt))
             return
         }
         if (event.sensor.type != Sensor.TYPE_STEP_COUNTER) return
         val raw = event.values.firstOrNull() ?: return
-        scope.launch { acceptSensorValue(raw, eventAt) }
+        sensorSamples.trySend(SensorSample.Counter(raw, eventAt))
     }
 
     private suspend fun acceptSensorValue(raw: Float, eventAt: Instant = Instant.now()) {
@@ -288,7 +310,8 @@ class StepTrackingService : Service(), SensorEventListener {
             )
             logEvent("date_changed")
         }
-        val result = counter.accept(raw, state, now, zone, BootSession.current())
+        val bootSession = BootSession.current(applicationContext)
+        val result = counter.accept(raw, state, now, zone, bootSession)
         state = result.state
         val delta = (result as? StepEventResult.Added)?.delta
         if (delta != null) {
@@ -297,7 +320,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 delta = delta,
                 at = now,
                 zoneId = zone,
-                bootSessionId = BootSession.current(),
+                bootSessionId = bootSession,
                 trackingServiceSessionId = state.sessionId,
                 recovered = (result as? StepEventResult.Added)?.unusuallyLarge == true,
             )
@@ -332,7 +355,9 @@ class StepTrackingService : Service(), SensorEventListener {
 
     private fun stopTracking(reason: TrackingStopReason) {
         sensorManager.unregisterListener(this)
-        if (BuildConfig.DEBUG) setDebugFakeModePersisted(false)
+        stepCounterRegistered = false
+        stepDetectorRegistered = false
+        fakeSensorMode = false
         heartbeatJob?.cancel()
         sessionTimeoutJob?.cancel()
         scope.launch {
@@ -344,6 +369,9 @@ class StepTrackingService : Service(), SensorEventListener {
                     trackingStatus = TrackingStatus.STOPPED,
                     lastServiceStoppedAt = now,
                     lastStopReason = reason,
+                    stepCounterRegistered = false,
+                    stepDetectorRegistered = false,
+                    serviceRunning = false,
                     sessionId = null,
                     sensorBaseline = null,
                     lastSensorValue = null,
@@ -357,6 +385,8 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         sensorManager.unregisterListener(this)
+        sensorSamples.close()
+        sensorConsumerJob?.cancel()
         heartbeatJob?.cancel()
         sessionTimeoutJob?.cancel()
         scope.cancel()
@@ -434,15 +464,6 @@ class StepTrackingService : Service(), SensorEventListener {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun isDebugFakeModePersisted(): Boolean =
-        getSharedPreferences(debugModePreferences(), MODE_PRIVATE)
-            .getBoolean(debugModeKey(), false)
-
-    private fun setDebugFakeModePersisted(enabled: Boolean) {
-        getSharedPreferences(debugModePreferences(), MODE_PRIVATE)
-            .edit().putBoolean(debugModeKey(), enabled).apply()
-    }
-
     private fun notification(model: NotificationModel): Notification {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -501,6 +522,15 @@ class StepTrackingService : Service(), SensorEventListener {
         val manualSession: com.lazyapps.steparena.core.database.entity.WalkingSessionEntity? = null,
     )
 
+    private sealed interface SensorSample {
+        data class Counter(
+            val raw: Float,
+            val at: Instant,
+            val completed: CompletableDeferred<Unit>? = null,
+        ) : SensorSample
+        data class Detector(val at: Instant) : SensorSample
+    }
+
     companion object {
         const val ACTION_START = "com.lazyapps.steparena.action.START_TRACKING"
         const val ACTION_STOP = "com.lazyapps.steparena.action.STOP_TRACKING"
@@ -521,12 +551,13 @@ class StepTrackingService : Service(), SensorEventListener {
         ).joinToString(".")
 
         fun debugValueExtra(): String = listOf("debug", "sensor", "value").joinToString("_")
-        private fun debugModePreferences(): String =
-            listOf("debug", "tracking", "mode").joinToString("_")
-        private fun debugModeKey(): String =
-            listOf("synthetic", "sensor", "selected").joinToString("_")
     }
 }
 
 internal fun isCurrentSessionRequest(requested: String?, current: String?): Boolean =
     requested == null || requested == current
+
+internal fun heartbeatState(
+    state: StepTrackingState,
+    heartbeat: Instant,
+): StepTrackingState = state.copy(lastHeartbeatAt = heartbeat, serviceRunning = true)

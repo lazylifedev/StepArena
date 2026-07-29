@@ -60,6 +60,11 @@ class TrackingStateRepository(private val context: Context) {
         currentLocalDate = runCatching { LocalDate.parse(p[Keys.DATE]) }.getOrDefault(LocalDate.now()),
         currentZoneId = p[Keys.ZONE] ?: java.time.ZoneId.systemDefault().id,
         lastSensorEventAt = instant(p[Keys.LAST_SENSOR]),
+        previousSensorValue = p[Keys.PREVIOUS_VALUE],
+        lastStepIncreaseAt = instant(p[Keys.LAST_INCREASE]),
+        stepCounterRegistered = p[Keys.COUNTER_REGISTERED] ?: false,
+        stepDetectorRegistered = p[Keys.DETECTOR_REGISTERED] ?: false,
+        serviceRunning = p[Keys.SERVICE_RUNNING] ?: false,
         lastHeartbeatAt = instant(p[Keys.HEARTBEAT]),
         lastServiceStartedAt = instant(p[Keys.STARTED]),
         lastServiceStoppedAt = instant(p[Keys.STOPPED]),
@@ -91,6 +96,11 @@ class TrackingStateRepository(private val context: Context) {
         p[Keys.DATE] = s.currentLocalDate.toString()
         p[Keys.ZONE] = s.currentZoneId
         nullable(p, Keys.LAST_SENSOR, s.lastSensorEventAt?.toEpochMilli())
+        nullable(p, Keys.PREVIOUS_VALUE, s.previousSensorValue)
+        nullable(p, Keys.LAST_INCREASE, s.lastStepIncreaseAt?.toEpochMilli())
+        p[Keys.COUNTER_REGISTERED] = s.stepCounterRegistered
+        p[Keys.DETECTOR_REGISTERED] = s.stepDetectorRegistered
+        p[Keys.SERVICE_RUNNING] = s.serviceRunning
         nullable(p, Keys.HEARTBEAT, s.lastHeartbeatAt?.toEpochMilli())
         nullable(p, Keys.STARTED, s.lastServiceStartedAt?.toEpochMilli())
         nullable(p, Keys.STOPPED, s.lastServiceStoppedAt?.toEpochMilli())
@@ -136,6 +146,11 @@ class TrackingStateRepository(private val context: Context) {
         val DATE = stringPreferencesKey("local_date")
         val ZONE = stringPreferencesKey("zone_id")
         val LAST_SENSOR = longPreferencesKey("last_sensor_at")
+        val PREVIOUS_VALUE = longPreferencesKey("previous_sensor_value")
+        val LAST_INCREASE = longPreferencesKey("last_step_increase_at")
+        val COUNTER_REGISTERED = booleanPreferencesKey("step_counter_registered")
+        val DETECTOR_REGISTERED = booleanPreferencesKey("step_detector_registered")
+        val SERVICE_RUNNING = booleanPreferencesKey("service_running")
         val HEARTBEAT = longPreferencesKey("heartbeat_at")
         val STARTED = longPreferencesKey("service_started_at")
         val STOPPED = longPreferencesKey("service_stopped_at")

@@ -35,6 +35,8 @@ import com.lazyapps.steparena.recovery.TrackingHealthStatus
 import com.lazyapps.steparena.recovery.evaluateTrackingHealth
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Build
@@ -51,6 +53,10 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
     val context = LocalContext.current
     val app = context.applicationContext as StepArenaApplication
     val diagnostics = context.readTrackingDiagnostics()
+    val today = LocalDate.now()
+    val zone = ZoneId.systemDefault()
+    val daily by app.activityRepository.observeToday(today, zone).collectAsState(initial = null)
+    val hours by app.activityRepository.observeHours(today, zone).collectAsState(initial = emptyList())
     val healthConnectAvailability by produceState(
         initialValue = com.lazyapps.steparena.recovery.HealthConnectAvailability.UNKNOWN,
     ) { value = app.externalActivityDataSource.availability() }
@@ -91,7 +97,19 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         DiagnosticRow(R.string.diagnostics_activity_permission, stringResource(if (diagnostics.activityPermissionGranted) R.string.state_granted else R.string.state_not_granted))
         DiagnosticRow(R.string.diagnostics_notification, stringResource(if (diagnostics.notificationPermissionGranted) R.string.state_enabled else R.string.state_disabled))
         DiagnosticRow(R.string.diagnostics_step_sensor, stringResource(if (diagnostics.stepSensorAvailable) R.string.state_supported else R.string.state_unsupported))
-        DiagnosticRow(R.string.diagnostics_foreground_service, stateText(state.trackingStatus.name))
+        DiagnosticRow(R.string.diagnostics_sensor_registration, stringResource(if (state.stepCounterRegistered) R.string.state_registered else R.string.state_not_registered))
+        DiagnosticRow(R.string.diagnostics_tracking_mode, stringResource(R.string.state_real_sensor))
+        DiagnosticRow(R.string.diagnostics_last_sensor_received, relativeTime(state.lastSensorEventAt, Instant.now()))
+        DiagnosticRow(R.string.diagnostics_last_step_increase, relativeTime(state.lastStepIncreaseAt, Instant.now()))
+        DiagnosticRow(R.string.diagnostics_current_raw, state.lastSensorValue?.toString() ?: stringResource(R.string.state_not_received))
+        DiagnosticRow(R.string.diagnostics_previous_raw, state.previousSensorValue?.toString() ?: stringResource(R.string.state_not_received))
+        DiagnosticRow(R.string.diagnostics_today_steps, state.accumulatedTodaySteps.toString())
+        DiagnosticRow(R.string.diagnostics_hourly_total, hours.sumOf { it.steps }.toString())
+        DiagnosticRow(R.string.diagnostics_daily_total, (daily?.steps ?: 0).toString())
+        DiagnosticRow(R.string.diagnostics_foreground_service, stringResource(if (state.serviceRunning) R.string.state_running else R.string.state_stopped))
+        if (BuildConfig.DEBUG) {
+            DiagnosticRow(R.string.diagnostics_fake_sensor, "OFF")
+        }
         DiagnosticRow(
             R.string.diagnostics_battery,
             stringResource(if (diagnostics.batteryOptimizationIgnored) R.string.state_excluded else R.string.state_included),
@@ -108,7 +126,6 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         DiagnosticRow(R.string.diagnostics_session_id, state.sessionId ?: unset)
         DiagnosticRow(R.string.diagnostics_sensor_baseline, state.sensorBaseline?.toString() ?: unset)
         DiagnosticRow(R.string.diagnostics_last_sensor_value, state.lastSensorValue?.toString() ?: unset)
-        DiagnosticRow(R.string.diagnostics_today_steps, state.accumulatedTodaySteps.toString())
         DiagnosticRow(R.string.diagnostics_last_heartbeat, state.lastHeartbeatAt?.toString() ?: unset)
         DiagnosticRow(R.string.diagnostics_last_sensor_update, state.lastSensorEventAt?.toString() ?: unset)
         DiagnosticRow(R.string.diagnostics_last_notification, state.lastNotificationAt?.toString() ?: unset)
@@ -153,6 +170,14 @@ internal fun isHeartbeatStale(state: StepTrackingState, now: Instant): Boolean =
     state.trackingRequested &&
         (state.lastHeartbeatAt == null ||
             Duration.between(state.lastHeartbeatAt, now).toMinutes() > 10)
+
+@Composable
+internal fun relativeTime(value: Instant?, now: Instant): String {
+    if (value == null) return stringResource(R.string.state_not_received)
+    val minutes = Duration.between(value, now).toMinutes().coerceAtLeast(0)
+    return if (minutes == 0L) stringResource(R.string.state_less_than_minute)
+    else stringResource(R.string.state_minutes_ago, minutes)
+}
 
 @Composable
 private fun DiagnosticRow(@StringRes labelRes: Int, value: String, onClick: (() -> Unit)? = null) {

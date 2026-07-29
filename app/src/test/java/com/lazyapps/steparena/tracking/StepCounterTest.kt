@@ -98,6 +98,30 @@ class StepCounterTest {
         assertEquals(50, state.accumulatedTodaySteps)
     }
 
+    @Test fun requestedSequence_addsExactlyOneHundred() {
+        var state = counter.accept(1_000f, requested(), now, tokyo, "boot-1").state
+        listOf(1_001f, 1_002f, 1_100f).forEachIndexed { index, raw ->
+            state = counter.accept(raw, state, now.plusSeconds(index + 1L), tokyo, "boot-1").state
+        }
+        assertEquals(100, state.accumulatedTodaySteps)
+        assertEquals(1_002L, state.previousSensorValue)
+        assertEquals(1_100L, state.lastSensorValue)
+    }
+
+    @Test fun oneHundredConsecutiveEvents_areAllCounted() {
+        var state = counter.accept(2_000f, requested(), now, tokyo, "boot-1").state
+        repeat(100) { index ->
+            state = counter.accept(
+                2_001f + index,
+                state,
+                now.plusSeconds(index + 1L),
+                tokyo,
+                "boot-1",
+            ).state
+        }
+        assertEquals(100, state.accumulatedTodaySteps)
+    }
+
     @Test fun stopAndRestart_excludesStoppedInterval() {
         val beforeStop = counter.accept(10_050f, previous(10_000), now, tokyo, "boot-1").state
         val stopped = beforeStop.copy(trackingRequested = false)
