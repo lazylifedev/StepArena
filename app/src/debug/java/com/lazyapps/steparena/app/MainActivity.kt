@@ -85,6 +85,8 @@ private fun DebugUiEvaluationHost(
             when (action) {
                 is HomeAction.SetMotion -> motion = action.level
                 HomeAction.StartSession -> sessionStarted = true
+                HomeAction.StopTracking -> sessionStarted = false
+                HomeAction.OpenDiagnostics -> Unit
                 HomeAction.Retry -> Unit
             }
         },

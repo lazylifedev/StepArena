@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -121,6 +123,7 @@ private fun HomeReadyContent(
     val goalProgress = ActivityCalculations.goalProgress(snapshot.metrics.steps, snapshot.metrics.goalSteps)
     var cardsVisible by remember(snapshot) { mutableStateOf(uiState.motionLevel == MotionLevel.OFF) }
     var matchExpanded by rememberSaveable { mutableStateOf(false) }
+    var showStopConfirmation by rememberSaveable { mutableStateOf(false) }
     val entranceDuration = motionDuration(uiState.motionLevel)
 
     LaunchedEffect(snapshot, uiState.motionLevel) { cardsVisible = true }
@@ -158,12 +161,18 @@ private fun HomeReadyContent(
         item {
             PrimaryActionButton(
                 text = if (uiState.sessionState == SessionState.STARTED) {
-                    stringResource(R.string.session_started)
+                    "常駐計測を停止"
                 } else {
-                    stringResource(R.string.start_walking)
+                    "常駐計測を開始"
                 },
-                onClick = { onAction(HomeAction.StartSession) },
-                enabled = uiState.sessionState == SessionState.IDLE,
+                onClick = {
+                    if (uiState.sessionState == SessionState.STARTED) {
+                        showStopConfirmation = true
+                    } else {
+                        onAction(HomeAction.StartSession)
+                    }
+                },
+                enabled = uiState.sensorSupported,
                 modifier = Modifier.testTag(HomeTestTags.START_BUTTON),
             )
         }
@@ -178,16 +187,14 @@ private fun HomeReadyContent(
                 AnimatedMetricCard(
                     labelRes = R.string.metric_distance,
                     value = snapshot.metrics.distanceMeters,
-                    formatter = {
-                        ActivityFormatter.distance(it, DistanceUnit.KILOMETER, locale)
-                    },
+                    formatter = { "準備中" },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )
                 AnimatedMetricCard(
                     labelRes = R.string.metric_duration,
                     value = snapshot.metrics.durationSeconds.toDouble(),
-                    formatter = { ActivityFormatter.duration(it.toLong()) },
+                    formatter = { "準備中" },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )
@@ -198,16 +205,14 @@ private fun HomeReadyContent(
                 AnimatedMetricCard(
                     labelRes = R.string.metric_calories,
                     value = snapshot.metrics.caloriesKcal,
-                    formatter = { ActivityFormatter.calories(it, locale) },
+                    formatter = { "準備中" },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )
                 AnimatedMetricCard(
                     labelRes = R.string.metric_speed,
                     value = snapshot.metrics.averageSpeedMetersPerSecond,
-                    formatter = {
-                        ActivityFormatter.speed(it, SpeedUnit.KILOMETERS_PER_HOUR, locale)
-                    },
+                    formatter = { "準備中" },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )
@@ -271,6 +276,22 @@ private fun HomeReadyContent(
                     .testTag(HomeTestTags.BOTTOM_REACH_MARKER),
             )
         }
+    }
+    if (showStopConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showStopConfirmation = false },
+            title = { Text("歩数計測を停止しますか？") },
+            text = { Text("停止中はStepArenaのリアルタイム歩数が更新されません。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showStopConfirmation = false
+                    onAction(HomeAction.StopTracking)
+                }) { Text("停止") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStopConfirmation = false }) { Text("キャンセル") }
+            },
+        )
     }
 }
 
