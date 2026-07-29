@@ -40,6 +40,8 @@ import com.lazyapps.steparena.feature.settings.ProfileSettingsScreen
 import com.lazyapps.steparena.feature.settings.SettingsScreen
 import com.lazyapps.steparena.feature.settings.RecoverySettingsScreen
 import com.lazyapps.steparena.feature.diagnostics.RecoveryHistoryScreen
+import com.lazyapps.steparena.feature.game.GamePage
+import com.lazyapps.steparena.feature.game.GameScreen
 
 enum class AppDestination(val route: String, val labelRes: Int) {
     HOME("home", R.string.nav_home),
@@ -96,7 +98,8 @@ fun StepArenaApp(
                 composable(AppDestination.HOME.route) {
                     HomeScreen(uiState = homeUiState, onAction = onHomeAction)
                 }
-                placeholderDestinations()
+                composable(AppDestination.MATCH.route) { GameScreen(GamePage.MATCH) }
+                composable(AppDestination.ACHIEVEMENTS.route) { GameScreen(GamePage.ACHIEVEMENTS) }
                 composable(AppDestination.RECORDS.route) { RecordsScreen() }
                 composable(AppDestination.SETTINGS.route) {
                     SettingsScreen(

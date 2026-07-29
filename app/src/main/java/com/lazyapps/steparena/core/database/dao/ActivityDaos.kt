@@ -31,6 +31,8 @@ interface DailyActivityDao {
     fun observeDate(date: String, zone: String): Flow<DailyActivityRecordEntity?>
     @Query("SELECT * FROM daily_activity_records ORDER BY localDate DESC LIMIT :limit")
     fun recent(limit: Int): Flow<List<DailyActivityRecordEntity>>
+    @Query("SELECT * FROM daily_activity_records ORDER BY localDate DESC LIMIT :limit")
+    suspend fun recentNow(limit: Int): List<DailyActivityRecordEntity>
 }
 
 @Dao

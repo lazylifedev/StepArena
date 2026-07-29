@@ -1,0 +1,5 @@
+# デイリーマッチ
+
+現在のZoneIdにおけるLocalDateごとに通常試合を一件だけ作る。SeedはseasonId、localDate、rank、個人情報を含まないinstallationIdから作る。同じ入力ではNPCと目標が同一になる。
+
+前日試合の確定、rating反映、連勝更新は単一Room transactionで行う。確定済みまたはrating適用済みの試合は再処理しない。0歩同士、異常検知日はNO_CONTESTとする。

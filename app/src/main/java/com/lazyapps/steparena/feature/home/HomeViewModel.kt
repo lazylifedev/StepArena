@@ -31,6 +31,7 @@ class HomeViewModel(
     constructor(application: Application) : this(application, InMemoryMotionSettingsRepository())
     private val trackingRepository = TrackingStateRepository(application)
     private val activityRepository = (application as StepArenaApplication).activityRepository
+    private val gameRepository = (application as StepArenaApplication).gameRepository
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -58,14 +59,21 @@ class HomeViewModel(
             combine(
                 trackingRepository.state,
                 activityRepository.observeActiveManualSession(),
-            ) { tracking, manual -> tracking to manual }.flatMapLatest { (tracking, manual) ->
+                gameRepository.observePlayerProfile(),
+                gameRepository.observeTodayMatch(),
+                gameRepository.observeCurrentLeague(),
+            ) { tracking, manual, profile, match, league ->
+                HomeSources(tracking, manual, profile, match, league)
+            }.flatMapLatest { sources ->
                 activityRepository.observeToday(
-                    tracking.currentLocalDate,
-                    java.time.ZoneId.of(tracking.currentZoneId),
+                    sources.tracking.currentLocalDate,
+                    java.time.ZoneId.of(sources.tracking.currentZoneId),
                 ).map { daily ->
-                    Triple(tracking, manual, daily)
+                    sources to daily
                 }
-            }.collect { (tracking, manual, daily) ->
+            }.collect { (sources, daily) ->
+                val tracking = sources.tracking
+                val manual = sources.manual
                 val status = when (tracking.trackingStatus) {
                     PersistentTrackingStatus.TRACKING, PersistentTrackingStatus.RESTARTED ->
                         TrackingStatus.ACTIVE
@@ -95,6 +103,9 @@ class HomeViewModel(
                                     DataQuality.MEASURED -> DataReliability.COMPLETE
                                     else -> DataReliability.NO_DATA
                                 },
+                                profile = sources.profile,
+                                gameMatch = sources.match,
+                                gameLeague = sources.league,
                             ),
                         ),
                         motionLevel = motionRepository.read(),
@@ -189,8 +200,25 @@ class HomeViewModel(
         calories: Double?,
         speedKmh: Double?,
         reliability: DataReliability,
+        profile: com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity,
+        gameMatch: com.lazyapps.steparena.core.database.entity.DailyMatchEntity?,
+        gameLeague: com.lazyapps.steparena.core.database.entity.WeeklyLeagueEntity?,
     ) = HomeSnapshot(
-        rank = RankStatus(RankTier.BRONZE, 1, 0, 0),
+        rank = RankStatus(
+            when (profile.rankTier) {
+                com.lazyapps.steparena.game.RankTier.BRONZE -> RankTier.BRONZE
+                com.lazyapps.steparena.game.RankTier.SILVER -> RankTier.SILVER
+                com.lazyapps.steparena.game.RankTier.GOLD -> RankTier.GOLD
+                com.lazyapps.steparena.game.RankTier.PLATINUM -> RankTier.PLATINUM
+                else -> RankTier.DIAMOND
+            },
+            profile.rankDivision ?: 1,
+            profile.rating,
+            com.lazyapps.steparena.game.RankSystem.definitions
+                .getOrNull(com.lazyapps.steparena.game.RankSystem.definitions.indexOf(
+                    com.lazyapps.steparena.game.RankSystem.definition(profile.rating),
+                ) + 1)?.minimumRating?.minus(profile.rating)?.coerceAtLeast(0) ?: 0,
+        ),
         metrics = ActivityMetrics(
             steps.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             10_000,
@@ -201,11 +229,33 @@ class HomeViewModel(
         ),
         trackingStatus = status,
         lastHealthyAt = lastHealthyAt,
-        match = DailyMatch("準備中", 0f, 0f, 0, MatchOutcome.IN_PROGRESS),
-        winStreak = 0,
-        league = LeagueStatus(0, 0, 0),
+        match = DailyMatch(
+            gameMatch?.opponentName ?: "準備中",
+            gameMatch?.let { steps.toFloat().div(it.opponentTargetSteps.coerceAtLeast(1)).coerceIn(0f, 1f) } ?: 0f,
+            gameMatch?.let {
+                val now = java.time.ZonedDateTime.now()
+                com.lazyapps.steparena.game.LocalOpponentGenerator().progress(
+                    com.lazyapps.steparena.game.LocalOpponent(
+                        it.opponentId, it.opponentName, it.opponentAvatarKey, it.opponentRankTier,
+                        it.opponentRankDivision, it.opponentTargetSteps, it.opponentPersonality,
+                    ), now.hour * 60 + now.minute,
+                ).toFloat().div(it.opponentTargetSteps.coerceAtLeast(1))
+            } ?: 0f,
+            gameMatch?.let { (it.opponentTargetSteps - steps + 1).coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() } ?: 0,
+            MatchOutcome.IN_PROGRESS,
+        ),
+        winStreak = profile.currentWinStreak,
+        league = LeagueStatus(gameLeague?.userRank ?: 0, 10, 0),
         reliability = reliability,
         isOffline = false,
         metricsAvailable = reliability != DataReliability.NO_DATA,
+    )
+
+    private data class HomeSources(
+        val tracking: com.lazyapps.steparena.tracking.StepTrackingState,
+        val manual: com.lazyapps.steparena.core.database.entity.WalkingSessionEntity?,
+        val profile: com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity,
+        val match: com.lazyapps.steparena.core.database.entity.DailyMatchEntity?,
+        val league: com.lazyapps.steparena.core.database.entity.WeeklyLeagueEntity?,
     )
 }

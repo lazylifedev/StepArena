@@ -20,6 +20,8 @@ import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.WalkingSessionEntity
 import com.lazyapps.steparena.core.database.entity.TrackingGapRecordEntity
 import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEntity
+import com.lazyapps.steparena.core.database.entity.*
+import com.lazyapps.steparena.core.database.dao.*
 
 @Database(
     entities = [
@@ -29,8 +31,13 @@ import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEn
         ActivityProcessingStateEntity::class,
         TrackingGapRecordEntity::class,
         ProcessedExternalStepRecordEntity::class,
+        GamePlayerProfileEntity::class,
+        DailyMatchEntity::class,
+        WeeklyLeagueEntity::class,
+        GameSeasonEntity::class,
+        AchievementUnlockEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -41,6 +48,11 @@ abstract class StepArenaDatabase : RoomDatabase() {
     abstract fun processingState(): ActivityProcessingStateDao
     abstract fun trackingGaps(): TrackingGapDao
     abstract fun processedExternalSteps(): ProcessedExternalStepRecordDao
+    abstract fun gamePlayerProfile(): GamePlayerProfileDao
+    abstract fun dailyMatches(): DailyMatchDao
+    abstract fun weeklyLeagues(): WeeklyLeagueDao
+    abstract fun gameSeasons(): GameSeasonDao
+    abstract fun achievementUnlocks(): AchievementUnlockDao
 
     companion object {
         @Volatile private var instance: StepArenaDatabase? = null
@@ -49,7 +61,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 context.applicationContext,
                 StepArenaDatabase::class.java,
                 "step_arena.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -102,6 +114,17 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_processed_external_step_records_fingerprint` ON `processed_external_step_records` (`fingerprint`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_processed_external_step_records_recordId_dataOriginPackage` ON `processed_external_step_records` (`recordId`, `dataOriginPackage`)")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `game_player_profile` (`id` TEXT NOT NULL, `rating` INTEGER NOT NULL, `rankTier` TEXT NOT NULL, `rankDivision` INTEGER, `totalMatches` INTEGER NOT NULL, `wins` INTEGER NOT NULL, `losses` INTEGER NOT NULL, `draws` INTEGER NOT NULL, `noContests` INTEGER NOT NULL, `currentWinStreak` INTEGER NOT NULL, `bestWinStreak` INTEGER NOT NULL, `currentLossStreak` INTEGER NOT NULL, `beginnerMatchesRemaining` INTEGER NOT NULL, `lastOutcome` TEXT, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))""")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `daily_matches` (`id` TEXT NOT NULL, `localDate` TEXT NOT NULL, `zoneId` TEXT NOT NULL, `seasonId` TEXT NOT NULL, `matchType` TEXT NOT NULL, `status` TEXT NOT NULL, `outcome` TEXT, `opponentId` TEXT NOT NULL, `opponentName` TEXT NOT NULL, `opponentAvatarKey` TEXT NOT NULL, `opponentRankTier` TEXT NOT NULL, `opponentRankDivision` INTEGER, `opponentPersonality` TEXT NOT NULL, `opponentTargetSteps` INTEGER NOT NULL, `totalUserSteps` INTEGER NOT NULL, `eligibleUserSteps` INTEGER NOT NULL, `restrictedUserSteps` INTEGER NOT NULL, `excludedUserSteps` INTEGER NOT NULL, `restrictionReasons` TEXT NOT NULL, `competitiveQuality` TEXT NOT NULL, `ratingBefore` INTEGER NOT NULL, `ratingDelta` INTEGER, `ratingAfter` INTEGER, `ratingBreakdown` TEXT, `finalizedAtEpochMillis` INTEGER, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))""")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_daily_matches_localDate_zoneId_matchType` ON `daily_matches` (`localDate`, `zoneId`, `matchType`)")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `weekly_leagues` (`id` TEXT NOT NULL, `weekStartLocalDate` TEXT NOT NULL, `weekEndLocalDate` TEXT NOT NULL, `zoneId` TEXT NOT NULL, `status` TEXT NOT NULL, `userPoints` INTEGER NOT NULL, `userRank` INTEGER, `participantsJson` TEXT NOT NULL, `finalizedAtEpochMillis` INTEGER, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))""")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `game_seasons` (`id` TEXT NOT NULL, `startedAtEpochMillis` INTEGER NOT NULL, `endedAtEpochMillis` INTEGER NOT NULL, `startRating` INTEGER NOT NULL, `endRating` INTEGER, `highestRankTier` TEXT NOT NULL, `highestRankDivision` INTEGER, `wins` INTEGER NOT NULL, `losses` INTEGER NOT NULL, `draws` INTEGER NOT NULL, `totalEligibleSteps` INTEGER NOT NULL, `bestWinStreak` INTEGER NOT NULL, `status` TEXT NOT NULL, `rewardClaimed` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))""")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `achievement_unlocks` (`achievementId` TEXT NOT NULL, `unlockedAtEpochMillis` INTEGER NOT NULL, `progressValue` INTEGER NOT NULL, `seasonId` TEXT, `acknowledged` INTEGER NOT NULL, PRIMARY KEY(`achievementId`))""")
             }
         }
     }
