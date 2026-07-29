@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import com.lazyapps.steparena.BuildConfig
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.MainActivity
+import com.lazyapps.steparena.app.StepArenaApplication
+import com.lazyapps.steparena.activity.ActivityRepository
 import com.lazyapps.steparena.tracking.BootSession
 import com.lazyapps.steparena.tracking.DailyStepSummary
 import com.lazyapps.steparena.tracking.DiagnosticLogEntry
@@ -53,6 +55,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private lateinit var repository: TrackingStateRepository
     private lateinit var sensorManager: SensorManager
     private lateinit var diagnosticLog: DiagnosticLogRepository
+    private lateinit var activityRepository: ActivityRepository
     private val counter = StepCounter()
     private val notificationPolicy = NotificationUpdatePolicy()
     private val setupStarted = AtomicBoolean(false)
@@ -68,6 +71,7 @@ class StepTrackingService : Service(), SensorEventListener {
         super.onCreate()
         repository = TrackingStateRepository(applicationContext)
         diagnosticLog = DiagnosticLogRepository(applicationContext)
+        activityRepository = (application as StepArenaApplication).activityRepository
         sensorManager = getSystemService(SensorManager::class.java)
         createNotificationChannel()
     }
@@ -179,6 +183,9 @@ class StepTrackingService : Service(), SensorEventListener {
             return
         }
         val registered = sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+        sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
         state = repository.update {
             it.copy(trackingStatus = if (registered) TrackingStatus.TRACKING else TrackingStatus.ERROR)
         }
@@ -206,6 +213,11 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+            scope.launch { activityRepository.recordDetector(Instant.now()) }
+            return
+        }
+        if (event.sensor.type != Sensor.TYPE_STEP_COUNTER) return
         val raw = event.values.firstOrNull() ?: return
         scope.launch { acceptSensorValue(raw) }
     }
@@ -227,6 +239,17 @@ class StepTrackingService : Service(), SensorEventListener {
         val result = counter.accept(raw, state, now, zone, BootSession.current())
         state = result.state
         val delta = (result as? StepEventResult.Added)?.delta
+        if (delta != null) {
+            activityRepository.recordCounterDelta(
+                sensorValue = raw.toLong(),
+                delta = delta,
+                at = now,
+                zoneId = zone,
+                bootSessionId = BootSession.current(),
+                trackingServiceSessionId = state.sessionId,
+                recovered = (result as? StepEventResult.Added)?.unusuallyLarge == true,
+            )
+        }
         when (result) {
             is StepEventResult.Added ->
                 Log.d(TAG, "event=step_delta delta=${result.delta} review=${result.unusuallyLarge}")
@@ -261,6 +284,7 @@ class StepTrackingService : Service(), SensorEventListener {
         heartbeatJob?.cancel()
         scope.launch {
             val now = Instant.now()
+            activityRepository.finishSession(state.sessionId, now)
             state = repository.update {
                 it.copy(
                     trackingRequested = false,

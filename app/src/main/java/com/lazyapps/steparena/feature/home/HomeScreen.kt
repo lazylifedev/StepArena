@@ -187,14 +187,22 @@ private fun HomeReadyContent(
                 AnimatedMetricCard(
                     labelRes = R.string.metric_distance,
                     value = snapshot.metrics.distanceMeters,
-                    formatter = { "準備中" },
+                    formatter = {
+                        if (snapshot.metricsAvailable) ActivityFormatter.distance(
+                            it, DistanceUnit.KILOMETER, locale,
+                        ) else "―"
+                    },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )
                 AnimatedMetricCard(
                     labelRes = R.string.metric_duration,
                     value = snapshot.metrics.durationSeconds.toDouble(),
-                    formatter = { "準備中" },
+                    formatter = {
+                        if (snapshot.metricsAvailable && it > 0) {
+                            ActivityFormatter.duration(it.toLong())
+                        } else "―"
+                    },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )
@@ -205,14 +213,20 @@ private fun HomeReadyContent(
                 AnimatedMetricCard(
                     labelRes = R.string.metric_calories,
                     value = snapshot.metrics.caloriesKcal,
-                    formatter = { "準備中" },
+                    formatter = {
+                        if (snapshot.metricsAvailable) ActivityFormatter.calories(it, locale) else "―"
+                    },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )
                 AnimatedMetricCard(
                     labelRes = R.string.metric_speed,
                     value = snapshot.metrics.averageSpeedMetersPerSecond,
-                    formatter = { "準備中" },
+                    formatter = {
+                        if (snapshot.metricsAvailable && it > 0) {
+                            ActivityFormatter.speed(it, SpeedUnit.KILOMETERS_PER_HOUR, locale)
+                        } else "―"
+                    },
                     motionLevel = uiState.motionLevel,
                     modifier = Modifier.weight(1f),
                 )

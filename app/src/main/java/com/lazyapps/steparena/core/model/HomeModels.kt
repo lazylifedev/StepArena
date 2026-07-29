@@ -46,6 +46,7 @@ data class HomeSnapshot(
     val league: LeagueStatus,
     val reliability: DataReliability,
     val isOffline: Boolean,
+    val metricsAvailable: Boolean = true,
 )
 
 enum class TrackingStatus {
