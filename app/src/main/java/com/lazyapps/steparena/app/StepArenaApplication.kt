@@ -14,16 +14,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.time.Clock
+
+interface AppGraph {
+    val database: StepArenaDatabase
+    val activityRepository: ActivityRepository
+    val gameRepository: LocalGameRepository
+    val productionGameRepository: LocalGameRepository
+    val clock: Clock
+    val installationId: String?
+    val isolatedScenario: Boolean
+}
 
 /**
  * Application entry point reserved for dependency injection and process-wide services.
  * Phase 0/1 intentionally uses manual construction to avoid adding an unused DI runtime.
  */
-class StepArenaApplication : Application() {
+open class StepArenaApplication : Application(), AppGraph {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val database by lazy { StepArenaDatabase.get(this) }
+    override val database by lazy { StepArenaDatabase.get(this) }
     val profileRepository by lazy { UserProfileRepository(this) }
-    val activityRepository by lazy { ActivityRepository(database, profileRepository) }
+    override val activityRepository by lazy { ActivityRepository(database, profileRepository) }
     val externalActivityDataSource by lazy { HealthConnectActivityDataSource(this) }
     val recoverySettingsRepository by lazy { RecoverySettingsRepository(this) }
     val gapRecoveryRepository by lazy {
@@ -34,16 +45,24 @@ class StepArenaApplication : Application() {
             activityRepository,
         )
     }
-    val gameRepository by lazy { LocalGameRepository(this, database) }
+    override val clock: Clock by lazy { Clock.systemDefaultZone() }
+    override val installationId: String? = null
+    override val isolatedScenario: Boolean = false
+    override val gameRepository by lazy {
+        LocalGameRepository(this, database, clock, installationIdOverride = installationId)
+    }
+    override val productionGameRepository: LocalGameRepository get() = gameRepository
 
     override fun onCreate() {
         super.onCreate()
+        scheduleBackgroundWork()
+        applicationScope.launch {
+            gameRepository.runMaintenance()
+        }
+    }
+
+    protected open fun scheduleBackgroundWork() {
         TrackingHealthWorker.schedule(this)
         GameMaintenanceWorker.schedule(this)
-        applicationScope.launch {
-            gameRepository.finalizePendingMatches()
-            gameRepository.ensureTodayMatch()
-            gameRepository.evaluateAchievements()
-        }
     }
 }

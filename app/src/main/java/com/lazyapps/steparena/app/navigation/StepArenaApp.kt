@@ -16,8 +16,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -58,15 +60,31 @@ fun StepArenaApp(
     trackingState: StepTrackingState = StepTrackingState(),
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
+    initialRoute: String = AppDestination.HOME.route,
+    environmentBanner: String? = null,
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selectedRoute = backStackEntry?.destination?.route ?: AppDestination.HOME.route
     val transitions = transitionsFor(homeUiState.motionLevel)
+    LaunchedEffect(initialRoute) {
+        if (initialRoute != AppDestination.HOME.route && selectedRoute != initialRoute) {
+            navController.navigate(initialRoute) { launchSingleTop = true }
+        }
+    }
 
     StepArenaBackground(modifier.fillMaxSize()) {
         Scaffold(
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
             contentColor = StepArenaColors.White,
+            topBar = {
+                if (environmentBanner != null) {
+                    Text(
+                        environmentBanner,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
                     AppDestination.entries.forEach { destination ->
@@ -88,7 +106,7 @@ fun StepArenaApp(
         ) { innerPadding ->
             NavHost(
                 navController = navController,
-                startDestination = AppDestination.HOME.route,
+                startDestination = initialRoute,
                 modifier = Modifier.padding(innerPadding),
                 enterTransition = { transitions.first },
                 exitTransition = { transitions.second },
@@ -100,6 +118,9 @@ fun StepArenaApp(
                 }
                 composable(AppDestination.MATCH.route) { GameScreen(GamePage.MATCH) }
                 composable(AppDestination.ACHIEVEMENTS.route) { GameScreen(GamePage.ACHIEVEMENTS) }
+                composable("rank") { GameScreen(GamePage.RANK) }
+                composable("league") { GameScreen(GamePage.LEAGUE) }
+                composable("season") { GameScreen(GamePage.SEASON) }
                 composable(AppDestination.RECORDS.route) { RecordsScreen() }
                 composable(AppDestination.SETTINGS.route) {
                     SettingsScreen(

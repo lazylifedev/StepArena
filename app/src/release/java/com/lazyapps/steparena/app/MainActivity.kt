@@ -1,6 +1,7 @@
 package com.lazyapps.steparena.app
 
 import android.Manifest
+import android.content.Intent
 import android.os.Bundle
 import android.os.Build
 import androidx.activity.ComponentActivity
@@ -22,6 +23,7 @@ import com.lazyapps.steparena.feature.onboarding.OnboardingScreen
 import com.lazyapps.steparena.tracking.StepTrackingState
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.tracking.reconcileForceStop
+import com.lazyapps.steparena.game.GameNotificationDispatcher
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -29,6 +31,7 @@ class MainActivity : ComponentActivity() {
     private var startAfterPermission = false
     private var onboardingPermissionStep: Int? = null
     private var homeViewModel: HomeViewModel? = null
+    private var initialGameRoute by mutableStateOf("home")
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
@@ -50,6 +53,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initialGameRoute = notificationRoute(intent)
         val repository = TrackingStateRepository(applicationContext)
         lifecycleScope.launch { reconcileForceStop(applicationContext, repository) }
         lifecycleScope.launch { repository.state.collect { trackingState = it } }
@@ -102,10 +106,22 @@ class MainActivity : ComponentActivity() {
                                 vm.onAction(action)
                             }
                         },
+                        initialRoute = initialGameRoute,
                     )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        initialGameRoute = notificationRoute(intent)
+    }
+
+    private fun notificationRoute(intent: Intent): String {
+        val route = intent.getStringExtra(GameNotificationDispatcher.EXTRA_DESTINATION)
+        return route?.takeIf { it in setOf("match", "rank", "achievements", "league", "season") } ?: "home"
     }
 
     private fun requestPermissions(startTracking: Boolean, includeNotification: Boolean) {

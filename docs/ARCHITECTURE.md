@@ -56,3 +56,20 @@ WorkManager は遅延可能な補助監視であり、常時計測 Service の�
 # Phase 5 game boundary
 
 Compose UI → `GameRepository` → `LocalGameRepository` → Room DAO の方向に依存する。NPC生成、rating、対戦有効歩数はUI/Roomから独立した純粋なドメイン処理であり、将来`RemoteGameRepository`または`HybridGameRepository`へ差し替えられる。
+# Phase 5.1 ゲーム保守
+
+アプリ起動と一意な定期Workは同じ冪等な `runMaintenance` を呼ぶ。
+試合、リーグ、シーズン、実績、通知候補はRoomを正本とし、UIはFlowから表示モデルを組み立てる。
+Debug操作画面とシナリオ実行器はdebug source setだけに置く。
+
+## Phase 5.1 Debugデータ隔離
+
+`AppGraph` が Room、活動Repository、ゲームRepository、Clock、installationIdを一つの
+データ領域として提供する。Releaseはproduction graphだけを持つ。Debugは明示的な
+`DebugDataMode`によりproduction graphまたはisolated scenario graphの一方だけを公開し、
+Activity再生成後の全画面が同じgraphを取得する。
+
+隔離graphは別Room DB、別DataStore、Debug Clock/Zone、固定Debug installationIdを使用する。
+通常Foreground Serviceは隔離モードで起動せず、Fake CounterはDebug DBへの直接シナリオ
+入力だけを使う。production Workerはproduction Repository、Debug WorkerはDebug Repository
+に固定され、実行時のモード推測でDBを選ばない。

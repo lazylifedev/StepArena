@@ -214,3 +214,32 @@ SOV41 Fake Counterおよび物理歩行の検証結果は、実行日時・APK�
 - Debug APKのインストールとMainActivity起動を確認
 - Fake Counterによる5,000歩、勝敗3種、昇格、週間順位、シーズン、実績、補完率、UNKNOWN、再起動、日付変更の一連の手動シナリオは未実施
 - 物理歩行試験は公開前ゲートとして未実施
+# Phase 5.1
+
+SOV41（Android 11）でDebugシナリオA〜E、DAO/Migration/Instrumentation/Compose UIを
+実施して結果を追記する。Debugシナリオ合格を物理歩行試験合格とは扱わない。
+物理歩行、画面OFF、プロセス復元、距離・カロリー・速度、バッテリー最適化は未検証。
+
+## 2026-07-29 SOV41
+
+- 端末: SOV41 / Android 11 / `QV7209CF25`
+- connected Debug Android Test: 22/22成功
+- Migration 4→5、既存DAO/Instrumentation、Debug Compose UIを含む
+- Debugメニューを音量下長押しで開き、「開発用ゲームシナリオ」、警告文、歩数操作を実画面で確認
+- Counter +5,000を確認ダイアログ経由で2回実行し、対戦画面で10,000歩を確認
+- force-stop後の再起動でも対戦有効10,000歩・総歩数10,000歩の維持を確認
+- `am crash` 後に再起動し、MainActivityの再生成と前景復帰を確認
+- 手動シナリオA〜Eの全操作証跡は未完了。自動試験成功のみを手動合格とは扱わない
+
+## 2026-07-29 Phase 5.1 再試験
+
+- Play Protectの未回答ダイアログを「送信しない」で解除し、Debug APKとandroidTest APKの直接インストールに成功
+- `connectedDebugAndroidTest`: 再実行25/25成功（初回の一過性Composeホスト未生成は単独1/1成功）
+- Debug初期化のMain-thread Roomクラッシュ、時間別歩数未反映、モード切替graph残留、Silver境界Debug値を修正
+- シナリオA: 5,000歩、時間別5,000、WIN、rating 1,025、二重確定防止、再起動／force-stop維持
+- シナリオB: RECOVERED 1,000→有効800・制限200
+- シナリオC: Silver昇格1,600、Bronze降格1,599
+- シナリオD: 日・週・月境界と次期間生成を確認
+- シナリオE: 通知候補3件、同日再処理後もdeduplication key 3/3
+- 通常DBはrating 1,000、勝数0、歩数0、DailyMatch 1、通知0、実績0のまま不変
+- 物理歩行、画面OFF、距離・カロリー・速度、バッテリー最適化は未検証
