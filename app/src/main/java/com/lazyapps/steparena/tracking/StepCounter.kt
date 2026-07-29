@@ -25,8 +25,6 @@ class StepCounter(private val unusualDeltaThreshold: Long = 10_000) {
                 accumulatedTodaySteps = 0,
                 currentLocalDate = today,
                 currentZoneId = zoneId.id,
-                sensorBaseline = value,
-                lastSensorValue = value,
             )
         }
         val rebooted = state.bootSessionId.isNotEmpty() && state.bootSessionId != bootSessionId

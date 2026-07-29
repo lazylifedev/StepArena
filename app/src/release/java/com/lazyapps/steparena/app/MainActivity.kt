@@ -21,11 +21,13 @@ import com.lazyapps.steparena.feature.home.HomeAction
 import com.lazyapps.steparena.feature.onboarding.OnboardingScreen
 import com.lazyapps.steparena.tracking.StepTrackingState
 import com.lazyapps.steparena.tracking.TrackingStateRepository
+import com.lazyapps.steparena.tracking.reconcileForceStop
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var trackingState by mutableStateOf(StepTrackingState())
     private var startAfterPermission = false
+    private var onboardingPermissionStep: Int? = null
     private var homeViewModel: HomeViewModel? = null
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -33,12 +35,23 @@ class MainActivity : ComponentActivity() {
         if (startAfterPermission && result[Manifest.permission.ACTIVITY_RECOGNITION] == true) {
             homeViewModel?.startTracking()
         }
+        if (onboardingPermissionStep == 2 &&
+            result[Manifest.permission.ACTIVITY_RECOGNITION] == true
+        ) {
+            lifecycleScope.launch {
+                TrackingStateRepository(applicationContext).update {
+                    it.copy(onboardingStep = 3)
+                }
+            }
+        }
+        onboardingPermissionStep = null
         startAfterPermission = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repository = TrackingStateRepository(applicationContext)
+        lifecycleScope.launch { reconcileForceStop(applicationContext, repository) }
         lifecycleScope.launch { repository.state.collect { trackingState = it } }
         enableEdgeToEdge()
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
@@ -52,16 +65,20 @@ class MainActivity : ComponentActivity() {
                         step = trackingState.onboardingStep,
                         onNext = {
                             val step = trackingState.onboardingStep
-                            when (step) {
-                                2 -> requestPermissions(startTracking = false, includeNotification = false)
-                                3 -> requestPermissions(startTracking = false, includeNotification = true)
-                            }
-                            lifecycleScope.launch {
-                                repository.update {
-                                    if (step >= 6) {
-                                        it.copy(onboardingComplete = true, onboardingStep = 6)
-                                    } else {
-                                        it.copy(onboardingStep = step + 1)
+                            if (step == 2) {
+                                onboardingPermissionStep = step
+                                requestPermissions(startTracking = false, includeNotification = false)
+                            } else {
+                                if (step == 3) {
+                                    requestPermissions(startTracking = false, includeNotification = true)
+                                }
+                                lifecycleScope.launch {
+                                    repository.update {
+                                        if (step >= 6) {
+                                            it.copy(onboardingComplete = true, onboardingStep = 6)
+                                        } else {
+                                            it.copy(onboardingStep = step + 1)
+                                        }
                                     }
                                 }
                             }

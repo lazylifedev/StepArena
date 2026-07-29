@@ -1,27 +1,22 @@
-# Tracking Requirements
+# Tracking requirements
 
-## 状態
-
-計測状態は `ACTIVE`、`NOT_STARTED`、`MAY_BE_STOPPED`、`PERMISSION_REQUIRED`、`BATTERY_SETTING_REQUIRED` を区別する。最後に正常データを確認した `Instant` と、表示時の `ZoneId` を分ける。
-
-## 後続実装の原則
-
-- `TYPE_STEP_COUNTER` と `TYPE_STEP_DETECTOR` の端末差を調査してから採用する。
-- センサー値のリセット、再起動、日付変更を raw 値と日次差分で吸収する。
-- Foreground Service と常駐通知は OS 要件、電池、ユーザー説明をセットで設計する。
-- Health Connect と端末センサーの重複を識別し、無条件に加算しない。
-- UI は SensorManager や Service に直接アクセスせず Repository を購読する。
-
-Phase 0・1 の開始ボタンは UI 操作確認のみであり、センサーやサービスを起動しない。
-# Phase 2 implementation
-
-`TYPE_STEP_COUNTER` is the authoritative Phase 2 source. Its boot-cumulative
-value is baselined on first observation and only subsequent non-negative deltas
-are counted. Invalid floats are ignored; decreases and boot-session changes
-rebaseline without subtracting or double adding. Unusually large deltas are
-retained and marked for later review.
-
-Tracking runs in a user-started health foreground service. State, last sensor
-value, heartbeat, session and onboarding progress are stored in Preferences
-DataStore. Writes are batched by step/time boundaries and forced at lifecycle
-boundaries.
+- Tracking starts only after explicit user action, activity-recognition
+  permission, and step-counter availability checks.
+- A health foreground service owns the sensor listener. Duplicate start
+  commands must not register duplicate listeners.
+- `START_STICKY` may recreate a normally terminated service when
+  `trackingRequested=true`; it cannot override Android force-stop.
+- Every service process instance has a new session ID. Explicit stop clears the
+  session and baseline.
+- Notification updates are throttled to 10 steps, 15 seconds, or a forced
+  heartbeat update. The channel is LOW, silent, and non-vibrating.
+- A notification stop PendingIntent carries its session ID. An action from an
+  older session is ignored.
+- Heartbeat is independent of sensor events and updates every five minutes.
+- Debug diagnostics show permissions, battery optimization, sensor support,
+  session, baseline, last value, today steps, heartbeat, notification time, and
+  the previous exit summary.
+- Fake Sensor controls exist only in the Debug UI. Enabling them unregisters
+  the real sensor first.
+- Unverified physical-device scenarios remain pending and are never promoted
+  to a pass based only on Fake Sensor or automated tests.

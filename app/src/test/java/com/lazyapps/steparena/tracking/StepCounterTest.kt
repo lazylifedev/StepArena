@@ -45,16 +45,16 @@ class StepCounterTest {
         assertEquals(TrackingStatus.RESTARTED, result.state.trackingStatus)
     }
 
-    @Test fun dateChange_startsNewDayAtZero() {
+    @Test fun dateChange_startsNewDayWithFirstDeltaPreserved() {
         val yesterday = previous(500).copy(currentLocalDate = LocalDate.of(2026, 7, 28), accumulatedTodaySteps = 99)
         val result = counter.accept(510f, yesterday, now, tokyo, "boot-1")
-        assertEquals(0, result.state.accumulatedTodaySteps)
-        assertEquals(510L, result.state.sensorBaseline)
+        assertEquals(10, result.state.accumulatedTodaySteps)
+        assertEquals(500L, result.state.sensorBaseline)
     }
 
     @Test fun timezoneChange_rebaselines() {
         val result = counter.accept(510f, previous(500).copy(currentZoneId = "UTC"), now, tokyo, "boot-1")
-        assertEquals(0, result.state.accumulatedTodaySteps)
+        assertEquals(10, result.state.accumulatedTodaySteps)
         assertEquals(tokyo.id, result.state.currentZoneId)
     }
 
@@ -88,6 +88,28 @@ class StepCounterTest {
         val result = counter.accept(510f, previous(500).copy(trackingRequested = false), now, tokyo, "boot-1")
         assertTrue(result is StepEventResult.Ignored)
         assertFalse(result.state.trackingRequested)
+    }
+
+    @Test fun continuousSequence_addsEachDifferenceOnce() {
+        var state = counter.accept(10_000f, requested(), now, tokyo, "boot-1").state
+        (10_001..10_050).forEachIndexed { index, value ->
+            state = counter.accept(value.toFloat(), state, now.plusSeconds(index.toLong() + 1), tokyo, "boot-1").state
+        }
+        assertEquals(50, state.accumulatedTodaySteps)
+    }
+
+    @Test fun stopAndRestart_excludesStoppedInterval() {
+        val beforeStop = counter.accept(10_050f, previous(10_000), now, tokyo, "boot-1").state
+        val stopped = beforeStop.copy(trackingRequested = false)
+        val ignored = counter.accept(10_100f, stopped, now.plusSeconds(1), tokyo, "boot-1").state
+        val restarted = ignored.copy(
+            trackingRequested = true,
+            sensorBaseline = null,
+            lastSensorValue = null,
+        )
+        val baseline = counter.accept(10_100f, restarted, now.plusSeconds(2), tokyo, "boot-1").state
+        val final = counter.accept(10_150f, baseline, now.plusSeconds(3), tokyo, "boot-1").state
+        assertEquals(100, final.accumulatedTodaySteps)
     }
 
     private fun requested() = StepTrackingState(

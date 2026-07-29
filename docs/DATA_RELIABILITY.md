@@ -1,21 +1,36 @@
-# Data Reliability
+# Data reliability
 
-## 信頼性区分
+`TYPE_STEP_COUNTER` is boot-cumulative. StepArena never treats its first value
+as today's count. The first accepted event establishes a baseline; later
+non-negative differences are added once.
 
-- `COMPLETE`: 選択したソースで期間を完全に観測
-- `PARTLY_ESTIMATED`: 欠測を推定値で表示
-- `PARTLY_RECOVERED`: 再取得または別ソースで補完
-- `NO_DATA`: 信頼できる値がない
+- Duplicate values add zero.
+- NaN, infinities, and negative values are ignored.
+- Sensor decreases or boot-session changes establish a new baseline without
+  removing confirmed steps.
+- Explicit stop clears baseline/last value so stopped-time movement is not
+  imported on restart.
+- Process recreation retains last value and confirmed steps so the next sensor
+  event contributes only one difference.
+- A local date/zone boundary finalizes the old day, resets today's total, and
+  preserves the previous sensor value so the first new-day difference is not
+  lost.
+- Phase 2.1 does not backfill stopped intervals from Health Connect.
 
-オフラインは信頼性と別軸である。端末内データが完全でもオフラインになり得るため、1つの Boolean に統合しない。画面は推定・補完・オフラインを色だけでなく文言でも示す。
+An unusually large difference is retained but marked for review. Debug logs
+are capped at 200 entries. Release builds do not append detailed diagnostic
+logs.
 
-負数の歩数、距離、時間、カロリー、速度は表示前のドメイン関数で0へ正規化する。複数ソースの重複、センサーリセット、端末時刻変更、タイムゾーン変更、夏時間、日付境界を監査可能なメタデータとともに扱う。
+Debug builds provide an explicitly labelled synthetic cumulative-sensor bridge
+for lifecycle testing. Entering this mode unregisters the real sensor listener;
+real and Fake Sensor inputs are never intentionally active together. The bridge
+is for Service/DataStore/notification/UI path validation and is not physical
+walking evidence.
 
-将来の DB は event timestamp を `Instant`、集計キーを `LocalDate`、集計時の zone ID を IANA 名で保存できる設計とする。端末時刻だけを真実の時刻として扱わない。
-# Phase 2 step reliability
+The Debug bridge supports exact, incremented, repeated, decreased, non-finite,
+reset, date-boundary, and timezone-boundary inputs. Explicit stop clears the
+baseline and last value. Restart establishes a new baseline, so a stopped-time
+cumulative increase is excluded and only post-restart differences are added.
 
-Confirmed daily steps survive sensor reset and boot-session changes. Before a
-local date or zone boundary resets today's counter, a `DailyStepSummary` is
-saved through a repository boundary. This is interim single-summary storage;
-Room-backed history is deferred. A heartbeat independent of sensor events
-distinguishes no walking from a stopped service.
+Release builds neither log detailed diagnostic entries nor declare the Debug
+receiver/action in their merged manifest.
