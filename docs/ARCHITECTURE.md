@@ -47,3 +47,9 @@ transactions in `ActivityRepository`. Home observes `trackingRequested` and the
 Room-backed active manual session independently. Notification start/end commands are
 service intents, while UUID validation and automatic/manual priority are enforced by
 the repository.
+# Phase 4 boundary
+
+UI、Room、Foreground Service は Health Connect Client を直接呼ばない。
+`ExternalActivityDataSource` を境界とし、実 Provider、No-op、Fake 実装を差し替える。
+`GapRecoveryRepository` が gap と処理済み外部レコードのトランザクションを所有する。
+WorkManager は遅延可能な補助監視であり、常時計測 Service の代替ではない。

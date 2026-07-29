@@ -53,3 +53,9 @@ exactly one of automatic or manual. Completed sessions reject later deltas.
 `activeDurationSeconds + pausedDurationSeconds <= elapsedDurationSeconds` is enforced
 when updating and finalizing sessions. Missing detector evidence lowers duration and
 speed quality rather than inventing active time.
+# Phase 4: 欠測補完
+
+自前 Step Counter を正本とし、Health Connect は明示された gap だけを補完する。
+外部レコードは origin と ID/fingerprint を保持し、同一区間・同一レコードの二重加算を防ぐ。
+品質は直接利用可能なら `RECOVERED`、配分を含む場合は `MIXED`/`ESTIMATED`、
+判断不能なら `UNKNOWN` とする。明示停止区間は既定で補完しない。

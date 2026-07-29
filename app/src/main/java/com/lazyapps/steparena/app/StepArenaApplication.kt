@@ -4,6 +4,10 @@ import android.app.Application
 import com.lazyapps.steparena.activity.ActivityRepository
 import com.lazyapps.steparena.activity.UserProfileRepository
 import com.lazyapps.steparena.core.database.StepArenaDatabase
+import com.lazyapps.steparena.recovery.GapRecoveryRepository
+import com.lazyapps.steparena.recovery.HealthConnectActivityDataSource
+import com.lazyapps.steparena.recovery.RecoverySettingsRepository
+import com.lazyapps.steparena.recovery.TrackingHealthWorker
 
 /**
  * Application entry point reserved for dependency injection and process-wide services.
@@ -13,4 +17,19 @@ class StepArenaApplication : Application() {
     val database by lazy { StepArenaDatabase.get(this) }
     val profileRepository by lazy { UserProfileRepository(this) }
     val activityRepository by lazy { ActivityRepository(database, profileRepository) }
+    val externalActivityDataSource by lazy { HealthConnectActivityDataSource(this) }
+    val recoverySettingsRepository by lazy { RecoverySettingsRepository(this) }
+    val gapRecoveryRepository by lazy {
+        GapRecoveryRepository(
+            database,
+            externalActivityDataSource,
+            packageName,
+            activityRepository,
+        )
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        TrackingHealthWorker.schedule(this)
+    }
 }

@@ -25,3 +25,8 @@
 The foreground service registers Step Counter and, when available, Step Detector once.
 Stopping the service unregisters both. Debug fake-counter mode unregisters real sensors,
 so synthetic and physical inputs cannot be mixed.
+# Phase 4 monitoring
+
+Heartbeat の既定間隔は 5 分、警告は 12 分、重度判定は 30 分とする。
+stale 時は同じ gap の初回だけ通知し、明示停止中は通知しない。
+バックグラウンドから Service、権限画面、バッテリー設定画面を無条件に開始しない。

@@ -83,6 +83,25 @@ class ActivityRepository(
         }
     }
 
+    suspend fun recordExternalRecoveredSteps(
+        steps: Long,
+        at: Instant,
+        zoneId: ZoneId,
+    ) = writer.withLock {
+        if (steps <= 0) return@withLock
+        val profile = profileRepository.current()
+        database.withTransaction {
+            rebuildDay(
+                at.atZone(zoneId).toLocalDate(),
+                zoneId,
+                profile,
+                at,
+                addedUnclassifiedSteps = steps,
+                addedQuality = DataQuality.RECOVERED,
+            )
+        }
+    }
+
     suspend fun recordCounterDelta(
         sensorValue: Long,
         delta: Long,
