@@ -182,3 +182,14 @@ SOV41 (`QV7209CF25`, Android 11) ran the existing DAO, instrumentation, and
 Compose suite: 8/8 passed. This was a non-walking validation. Real detector event
 timing, walking duration and boundaries, screen-off behavior, metric accuracy,
 and battery-optimization comparison remain physical-walk gates.
+## Phase 3.2 pending physical gates
+
+Automated fake-sensor results are not physical-walking evidence. SOV41 physical
+walking remains required before release for real manual start/end, screen-off,
+Activity removal, process recreation, paused detection, five-minute automatic end,
+distance, calories, speed, and battery-optimization comparison.
+
+On 2026-07-29, SOV41 (`QV7209CF25`, Android 11) passed the dedicated Room 1 to 2
+migration instrumentation test (1/1) and the complete debug instrumentation suite
+(13/13), including DAO and Compose UI coverage. These results validate synthetic and
+database behavior only and do not close the physical gates above.

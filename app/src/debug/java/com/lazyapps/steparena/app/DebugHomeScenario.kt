@@ -13,6 +13,7 @@ import com.lazyapps.steparena.core.model.TrackingStatus
 import com.lazyapps.steparena.feature.home.HomeContent
 import com.lazyapps.steparena.feature.home.HomeUiState
 import com.lazyapps.steparena.feature.home.SessionState
+import com.lazyapps.steparena.feature.home.ManualSessionUi
 import java.time.Instant
 
 enum class DebugHomeScenario(val label: String) {
@@ -38,6 +39,7 @@ enum class DebugHomeScenario(val label: String) {
     DATE_CHANGED("日付変更相当"),
     UNUSUAL_STEP_INCREASE("異常歩数増加"),
     PROCESS_RESTORED("プロセス復元相当"),
+    MANUAL_WALK("手動散歩中"),
     ;
 
     fun uiState(motionLevel: MotionLevel): HomeUiState {
@@ -98,14 +100,30 @@ enum class DebugHomeScenario(val label: String) {
                     reliability = DataReliability.PARTLY_ESTIMATED,
                 )
                 PROCESS_RESTORED -> base.copy(reliability = DataReliability.PARTLY_RECOVERED)
+                MANUAL_WALK -> base
                 NO_DATA -> base
             }
         }
-        val sessionState = if (this == BEFORE_TRACKING) SessionState.IDLE else SessionState.STARTED
+        val sessionState = if (this == BEFORE_TRACKING) {
+            SessionState.TRACKING_STOPPED
+        } else if (this == MANUAL_WALK) {
+            SessionState.MANUAL_WALK
+        } else {
+            SessionState.TRACKING
+        }
         return HomeUiState(
             content = HomeContent.Ready(snapshot),
             motionLevel = motionLevel,
             sessionState = sessionState,
+            manualSession = if (this == MANUAL_WALK) {
+                ManualSessionUi(
+                    id = "debug-manual-session",
+                    startedAtEpochMillis = Instant.now().minusSeconds(480).toEpochMilli(),
+                    steps = 842,
+                    distanceMeters = 589.4,
+                    elapsedSeconds = 480,
+                )
+            } else null,
         )
     }
 }

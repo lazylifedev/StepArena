@@ -62,6 +62,25 @@ class DebugFakeSensorReceiver : BroadcastReceiver() {
                         .putExtra(StepTrackingService.EXTRA_SESSION_ID, "stale-debug-session"),
                 )
             }
+            COMMAND_START_MANUAL -> {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, StepTrackingService::class.java)
+                        .setAction(StepTrackingService.ACTION_START_MANUAL_WALK),
+                )
+            }
+            COMMAND_END_MANUAL, COMMAND_STALE_MANUAL_END -> {
+                val activeId = (context as com.lazyapps.steparena.app.StepArenaApplication)
+                    .activityRepository.currentManualSession()?.id
+                context.startService(
+                    Intent(context, StepTrackingService::class.java)
+                        .setAction(StepTrackingService.ACTION_END_MANUAL_WALK)
+                        .putExtra(
+                            StepTrackingService.EXTRA_MANUAL_SESSION_ID,
+                            if (command == COMMAND_STALE_MANUAL_END) "stale-manual-uuid" else activeId,
+                        ),
+                )
+            }
             COMMAND_VALUE -> send(context, intent.getFloatExtra(EXTRA_VALUE, Float.NaN))
             COMMAND_INCREMENT -> {
                 val current = TrackingStateRepository(context).current().lastSensorValue
@@ -120,6 +139,9 @@ class DebugFakeSensorReceiver : BroadcastReceiver() {
         const val COMMAND_START = "start"
         const val COMMAND_STOP = "stop"
         const val COMMAND_STALE_STOP = "stale_stop"
+        const val COMMAND_START_MANUAL = "start_manual"
+        const val COMMAND_END_MANUAL = "end_manual"
+        const val COMMAND_STALE_MANUAL_END = "stale_manual_end"
         const val COMMAND_INCREMENT = "increment"
         const val COMMAND_SEQUENCE = "sequence"
         const val COMMAND_RESET = "reset"

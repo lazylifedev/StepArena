@@ -69,6 +69,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private var fakeSensorMode = false
     private val sensorEventClock = RealtimeSensorEventClock()
     private var sessionTimeoutJob: Job? = null
+    private var manualStartRequested = false
 
     override fun onCreate() {
         super.onCreate()
@@ -80,6 +81,17 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_END_MANUAL_WALK) {
+            val requestedSession = intent.getStringExtra(EXTRA_MANUAL_SESSION_ID)
+            scope.launch {
+                state = repository.current()
+                val ended = requestedSession != null &&
+                    activityRepository.endManualSession(requestedSession, Instant.now())
+                logEvent(if (ended) "manual_walk_ended" else "stale_manual_end_ignored", detail = requestedSession)
+                updateNotificationIfNeeded(Instant.now(), force = true)
+            }
+            return START_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             val requestedSession = intent.getStringExtra(EXTRA_SESSION_ID)
             scope.launch {
@@ -93,6 +105,19 @@ class StepTrackingService : Service(), SensorEventListener {
                 }
             }
             return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_START_MANUAL_WALK) {
+            manualStartRequested = true
+            scope.launch {
+                val current = repository.current()
+                if (current.trackingRequested &&
+                    current.trackingStatus in setOf(TrackingStatus.TRACKING, TrackingStatus.RESTARTED) &&
+                    current.sessionId != null
+                ) {
+                    state = current
+                    startManualWalk()
+                }
+            }
         }
         if (BuildConfig.DEBUG && intent?.action == debugAction()) {
             promote(NotificationModel(0, null, "Debug計測を準備中"))
@@ -151,7 +176,7 @@ class StepTrackingService : Service(), SensorEventListener {
             it.copy(
                 trackingStatus = TrackingStatus.STARTING,
                 lastServiceStartedAt = now,
-                sessionId = UUID.randomUUID().toString(),
+                sessionId = it.sessionId ?: UUID.randomUUID().toString(),
                 lastExitInfoKey = previousExit?.key ?: it.lastExitInfoKey,
                 lastExitSummary = if (previousExit != null && previousExit.key != it.lastExitInfoKey) {
                     previousExit.summary
@@ -169,6 +194,8 @@ class StepTrackingService : Service(), SensorEventListener {
             state = repository.update { it.copy(trackingStatus = TrackingStatus.TRACKING) }
             logEvent("fake_sensor_restored", detail = "real_sensor_not_registered")
             startHeartbeat()
+            if (manualStartRequested) startManualWalk()
+            else updateNotificationIfNeeded(now, force = true)
             return
         }
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
@@ -198,6 +225,20 @@ class StepTrackingService : Service(), SensorEventListener {
             return
         }
         startHeartbeat()
+        if (manualStartRequested) startManualWalk()
+        else updateNotificationIfNeeded(now, force = true)
+    }
+
+    private suspend fun startManualWalk() {
+        val serviceSessionId = state.sessionId ?: return
+        val session = activityRepository.startManualSession(
+            Instant.now(),
+            ZoneId.systemDefault(),
+            serviceSessionId,
+        )
+        manualStartRequested = false
+        logEvent("manual_walk_started", detail = session.id)
+        updateNotificationIfNeeded(Instant.now(), force = true)
     }
 
     private fun startHeartbeat() {
@@ -296,7 +337,7 @@ class StepTrackingService : Service(), SensorEventListener {
         sessionTimeoutJob?.cancel()
         scope.launch {
             val now = Instant.now()
-            activityRepository.finishSession(state.sessionId, now)
+            activityRepository.finishAllActiveSessions(now)
             state = repository.update {
                 it.copy(
                     trackingRequested = false,
@@ -322,7 +363,7 @@ class StepTrackingService : Service(), SensorEventListener {
         super.onDestroy()
     }
 
-    private fun updateNotificationIfNeeded(now: Instant, force: Boolean = false) {
+    private suspend fun updateNotificationIfNeeded(now: Instant, force: Boolean = false) {
         if (
             notificationPolicy.shouldUpdate(
                 state.accumulatedTodaySteps,
@@ -332,7 +373,13 @@ class StepTrackingService : Service(), SensorEventListener {
                 force,
             )
         ) {
-            val model = NotificationModel(state.accumulatedTodaySteps, state.lastSensorEventAt, "計測中")
+            val manual = activityRepository.currentManualSession()
+            val model = NotificationModel(
+                state.accumulatedTodaySteps,
+                state.lastSensorEventAt,
+                if (manual == null) "計測中" else "散歩中",
+                manual,
+            )
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(model))
             lastNotifiedSteps = state.accumulatedTodaySteps
             lastNotifiedAt = now
@@ -398,28 +445,39 @@ class StepTrackingService : Service(), SensorEventListener {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val sessionRequestCode = state.sessionId?.hashCode() ?: 1
+        val manual = model.manualSession
+        val sessionRequestCode = (manual?.id ?: state.sessionId)?.hashCode() ?: 1
         val stop = PendingIntent.getService(
             this,
             sessionRequestCode,
             Intent(this, StepTrackingService::class.java)
-                .setAction(ACTION_STOP)
-                .putExtra(EXTRA_SESSION_ID, state.sessionId),
+                .setAction(if (manual == null) ACTION_STOP else ACTION_END_MANUAL_WALK)
+                .putExtra(
+                    if (manual == null) EXTRA_SESSION_ID else EXTRA_MANUAL_SESSION_ID,
+                    manual?.id ?: state.sessionId,
+                ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val updated = model.lastUpdated?.atZone(ZoneId.systemDefault())
             ?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--"
+        val title = if (manual == null) "StepArenaで歩数を計測中" else "StepArenaで散歩中"
+        val text = if (manual == null) {
+            "今日 ${model.steps}歩・最終更新 $updated"
+        } else {
+            val minutes = manual.elapsedDurationSeconds / 60
+            "セッション ${manual.steps}歩・${minutes}分 / 今日 ${model.steps}歩"
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("StepArenaで歩数を計測中")
-            .setContentText("今日 ${model.steps}歩・最終更新 $updated")
+            .setContentTitle(title)
+            .setContentText(text)
             .setSubText(model.statusLabel)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(0, "アプリを開く", open)
-            .addAction(0, "計測を停止", stop)
+            .addAction(0, if (manual == null) "計測を停止" else "散歩を終了", stop)
             .build()
     }
 
@@ -427,12 +485,16 @@ class StepTrackingService : Service(), SensorEventListener {
         val steps: Long,
         val lastUpdated: Instant?,
         val statusLabel: String,
+        val manualSession: com.lazyapps.steparena.core.database.entity.WalkingSessionEntity? = null,
     )
 
     companion object {
         const val ACTION_START = "com.lazyapps.steparena.action.START_TRACKING"
         const val ACTION_STOP = "com.lazyapps.steparena.action.STOP_TRACKING"
+        const val ACTION_START_MANUAL_WALK = "com.lazyapps.steparena.action.START_MANUAL_WALK"
+        const val ACTION_END_MANUAL_WALK = "com.lazyapps.steparena.action.END_MANUAL_WALK"
         const val EXTRA_SESSION_ID = "session_id"
+        const val EXTRA_MANUAL_SESSION_ID = "manual_session_id"
         private const val CHANNEL_ID = "step_tracking"
         private const val NOTIFICATION_ID = 2001
         private const val HEARTBEAT_INTERVAL_MILLIS = 5 * 60 * 1000L

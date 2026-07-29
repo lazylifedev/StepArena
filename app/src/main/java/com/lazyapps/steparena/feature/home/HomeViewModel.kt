@@ -20,6 +20,7 @@ import java.time.Instant
 import com.lazyapps.steparena.app.StepArenaApplication
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import com.lazyapps.steparena.core.database.model.DataQuality
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -40,6 +41,8 @@ class HomeViewModel(
     fun onAction(action: HomeAction) {
         when (action) {
             HomeAction.StartSession -> startTracking()
+            HomeAction.StartManualWalk -> startManualWalk()
+            is HomeAction.EndManualWalk -> endManualWalk(action.sessionId)
             HomeAction.StopTracking -> stopTracking()
             HomeAction.OpenDiagnostics -> Unit
             HomeAction.Retry -> load()
@@ -52,14 +55,17 @@ class HomeViewModel(
 
     private fun observeTracking() {
         viewModelScope.launch {
-            trackingRepository.state.flatMapLatest { tracking ->
+            combine(
+                trackingRepository.state,
+                activityRepository.observeActiveManualSession(),
+            ) { tracking, manual -> tracking to manual }.flatMapLatest { (tracking, manual) ->
                 activityRepository.observeToday(
                     tracking.currentLocalDate,
                     java.time.ZoneId.of(tracking.currentZoneId),
                 ).map { daily ->
-                    tracking to daily
+                    Triple(tracking, manual, daily)
                 }
-            }.collect { (tracking, daily) ->
+            }.collect { (tracking, manual, daily) ->
                 val status = when (tracking.trackingStatus) {
                     PersistentTrackingStatus.TRACKING, PersistentTrackingStatus.RESTARTED ->
                         TrackingStatus.ACTIVE
@@ -92,7 +98,20 @@ class HomeViewModel(
                             ),
                         ),
                         motionLevel = motionRepository.read(),
-                        sessionState = if (tracking.trackingRequested) SessionState.STARTED else SessionState.IDLE,
+                        sessionState = when {
+                            manual != null -> SessionState.MANUAL_WALK
+                            tracking.trackingRequested -> SessionState.TRACKING
+                            else -> SessionState.TRACKING_STOPPED
+                        },
+                        manualSession = manual?.let {
+                            ManualSessionUi(
+                                id = it.id,
+                                startedAtEpochMillis = it.startedAtEpochMillis,
+                                steps = it.steps,
+                                distanceMeters = it.distanceMeters ?: 0.0,
+                                elapsedSeconds = it.elapsedDurationSeconds,
+                            )
+                        },
                         trackingUiStatus = tracking.trackingStatus,
                         sensorSupported = tracking.trackingStatus != PersistentTrackingStatus.SENSOR_UNSUPPORTED,
                     )
@@ -125,6 +144,37 @@ class HomeViewModel(
         getApplication<Application>().startService(
             Intent(getApplication(), StepTrackingService::class.java)
                 .setAction(StepTrackingService.ACTION_STOP),
+        )
+    }
+
+    fun startManualWalk() {
+        val tracking = _uiState.value.sessionState != SessionState.TRACKING_STOPPED
+        viewModelScope.launch {
+            if (!tracking) {
+                trackingRepository.update {
+                    it.copy(
+                        trackingRequested = true,
+                        trackingStatus = PersistentTrackingStatus.STARTING,
+                        sensorBaseline = null,
+                        lastSensorValue = null,
+                        sessionId = null,
+                        lastStopReason = null,
+                    )
+                }
+            }
+            ContextCompat.startForegroundService(
+                getApplication(),
+                Intent(getApplication(), StepTrackingService::class.java)
+                    .setAction(StepTrackingService.ACTION_START_MANUAL_WALK),
+            )
+        }
+    }
+
+    fun endManualWalk(sessionId: String) {
+        getApplication<Application>().startService(
+            Intent(getApplication(), StepTrackingService::class.java)
+                .setAction(StepTrackingService.ACTION_END_MANUAL_WALK)
+                .putExtra(StepTrackingService.EXTRA_MANUAL_SESSION_ID, sessionId),
         )
     }
 
