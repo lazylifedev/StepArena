@@ -9,7 +9,9 @@ enum class TrackingStatus {
     BATTERY_RESTRICTED, SERVICE_HEARTBEAT_STALE, SENSOR_DATA_STALE, ERROR,
 }
 
-enum class TrackingStopReason { USER_REQUEST, PERMISSION_REVOKED, SENSOR_UNAVAILABLE, SERVICE_ERROR }
+enum class TrackingStopReason {
+    USER_REQUEST, OS_FORCE_STOP, PERMISSION_REVOKED, SENSOR_UNAVAILABLE, SERVICE_ERROR,
+}
 enum class StepDataSource { STEP_COUNTER }
 
 data class StepTrackingState(
@@ -32,6 +34,9 @@ data class StepTrackingState(
     val batteryGuidanceAcknowledged: Boolean = false,
     val notificationGuidanceAcknowledged: Boolean = false,
     val needsReview: Boolean = false,
+    val lastNotificationAt: Instant? = null,
+    val lastExitInfoKey: String? = null,
+    val lastExitSummary: String? = null,
 )
 
 data class DailyStepSummary(

@@ -69,6 +69,9 @@ class TrackingStateRepository(private val context: Context) {
         batteryGuidanceAcknowledged = p[Keys.BATTERY_ACK] ?: false,
         notificationGuidanceAcknowledged = p[Keys.NOTIFICATION_ACK] ?: false,
         needsReview = p[Keys.NEEDS_REVIEW] ?: false,
+        lastNotificationAt = instant(p[Keys.LAST_NOTIFICATION]),
+        lastExitInfoKey = p[Keys.LAST_EXIT_KEY],
+        lastExitSummary = p[Keys.LAST_EXIT_SUMMARY],
     )
 
     private fun encode(p: androidx.datastore.preferences.core.MutablePreferences, s: StepTrackingState) {
@@ -91,6 +94,9 @@ class TrackingStateRepository(private val context: Context) {
         p[Keys.BATTERY_ACK] = s.batteryGuidanceAcknowledged
         p[Keys.NOTIFICATION_ACK] = s.notificationGuidanceAcknowledged
         p[Keys.NEEDS_REVIEW] = s.needsReview
+        nullable(p, Keys.LAST_NOTIFICATION, s.lastNotificationAt?.toEpochMilli())
+        nullable(p, Keys.LAST_EXIT_KEY, s.lastExitInfoKey)
+        nullable(p, Keys.LAST_EXIT_SUMMARY, s.lastExitSummary)
     }
 
     private fun instant(value: Long?): Instant? = value?.let(Instant::ofEpochMilli)
@@ -127,6 +133,9 @@ class TrackingStateRepository(private val context: Context) {
         val BATTERY_ACK = booleanPreferencesKey("battery_guidance_ack")
         val NOTIFICATION_ACK = booleanPreferencesKey("notification_guidance_ack")
         val NEEDS_REVIEW = booleanPreferencesKey("needs_review")
+        val LAST_NOTIFICATION = longPreferencesKey("last_notification_at")
+        val LAST_EXIT_KEY = stringPreferencesKey("last_exit_key")
+        val LAST_EXIT_SUMMARY = stringPreferencesKey("last_exit_summary")
         val DAILY_DATE = stringPreferencesKey("daily_date")
         val DAILY_ZONE = stringPreferencesKey("daily_zone")
         val DAILY_STEPS = longPreferencesKey("daily_steps")

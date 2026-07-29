@@ -20,8 +20,9 @@ import java.time.Instant
 
 class HomeViewModel(
     application: Application,
-    private val motionRepository: MotionSettingsRepository = InMemoryMotionSettingsRepository(),
+    private val motionRepository: MotionSettingsRepository,
 ) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, InMemoryMotionSettingsRepository())
     private val trackingRepository = TrackingStateRepository(application)
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -73,7 +74,14 @@ class HomeViewModel(
     fun startTracking() {
         viewModelScope.launch {
             trackingRepository.update {
-                it.copy(trackingRequested = true, trackingStatus = PersistentTrackingStatus.STARTING)
+                it.copy(
+                    trackingRequested = true,
+                    trackingStatus = PersistentTrackingStatus.STARTING,
+                    sensorBaseline = null,
+                    lastSensorValue = null,
+                    sessionId = null,
+                    lastStopReason = null,
+                )
             }
             ContextCompat.startForegroundService(
                 getApplication(),

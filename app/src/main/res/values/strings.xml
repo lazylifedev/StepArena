@@ -1,13 +1,11 @@
 <resources>
     <string name="app_name">StepArena</string>
-
     <string name="nav_home">ホーム</string>
     <string name="nav_match">マッチ</string>
     <string name="nav_records">記録</string>
     <string name="nav_achievements">称号</string>
     <string name="nav_settings">設定</string>
     <string name="coming_soon_message">この機能は次の開発フェーズで実装予定です。</string>
-
     <string name="home_title">TODAY\'S ARENA</string>
     <string name="home_subtitle">今日の一歩を、勝負の力へ。</string>
     <string name="tracking_active">正常に計測中</string>
@@ -19,7 +17,6 @@
     <string name="offline_label">オフライン</string>
     <string name="estimated_data_label">一部は推定値です</string>
     <string name="recovered_data_label">一部は補完データです</string>
-
     <string name="rank_section">現在ランク</string>
     <string name="rank_bronze">ブロンズ</string>
     <string name="rank_silver">シルバー</string>
@@ -30,7 +27,6 @@
     <string name="rank_points">%1$d RP</string>
     <string name="rank_progress_description">ランク進捗 %1$d パーセント</string>
     <string name="points_to_next_rank">次ランクまで %1$d ポイント</string>
-
     <string name="today_steps">今日の歩数</string>
     <string name="steps_value">%1$s 歩</string>
     <string name="steps_accessibility">%1$s 歩</string>
@@ -41,8 +37,7 @@
     <string name="metric_distance">歩行距離</string>
     <string name="metric_duration">歩行時間</string>
     <string name="metric_calories">消費カロリー</string>
-    <string name="metric_speed">平均歩行時速</string>
-
+    <string name="metric_speed">平均歩行速度</string>
     <string name="match_title">今日のマッチ</string>
     <string name="match_opponent">対戦相手 %1$s</string>
     <string name="match_you">あなた</string>
@@ -51,26 +46,22 @@
     <string name="match_steps_to_lead">逆転まであと %1$s 歩・現在 %2$d 連勝</string>
     <string name="match_won">勝利確定・%1$d 連勝</string>
     <string name="match_lost">今日は敗北・明日の再戦へ</string>
-    <string name="match_expanded_detail">毎日の目標達成率を比べた対戦状況です。</string>
+    <string name="match_expanded_detail">毎日の目標歩数を比べる対戦状況です。</string>
     <string name="match_expand">タップして詳細を見る</string>
     <string name="match_collapse">タップして詳細を閉じる</string>
-
     <string name="start_walking">歩行セッションを開始</string>
     <string name="session_started">歩行セッション計測中</string>
-
     <string name="league_title">週間リーグ</string>
     <string name="league_position">%1$d位 / %2$d人</string>
     <string name="league_promotion_gap">昇格圏まであと %1$d ポイント</string>
-
     <string name="motion_preview_title">画面の動き</string>
     <string name="motion_full">Full</string>
     <string name="motion_reduced">Reduced</string>
     <string name="motion_off">Off</string>
     <string name="motion_preview_notice">見やすい動き方を選べます。</string>
-
     <string name="loading_description">ホーム画面を読み込み中</string>
     <string name="empty_title">まだデータがありません</string>
-    <string name="empty_message">計測の準備が整うと、今日のアリーナ情報がここに表示されます。</string>
+    <string name="empty_message">計測の準備が整うと、今日の情報がここに表示されます。</string>
     <string name="error_title">読み込めませんでした</string>
     <string name="error_message">時間をおいて、もう一度お試しください。</string>
     <string name="retry">再試行</string>
