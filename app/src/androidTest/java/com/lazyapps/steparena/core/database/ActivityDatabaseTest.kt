@@ -44,6 +44,7 @@ class ActivityDatabaseTest {
         durationQuality = DataQuality.ESTIMATED, caloriesQuality = DataQuality.ESTIMATED,
         speedQuality = DataQuality.ESTIMATED, firstActivityAtEpochMillis = 0,
         lastActivityAtEpochMillis = 1, sensorEventCount = 1, recoveredSteps = 0,
-        estimatedSteps = 0, createdAtEpochMillis = 0, updatedAtEpochMillis = 1,
+        estimatedSteps = 0, appliedStepLengthMeters = 0.7, appliedWeightKg = 60.0,
+        calorieFormulaVersion = 1, createdAtEpochMillis = 0, updatedAtEpochMillis = 1,
     )
 }

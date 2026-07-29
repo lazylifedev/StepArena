@@ -34,3 +34,8 @@ Phase 3 adds Room-backed hourly/daily activity, walking sessions, five home metr
 records/profile UI, quality metadata, and deterministic estimation strategies. GPS,
 Health Connect, online ranking, and physical-walking acceptance remain later/publication
 gates.
+# Phase 3.1
+
+Corrects sensor time, walking duration, session identity/timeouts, Room v2,
+time-zone/DST reads, quality retention, settings navigation, and localization.
+Daily, weekly, and monthly record periods remain disabled for a later phase.

@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.WalkingSessionEntity
@@ -44,7 +46,8 @@ enum class RecordMetric { STEPS, DISTANCE, DURATION, CALORIES, SPEED }
 @Composable
 fun RecordsScreen(modifier: Modifier = Modifier) {
     val app = LocalContext.current.applicationContext as StepArenaApplication
-    val hours by remember { app.activityRepository.observeHours(LocalDate.now()) }
+    val zoneId = remember { ZoneId.systemDefault() }
+    val hours by remember(zoneId) { app.activityRepository.observeHours(LocalDate.now(zoneId), zoneId) }
         .collectAsState(initial = emptyList())
     val sessions by remember { app.activityRepository.observeSessions() }
         .collectAsState(initial = emptyList())
@@ -57,18 +60,20 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxSize().padding(StepArenaSpacing.md).testTag("records_screen"),
         verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.md),
     ) {
-        item { Text("活動記録", style = MaterialTheme.typography.headlineMedium) }
+        item { Text(stringResource(R.string.records_title), style = MaterialTheme.typography.headlineMedium) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 RecordPeriod.entries.forEach {
                     FilterChip(
                         selected = period == it,
-                        onClick = { period = it },
-                        label = { Text(periodLabel(it)) },
+                        onClick = { if (it == RecordPeriod.HOURLY || it == RecordPeriod.SESSIONS) period = it },
+                        enabled = it == RecordPeriod.HOURLY || it == RecordPeriod.SESSIONS,
+                        label = { Text(stringResource(periodLabelRes(it))) },
                     )
                 }
             }
         }
+        item { Text(stringResource(R.string.records_future_period)) }
         if (period == RecordPeriod.SESSIONS) {
             if (sessions.isEmpty()) item { EmptyRecords("歩行セッションはまだありません") }
             items(sessions, key = { it.id }) { session ->
@@ -105,25 +110,24 @@ private fun HourChart(
     metric: RecordMetric,
     onSelect: (HourlyActivityRecordEntity) -> Unit,
 ) {
-    val byHour = records.associateBy { it.hourOfDay }
-    val maximum = (0..23).maxOf { metricValue(byHour[it], metric) }.coerceAtLeast(1.0)
+    val ordered = records.sortedBy { it.periodStartEpochMillis }
+    val maximum = ordered.maxOfOrNull { metricValue(it, metric) }?.coerceAtLeast(1.0) ?: 1.0
     GlassSurface(Modifier.fillMaxWidth().testTag("hourly_chart")) {
-        Text("24時間")
+        Text("${ordered.size}時間")
         Row(
             modifier = Modifier.fillMaxWidth().height(150.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
-            (0..23).forEach { hour ->
-                val record = byHour[hour]
+            ordered.forEach { record ->
                 Box(
                     Modifier.weight(1f)
                         .height((120 * metricValue(record, metric) / maximum).coerceAtLeast(2.0).dp)
-                        .clickable(enabled = record != null) { record?.let(onSelect) },
+                        .clickable { onSelect(record) },
                 ) {
                     Box(Modifier.fillMaxSize().padding(horizontal = 1.dp), contentAlignment = Alignment.BottomCenter) {
                         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                            drawRect(if (record == null) Color.DarkGray else StepArenaColors.CyanSoft)
+                            drawRect(StepArenaColors.CyanSoft)
                         }
                     }
                 }
@@ -136,13 +140,14 @@ private fun HourChart(
 @Composable
 private fun HourDetail(record: HourlyActivityRecordEntity) {
     GlassSurface(Modifier.fillMaxWidth().testTag("hour_detail")) {
-        Text("${record.hourOfDay}:00～${record.hourOfDay}:59", style = MaterialTheme.typography.titleMedium)
+        Text("${record.hourOfDay}:00（UTC${offsetText(record.utcOffsetSeconds)}）", style = MaterialTheme.typography.titleMedium)
         Text("歩数　${record.steps}歩")
         Text("歩行距離　${format(record.distanceMeters, "%.2f km", 1_000.0)}")
         Text("歩行時間　${record.walkingDurationSeconds?.let { "${it / 60}分${it % 60}秒" } ?: "―"}")
         Text("消費カロリー　${format(record.estimatedCaloriesKcal, "%.0f kcal")}")
         Text("平均歩行時速　${format(record.averageWalkingSpeedKmh, "%.2f km/h")}")
-        Text("品質　${record.stepsQuality.name} / 距離・カロリーは推定")
+        Text("品質　${stringResource(record.stepsQuality.labelRes())} / 距離・カロリーは推定")
+        if (record.appliedWeightKg == 60.0) Text(stringResource(R.string.calorie_default_weight))
     }
 }
 
@@ -150,9 +155,11 @@ private fun HourDetail(record: HourlyActivityRecordEntity) {
 private fun SessionRow(session: WalkingSessionEntity, onClick: () -> Unit) {
     GlassSurface(Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("session_row")) {
         Text(formatTime(session.startedAtEpochMillis))
-        Text("${session.sessionType.name}　${session.steps}歩")
+        Text("${stringResource(session.sessionType.labelRes())}　${session.steps}歩")
         Text("${format(session.distanceMeters, "%.2f km", 1_000.0)}　${session.activeDurationSeconds / 60}分")
-        if (session.stepsQuality.name != "MEASURED") Text("品質: ${session.stepsQuality.name}", color = StepArenaColors.Amber)
+        if (session.stepsQuality != com.lazyapps.steparena.core.database.model.DataQuality.MEASURED) {
+            Text("品質: ${stringResource(session.stepsQuality.labelRes())}", color = StepArenaColors.Amber)
+        }
     }
 }
 
@@ -166,7 +173,7 @@ private fun SessionDetail(session: WalkingSessionEntity) {
         Text("歩行 ${session.activeDurationSeconds}秒 / 経過 ${session.elapsedDurationSeconds}秒 / 停止 ${session.pausedDurationSeconds}秒")
         Text("推定カロリー ${format(session.estimatedCaloriesKcal, "%.0f kcal")}")
         Text("移動速度 ${format(session.averageMovingSpeedKmh, "%.2f km/h")} / 経過速度 ${format(session.averageElapsedSpeedKmh, "%.2f km/h")}")
-        Text("データソース Step Counter / 品質 ${session.stepsQuality.name}")
+        Text("データソース Step Counter / 品質 ${stringResource(session.stepsQuality.labelRes())}")
     }
 }
 
@@ -181,12 +188,18 @@ private fun metricValue(record: HourlyActivityRecordEntity?, metric: RecordMetri
     RecordMetric.SPEED -> record?.averageWalkingSpeedKmh
 } ?: 0.0
 
-private fun periodLabel(period: RecordPeriod) = when (period) {
-    RecordPeriod.HOURLY -> "時間"
-    RecordPeriod.DAILY -> "日"
-    RecordPeriod.WEEKLY -> "週"
-    RecordPeriod.MONTHLY -> "月"
-    RecordPeriod.SESSIONS -> "セッション"
+private fun periodLabelRes(period: RecordPeriod) = when (period) {
+    RecordPeriod.HOURLY -> R.string.record_period_hourly
+    RecordPeriod.DAILY -> R.string.record_period_daily
+    RecordPeriod.WEEKLY -> R.string.record_period_weekly
+    RecordPeriod.MONTHLY -> R.string.record_period_monthly
+    RecordPeriod.SESSIONS -> R.string.record_period_sessions
+}
+private fun offsetText(seconds: Int): String {
+    val totalMinutes = seconds / 60
+    val sign = if (totalMinutes >= 0) "+" else "-"
+    val absolute = kotlin.math.abs(totalMinutes)
+    return "$sign${absolute / 60}:${(absolute % 60).toString().padStart(2, '0')}"
 }
 private fun metricLabel(metric: RecordMetric) = when (metric) {
     RecordMetric.STEPS -> "歩数"

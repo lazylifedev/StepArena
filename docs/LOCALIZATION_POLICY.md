@@ -7,3 +7,9 @@
 時刻は保存・通信に `Instant`、日次集計に `LocalDate` と集計時の `ZoneId`、表示に端末またはユーザー設定の `ZoneId` を使う。日本時間へ固定しない。
 
 初回公開は日本語のみだが、英語の長い文言、複数形、RTL、文字拡大でレイアウトが破綻しないことを後続の翻訳導入前にも確認する。
+# Phase 3.1
+
+New record, quality, session, settings, validation, and fallback-weight labels
+are Android string resources. Enum identifiers are mapped to localized labels.
+Future translations should mirror keys in `values/strings.xml`; formatted
+sentences must use resource arguments rather than concatenation.
