@@ -3,8 +3,10 @@ package com.lazyapps.steparena.game
 import com.lazyapps.steparena.app.DebugStepArenaApplication
 import com.lazyapps.steparena.app.DebugDataMode
 import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
+import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.model.DataQuality
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 /**
  * Debug-only mutations. Generated opponents use a debug prefix, which makes cleanup selective.
@@ -50,10 +52,10 @@ class DebugGameController(private val application: DebugStepArenaApplication) {
             }
             DebugGameScenario.ADD_RATING -> updateProfile { it.copy(rating = it.rating + 25) }
             DebugGameScenario.REMOVE_RATING -> updateProfile { it.copy(rating = (it.rating - 20).coerceAtLeast(1_000)) }
-            DebugGameScenario.PROMOTION_READY -> updateProfile { it.copy(rating = 1_195) }
-            DebugGameScenario.DEMOTION_READY -> updateProfile { it.copy(rating = 1_205) }
-            DebugGameScenario.PROMOTE -> updateProfile { it.copy(rating = 1_200, rankTier = RankTier.BRONZE, rankDivision = 2) }
-            DebugGameScenario.DEMOTE -> updateProfile { it.copy(rating = 1_199, rankTier = RankTier.BRONZE, rankDivision = 3) }
+            DebugGameScenario.PROMOTION_READY -> updateProfile { it.copy(rating = 1_595) }
+            DebugGameScenario.DEMOTION_READY -> updateProfile { it.copy(rating = 1_605) }
+            DebugGameScenario.PROMOTE -> updateProfile { it.copy(rating = 1_600) }
+            DebugGameScenario.DEMOTE -> updateProfile { it.copy(rating = 1_599) }
             DebugGameScenario.THREE_WIN_STREAK -> updateProfile { it.copy(currentWinStreak = 3, bestWinStreak = maxOf(it.bestWinStreak, 3)) }
             DebugGameScenario.FIVE_WIN_STREAK -> updateProfile { it.copy(currentWinStreak = 5, bestWinStreak = maxOf(it.bestWinStreak, 5)) }
             DebugGameScenario.THREE_LOSS_STREAK -> updateProfile { it.copy(currentLossStreak = 3) }
@@ -89,6 +91,43 @@ class DebugGameController(private val application: DebugStepArenaApplication) {
 
     private suspend fun setSteps(steps: Long, quality: DataQuality) {
         val now = clock.millis()
+        val hourStart = clock.instant().atZone(zone).truncatedTo(ChronoUnit.HOURS)
+        val hourEnd = hourStart.plusHours(1)
+        val hourId = "$today|${hourStart.hour}|${zone.id}|${hourStart.offset.totalSeconds}"
+        val existingHour = database.hourly().byId(hourId)
+        database.hourly().upsert(
+            HourlyActivityRecordEntity(
+                id = hourId,
+                localDate = today,
+                hourOfDay = hourStart.hour,
+                zoneId = zone.id,
+                utcOffsetSeconds = hourStart.offset.totalSeconds,
+                periodStartEpochMillis = hourStart.toInstant().toEpochMilli(),
+                periodEndEpochMillis = hourEnd.toInstant().toEpochMilli(),
+                steps = steps,
+                distanceMeters = null,
+                walkingDurationSeconds = null,
+                estimatedCaloriesKcal = null,
+                averageWalkingSpeedKmh = null,
+                stepsQuality = quality,
+                distanceQuality = DataQuality.UNKNOWN,
+                durationQuality = DataQuality.UNKNOWN,
+                caloriesQuality = DataQuality.UNKNOWN,
+                speedQuality = DataQuality.UNKNOWN,
+                firstActivityAtEpochMillis = existingHour?.firstActivityAtEpochMillis ?: now,
+                lastActivityAtEpochMillis = now,
+                sensorEventCount = (existingHour?.sensorEventCount ?: 0) + 1,
+                recoveredSteps = if (quality == DataQuality.RECOVERED) steps else 0,
+                estimatedSteps = if (
+                    quality == DataQuality.ESTIMATED || quality == DataQuality.MIXED
+                ) steps else 0,
+                appliedStepLengthMeters = 0.7,
+                appliedWeightKg = 65.0,
+                calorieFormulaVersion = 1,
+                createdAtEpochMillis = existingHour?.createdAtEpochMillis ?: now,
+                updatedAtEpochMillis = now,
+            ),
+        )
         val existing = database.daily().get(today, zone.id)
         database.daily().upsert(
             (existing ?: emptyDaily(now)).copy(

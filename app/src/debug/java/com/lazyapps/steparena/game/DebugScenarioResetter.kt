@@ -3,6 +3,8 @@ package com.lazyapps.steparena.game
 import androidx.room.withTransaction
 import com.lazyapps.steparena.app.DebugStepArenaApplication
 import com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 interface DebugScenarioResetter {
     suspend fun resetAllScenarioData()
@@ -17,7 +19,9 @@ class RoomDebugScenarioResetter(
     private val database get() = application.debugDatabase
 
     override suspend fun resetAllScenarioData() {
-        database.clearAllTables()
+        withContext(Dispatchers.IO) {
+            database.clearAllTables()
+        }
         application.debugStateStore.clearScenarioSettings()
         application.debugClock.reset()
         initializeProfile()

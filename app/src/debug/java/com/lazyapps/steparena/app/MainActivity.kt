@@ -242,6 +242,7 @@ class MainActivity : ComponentActivity() {
                 GameMaintenanceWorker.schedule(this@MainActivity)
                 TrackingHealthWorker.schedule(this@MainActivity)
             }
+            viewModelStore.clear()
             recreate()
         }
     }

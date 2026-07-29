@@ -162,6 +162,7 @@ private val debugCategories = listOf(
         DebugGameScenario.PROMOTION_READY to "昇格直前",
         DebugGameScenario.DEMOTION_READY to "降格直前",
         DebugGameScenario.PROMOTE to "BronzeからSilver昇格",
+        DebugGameScenario.DEMOTE to "SilverからBronze降格",
         DebugGameScenario.THREE_WIN_STREAK to "連勝3",
         DebugGameScenario.FIVE_WIN_STREAK to "連勝5",
         DebugGameScenario.THREE_LOSS_STREAK to "連敗3",
