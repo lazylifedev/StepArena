@@ -1,21 +1,27 @@
 package com.lazyapps.steparena.feature.records
 
+import androidx.annotation.StringRes
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,43 +29,69 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.StepArenaApplication
+import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.WalkingSessionEntity
+import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaColors
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
+import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-enum class RecordPeriod { HOURLY, DAILY, WEEKLY, MONTHLY, SESSIONS }
+enum class RecordPeriod { HOURLY, DAILY, SESSIONS }
 enum class RecordMetric { STEPS, DISTANCE, DURATION, CALORIES, SPEED }
 
 @Composable
 fun RecordsScreen(modifier: Modifier = Modifier) {
     val app = LocalContext.current.applicationContext as StepArenaApplication
     val zoneId = remember { app.clock.zone }
-    val hours by remember(zoneId) { app.activityRepository.observeHours(LocalDate.now(app.clock), zoneId) }
+    val date = remember(zoneId) { LocalDate.now(app.clock) }
+    val daily by remember(date, zoneId) { app.activityRepository.observeToday(date, zoneId) }
+        .collectAsState(initial = null)
+    val hours by remember(date, zoneId) { app.activityRepository.observeHours(date, zoneId) }
         .collectAsState(initial = emptyList())
     val sessions by remember { app.activityRepository.observeSessions() }
         .collectAsState(initial = emptyList())
+    RecordsContent(daily, hours, sessions, modifier)
+}
+
+@Composable
+internal fun RecordsContent(
+    daily: DailyActivityRecordEntity?,
+    hours: List<HourlyActivityRecordEntity>,
+    sessions: List<WalkingSessionEntity>,
+    modifier: Modifier = Modifier,
+) {
+    val orderedHours = remember(hours) { orderedRecordedHours(hours) }
     var period by remember { mutableStateOf(RecordPeriod.HOURLY) }
     var metric by remember { mutableStateOf(RecordMetric.STEPS) }
-    var selectedHour by remember { mutableStateOf<HourlyActivityRecordEntity?>(null) }
+    var selectedHourKey by remember(hours) {
+        mutableStateOf(orderedHours.firstOrNull()?.periodStartEpochMillis)
+    }
     var selectedSession by remember { mutableStateOf<WalkingSessionEntity?>(null) }
+    LaunchedEffect(orderedHours) {
+        if (selectedHourKey !in orderedHours.map { it.periodStartEpochMillis }) {
+            selectedHourKey = orderedHours.firstOrNull()?.periodStartEpochMillis
+        }
+    }
+    val selectedHour = orderedHours.firstOrNull { it.periodStartEpochMillis == selectedHourKey }
 
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(StepArenaSpacing.md).testTag("records_screen"),
@@ -68,45 +100,52 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
         item { Text(stringResource(R.string.records_title), style = MaterialTheme.typography.headlineMedium) }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(listOf(RecordPeriod.HOURLY, RecordPeriod.DAILY, RecordPeriod.SESSIONS)) {
+                items(RecordPeriod.entries) { item ->
                     FilterChip(
-                        selected = period == it,
-                        onClick = { period = it },
-                        label = { Text(stringResource(periodLabelRes(it))) },
+                        selected = period == item,
+                        onClick = { period = item },
+                        modifier = Modifier.testTag("record_period_${item.name.lowercase()}"),
+                        label = { Text(stringResource(item.labelRes())) },
                     )
                 }
             }
         }
         if (period == RecordPeriod.SESSIONS) {
-            if (sessions.isEmpty()) item { EmptyRecords("歩行セッションはまだありません") }
+            if (sessions.isEmpty()) item { EmptyRecords(R.string.records_empty_sessions) }
             items(sessions, key = { it.id }) { session ->
                 SessionRow(session) { selectedSession = session }
             }
         } else {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(RecordMetric.entries) {
+                    items(RecordMetric.entries) { item ->
                         FilterChip(
-                            selected = metric == it,
-                            onClick = { metric = it },
-                            label = { Text(metricLabel(it)) },
+                            selected = metric == item,
+                            onClick = { metric = item },
+                            modifier = Modifier.testTag("record_metric_${item.name.lowercase()}"),
+                            label = { Text(stringResource(item.labelRes())) },
                         )
                     }
                 }
             }
-            if (hours.isEmpty()) item { EmptyRecords("今日の活動記録はまだありません") }
-            else {
-                if (period == RecordPeriod.DAILY) {
-                    item {
-                        GlassSurface(Modifier.fillMaxWidth().testTag("daily_summary")) {
-                            Text("今日", style = MaterialTheme.typography.titleMedium)
-                            Text("${hours.sumOf { it.steps }}歩", style = MaterialTheme.typography.headlineSmall)
-                            Text("時間別の記録を合計して表示しています")
-                        }
+            if (hours.isEmpty() && daily == null) {
+                item { EmptyRecords(R.string.records_empty_today) }
+            } else if (period == RecordPeriod.DAILY) {
+                item { DailySummary(summarizeToday(metric, daily, hours), metric) }
+            } else {
+                item {
+                    HourChart(orderedHours, metric, selectedHourKey) {
+                        selectedHourKey = it.periodStartEpochMillis
                     }
-                } else {
-                    item { HourChart(hours, metric) { selectedHour = it } }
-                    selectedHour?.let { hour -> item { HourDetail(hour) } }
+                }
+                selectedHour?.let { hour ->
+                    item {
+                        HourSelection(
+                            record = hour,
+                            ordered = orderedHours,
+                            onSelect = { selectedHourKey = it.periodStartEpochMillis },
+                        )
+                    }
                 }
             }
         }
@@ -115,20 +154,45 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun DailySummary(summary: RecordSummary, metric: RecordMetric) {
+    GlassSurface(Modifier.fillMaxWidth().testTag("daily_summary")) {
+        Text(stringResource(metric.summaryTitleRes()), style = MaterialTheme.typography.titleMedium)
+        Text(summaryValue(summary.value, metric), style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.records_quality_heading))
+        Text(stringResource(summary.qualitySummary.summaryRes()))
+        Text(
+            stringResource(
+                if (summary.source == RecordSummarySource.DAILY) {
+                    R.string.records_daily_source
+                } else {
+                    R.string.records_hourly_source
+                },
+            ),
+        )
+    }
+}
+
+@Composable
 private fun HourChart(
     records: List<HourlyActivityRecordEntity>,
     metric: RecordMetric,
+    selectedKey: Long?,
     onSelect: (HourlyActivityRecordEntity) -> Unit,
 ) {
-    val ordered = records.sortedBy { it.periodStartEpochMillis }
-    val recordsByHour = ordered.groupBy { it.hourOfDay }
-    val maximum = ordered.maxOfOrNull { metricValue(it, metric) }?.coerceAtLeast(1.0) ?: 1.0
-    var selectedKey by remember(metric, records) { mutableStateOf<Long?>(null) }
-    val chartDescription = RecordAccessibilityFormatter.chartSummary(ordered, metric)
-    GlassSurface(Modifier.fillMaxWidth().testTag("hourly_chart").semantics {
-        contentDescription = chartDescription
-    }) {
-        Text("今日の${metricLabel(metric)}")
+    val recordsByHour = records.groupBy { it.hourOfDay }
+    val maximum = records.maxOfOrNull { it.value(metric) ?: 0.0 }?.coerceAtLeast(1.0) ?: 1.0
+    val chartDescription = stringResource(
+        R.string.records_chart_description,
+        stringResource(metric.labelRes()),
+        records.size,
+    )
+    val actionLabel = stringResource(R.string.records_show_hour_detail)
+    GlassSurface(
+        Modifier.fillMaxWidth().testTag("hourly_chart").semantics {
+            contentDescription = chartDescription
+        },
+    ) {
+        Text(stringResource(R.string.records_chart_title, stringResource(metric.labelRes())))
         Row(
             modifier = Modifier.fillMaxWidth().height(150.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -137,34 +201,40 @@ private fun HourChart(
             (0..23).forEach { hour ->
                 val hourRecords = recordsByHour[hour].orEmpty()
                 Row(
-                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                     horizontalArrangement = Arrangement.spacedBy(1.dp),
-                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    hourRecords.forEach { record ->
-                        val key = record.periodStartEpochMillis
-                        val quality = stringResource(record.stepsQuality.labelRes())
-                        Box(
-                            Modifier.weight(1f)
-                                .height((120 * metricValue(record, metric) / maximum).coerceAtLeast(2.0).dp)
-                                .semantics {
-                                    contentDescription = RecordAccessibilityFormatter.barDescription(
-                                        record, metric, quality,
-                                    )
-                                    selected = selectedKey == key
-                                    onClick("この時間帯の詳細を表示") {
-                                        selectedKey = key
-                                        onSelect(record)
-                                        true
+                    if (hourRecords.isEmpty()) {
+                        Box(Modifier.weight(1f).fillMaxHeight())
+                    } else {
+                        hourRecords.forEach { record ->
+                            val selected = selectedKey == record.periodStartEpochMillis
+                            val description = hourDescription(record, metric)
+                            val fill = StepArenaColors.CyanSoft
+                            val border = MaterialTheme.colorScheme.onSurface
+                            Canvas(
+                                Modifier.weight(1f).fillMaxHeight()
+                                    .semantics {
+                                        contentDescription = description
+                                        this.selected = selected
+                                        onClick(actionLabel) {
+                                            onSelect(record)
+                                            true
+                                        }
                                     }
+                                    .clickable { onSelect(record) },
+                            ) {
+                                val barHeight = (size.height * ((record.value(metric) ?: 0.0) / maximum))
+                                    .toFloat().coerceAtLeast(2.dp.toPx())
+                                val top = size.height - barHeight
+                                drawRect(fill, topLeft = Offset(0f, top))
+                                if (selected) {
+                                    drawRect(
+                                        color = border,
+                                        topLeft = Offset(0f, top),
+                                        style = Stroke(width = 2.dp.toPx()),
+                                    )
                                 }
-                                .clickable {
-                                    selectedKey = key
-                                    onSelect(record)
-                                },
-                        ) {
-                            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                                drawRect(StepArenaColors.CyanSoft)
                             }
                         }
                     }
@@ -172,35 +242,94 @@ private fun HourChart(
             }
         }
         Box(Modifier.fillMaxWidth()) {
-            Text("0時", modifier = Modifier.align(Alignment.CenterStart))
-            Text("12時", modifier = Modifier.align(Alignment.Center))
-            Text("23時", modifier = Modifier.align(Alignment.CenterEnd))
+            Text(stringResource(R.string.records_hour_zero), modifier = Modifier.align(Alignment.CenterStart))
+            Text(stringResource(R.string.records_hour_twelve), modifier = Modifier.align(Alignment.Center))
+            Text(stringResource(R.string.records_hour_twenty_three), modifier = Modifier.align(Alignment.CenterEnd))
         }
     }
 }
 
 @Composable
-private fun HourDetail(record: HourlyActivityRecordEntity) {
-    GlassSurface(Modifier.fillMaxWidth().testTag("hour_detail")) {
-        Text("${record.hourOfDay}:00（UTC${offsetText(record.utcOffsetSeconds)}）", style = MaterialTheme.typography.titleMedium)
-        Text("歩数　${record.steps}歩")
-        Text("歩行距離　${format(record.distanceMeters, "%.2f km", 1_000.0)}")
-        Text("歩行時間　${record.walkingDurationSeconds?.let { "${it / 60}分${it % 60}秒" } ?: "―"}")
-        Text("消費カロリー　${format(record.estimatedCaloriesKcal, "%.0f kcal")}")
-        Text("平均歩行時速　${format(record.averageWalkingSpeedKmh, "%.2f km/h")}")
-        Text("品質　${stringResource(record.stepsQuality.labelRes())} / 距離・カロリーは推定")
-        if (record.appliedWeightKg == 60.0) Text(stringResource(R.string.calorie_default_weight))
+private fun HourSelection(
+    record: HourlyActivityRecordEntity,
+    ordered: List<HourlyActivityRecordEntity>,
+    onSelect: (HourlyActivityRecordEntity) -> Unit,
+) {
+    val index = ordered.indexOfFirst { it.periodStartEpochMillis == record.periodStartEpochMillis }
+    val previous = ordered.getOrNull(index - 1)
+    val next = ordered.getOrNull(index + 1)
+    GlassSurface(
+        Modifier.fillMaxWidth().testTag("hour_detail"),
+    ) {
+        Text(
+            stringResource(
+                R.string.records_selected_hour,
+                record.hourOfDay,
+                offsetText(record.utcOffsetSeconds),
+            ),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.testTag("selected_hour_title"),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm),
+        ) {
+            OutlinedButton(
+                onClick = { previous?.let(onSelect) },
+                enabled = previous != null,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("previous_hour"),
+            ) { Text(stringResource(R.string.records_previous_hour)) }
+            OutlinedButton(
+                onClick = { next?.let(onSelect) },
+                enabled = next != null,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("next_hour"),
+            ) { Text(stringResource(R.string.records_next_hour)) }
+        }
+        HourDetail(record)
     }
+}
+
+@Composable
+private fun HourDetail(record: HourlyActivityRecordEntity) {
+    Text(stringResource(R.string.records_hour_steps, formatNumber(record.steps)))
+    Text(stringResource(R.string.records_hour_distance, format(record.distanceMeters, "%.2f km", 1_000.0)))
+    Text(
+        stringResource(
+            R.string.records_hour_duration,
+            record.walkingDurationSeconds?.let {
+                stringResource(R.string.records_minutes_seconds, it / 60, it % 60)
+            } ?: stringResource(R.string.records_no_value),
+        ),
+    )
+    Text(stringResource(R.string.records_hour_calories, format(record.estimatedCaloriesKcal, "%.0f kcal")))
+    Text(stringResource(R.string.records_hour_speed, format(record.averageWalkingSpeedKmh, "%.2f km/h")))
+    Text(stringResource(R.string.records_hour_quality, stringResource(record.stepsQuality.labelRes())))
+    if (record.appliedWeightKg == 60.0) Text(stringResource(R.string.calorie_default_weight))
 }
 
 @Composable
 private fun SessionRow(session: WalkingSessionEntity, onClick: () -> Unit) {
     GlassSurface(Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("session_row")) {
         Text(formatTime(session.startedAtEpochMillis))
-        Text("${stringResource(session.sessionType.labelRes())}　${session.steps}歩")
-        Text("${format(session.distanceMeters, "%.2f km", 1_000.0)}　${session.activeDurationSeconds / 60}分")
-        if (session.stepsQuality != com.lazyapps.steparena.core.database.model.DataQuality.MEASURED) {
-            Text("品質: ${stringResource(session.stepsQuality.labelRes())}", color = StepArenaColors.Amber)
+        Text(
+            stringResource(
+                R.string.records_session_summary,
+                stringResource(session.sessionType.labelRes()),
+                formatNumber(session.steps),
+            ),
+        )
+        Text(
+            stringResource(
+                R.string.records_session_metrics,
+                format(session.distanceMeters, "%.2f km", 1_000.0),
+                session.activeDurationSeconds / 60,
+            ),
+        )
+        if (session.stepsQuality != DataQuality.MEASURED) {
+            Text(
+                stringResource(R.string.records_quality_value, stringResource(session.stepsQuality.labelRes())),
+                color = StepArenaColors.Amber,
+            )
         }
     }
 }
@@ -208,43 +337,119 @@ private fun SessionRow(session: WalkingSessionEntity, onClick: () -> Unit) {
 @Composable
 private fun SessionDetail(session: WalkingSessionEntity) {
     GlassSurface(Modifier.fillMaxWidth().testTag("session_detail")) {
-        Text("セッション詳細", style = MaterialTheme.typography.titleMedium)
-        Text("開始 ${formatTime(session.startedAtEpochMillis)}")
-        Text("終了 ${session.endedAtEpochMillis?.let(::formatTime) ?: "計測中"}")
-        Text("歩数 ${session.steps}歩 / 距離 ${format(session.distanceMeters, "%.2f km", 1_000.0)}")
-        Text("歩行 ${session.activeDurationSeconds}秒 / 経過 ${session.elapsedDurationSeconds}秒 / 停止 ${session.pausedDurationSeconds}秒")
-        Text("推定カロリー ${format(session.estimatedCaloriesKcal, "%.0f kcal")}")
-        Text("移動速度 ${format(session.averageMovingSpeedKmh, "%.2f km/h")} / 経過速度 ${format(session.averageElapsedSpeedKmh, "%.2f km/h")}")
-        Text("データソース Step Counter / 品質 ${stringResource(session.stepsQuality.labelRes())}")
+        Text(stringResource(R.string.records_session_detail), style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.records_session_start, formatTime(session.startedAtEpochMillis)))
+        Text(
+            stringResource(
+                R.string.records_session_end,
+                session.endedAtEpochMillis?.let(::formatTime)
+                    ?: stringResource(R.string.records_session_measuring),
+            ),
+        )
+        Text(
+            stringResource(
+                R.string.records_session_steps_distance,
+                formatNumber(session.steps),
+                format(session.distanceMeters, "%.2f km", 1_000.0),
+            ),
+        )
+        Text(
+            stringResource(
+                R.string.records_session_durations,
+                session.activeDurationSeconds,
+                session.elapsedDurationSeconds,
+                session.pausedDurationSeconds,
+            ),
+        )
+        Text(stringResource(R.string.records_session_calories, format(session.estimatedCaloriesKcal, "%.0f kcal")))
+        Text(
+            stringResource(
+                R.string.records_session_speeds,
+                format(session.averageMovingSpeedKmh, "%.2f km/h"),
+                format(session.averageElapsedSpeedKmh, "%.2f km/h"),
+            ),
+        )
+        Text(stringResource(R.string.records_session_source, stringResource(session.stepsQuality.labelRes())))
     }
 }
 
-@Composable private fun EmptyRecords(message: String) =
-    GlassSurface(Modifier.fillMaxWidth()) { Text(message); Text("計測を開始するとここに記録されます") }
+@Composable
+private fun EmptyRecords(@StringRes messageRes: Int) =
+    GlassSurface(Modifier.fillMaxWidth()) {
+        Text(stringResource(messageRes))
+        Text(stringResource(R.string.records_empty_hint))
+    }
 
-private fun periodLabelRes(period: RecordPeriod) = when (period) {
+@StringRes
+fun RecordPeriod.labelRes(): Int = when (this) {
     RecordPeriod.HOURLY -> R.string.record_period_hourly
     RecordPeriod.DAILY -> R.string.record_period_daily
-    RecordPeriod.WEEKLY -> R.string.record_period_weekly
-    RecordPeriod.MONTHLY -> R.string.record_period_monthly
     RecordPeriod.SESSIONS -> R.string.record_period_sessions
 }
+
+@StringRes
+fun RecordMetric.labelRes(): Int = when (this) {
+    RecordMetric.STEPS -> R.string.record_metric_steps
+    RecordMetric.DISTANCE -> R.string.record_metric_distance
+    RecordMetric.DURATION -> R.string.record_metric_duration
+    RecordMetric.CALORIES -> R.string.record_metric_calories
+    RecordMetric.SPEED -> R.string.record_metric_speed
+}
+
+@StringRes
+private fun RecordMetric.summaryTitleRes(): Int = when (this) {
+    RecordMetric.STEPS -> R.string.records_today_steps
+    RecordMetric.DISTANCE -> R.string.records_today_distance
+    RecordMetric.DURATION -> R.string.records_today_duration
+    RecordMetric.CALORIES -> R.string.records_today_calories
+    RecordMetric.SPEED -> R.string.records_today_speed
+}
+
+@StringRes
+private fun RecordQualitySummary.summaryRes(): Int = when (this) {
+    RecordQualitySummary.ALL_MEASURED -> R.string.records_quality_all_measured
+    RecordQualitySummary.HAS_RECOVERED -> R.string.records_quality_has_recovered
+    RecordQualitySummary.HAS_ESTIMATED -> R.string.records_quality_has_estimated
+    RecordQualitySummary.MIXED -> R.string.records_quality_mixed_summary
+    RecordQualitySummary.HAS_UNKNOWN -> R.string.records_quality_has_unknown
+}
+
+@Composable
+private fun summaryValue(value: Double?, metric: RecordMetric): String {
+    if (value == null || !value.isFinite()) return stringResource(R.string.records_no_value)
+    return when (metric) {
+        RecordMetric.STEPS -> stringResource(R.string.records_value_steps, formatNumber(value.toLong()))
+        RecordMetric.DISTANCE -> stringResource(R.string.records_value_distance, value / 1_000.0)
+        RecordMetric.DURATION -> stringResource(R.string.records_value_duration, (value / 60.0).toLong())
+        RecordMetric.CALORIES -> stringResource(R.string.records_value_calories, value)
+        RecordMetric.SPEED -> stringResource(R.string.records_value_speed, value)
+    }
+}
+
+@Composable
+private fun hourDescription(record: HourlyActivityRecordEntity, metric: RecordMetric): String =
+    stringResource(
+        R.string.records_hour_description,
+        record.hourOfDay,
+        offsetText(record.utcOffsetSeconds),
+        summaryValue(record.value(metric), metric),
+        stringResource(record.quality(metric).labelRes()),
+    )
+
 private fun offsetText(seconds: Int): String {
     val totalMinutes = seconds / 60
     val sign = if (totalMinutes >= 0) "+" else "-"
     val absolute = kotlin.math.abs(totalMinutes)
-    return "$sign${absolute / 60}:${(absolute % 60).toString().padStart(2, '0')}"
+    return "$sign${(absolute / 60).toString().padStart(2, '0')}:" +
+        (absolute % 60).toString().padStart(2, '0')
 }
-private fun metricLabel(metric: RecordMetric) = when (metric) {
-    RecordMetric.STEPS -> "歩数"
-    RecordMetric.DISTANCE -> "距離"
-    RecordMetric.DURATION -> "時間"
-    RecordMetric.CALORIES -> "カロリー"
-    RecordMetric.SPEED -> "時速"
-}
+
 private fun format(value: Double?, pattern: String, divisor: Double = 1.0): String =
-    value?.takeIf { it.isFinite() }?.let { String.format(Locale.getDefault(), pattern, it / divisor) } ?: "―"
+    value?.takeIf { it.isFinite() }?.let { String.format(Locale.getDefault(), pattern, it / divisor) }
+        ?: "—"
+
 private fun formatTime(epoch: Long): String = DateTimeFormatter.ofPattern("M/d HH:mm")
     .format(Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault()))
+
 private fun formatNumber(value: Number): String =
-    java.text.NumberFormat.getNumberInstance(Locale.JAPAN).format(value)
+    NumberFormat.getNumberInstance(Locale.getDefault()).format(value)

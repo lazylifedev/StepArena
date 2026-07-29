@@ -2,6 +2,7 @@ package com.lazyapps.steparena.feature.game
 
 import com.lazyapps.steparena.game.MatchOutcome
 import com.lazyapps.steparena.game.SeasonStatus
+import com.lazyapps.steparena.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -9,22 +10,22 @@ import org.junit.Test
 
 class GamePresentationTest {
     @Test fun outcomesUseWalkingChallengeLanguage() {
-        assertEquals("目標達成", MatchOutcome.WIN.displayName())
-        assertEquals("あと一歩", MatchOutcome.LOSS.displayName())
-        assertEquals("同じ歩数", MatchOutcome.DRAW.displayName())
-        assertEquals("判定対象外", MatchOutcome.NO_CONTEST.displayName())
+        assertEquals(R.string.game_outcome_win, MatchOutcome.WIN.displayNameRes())
+        assertEquals(R.string.game_outcome_loss, MatchOutcome.LOSS.displayNameRes())
+        assertEquals(R.string.game_outcome_draw, MatchOutcome.DRAW.displayNameRes())
+        assertEquals(R.string.game_outcome_no_contest, MatchOutcome.NO_CONTEST.displayNameRes())
     }
 
     @Test fun seasonStatusDoesNotExposeInternalEnum() {
-        assertEquals("集計中", SeasonStatus.ACTIVE.displayName())
-        assertEquals("集計済み", SeasonStatus.FINALIZED.displayName())
+        assertEquals(R.string.game_season_active, SeasonStatus.ACTIVE.displayNameRes())
+        assertEquals(R.string.game_season_finalized, SeasonStatus.FINALIZED.displayNameRes())
     }
 
     @Test fun unknownPartnerNameIsDeterministicAndNeverLeaksInternalName() {
-        val first = participantDisplayName("UnknownEnglishPartner")
-        assertEquals(first, participantDisplayName("UnknownEnglishPartner"))
-        assertFalse(first.contains("Unknown"))
-        assertEquals("あなた", participantDisplayName("You"))
+        val first = participantDisplayNameRes("UnknownEnglishPartner")
+        assertEquals(first, participantDisplayNameRes("UnknownEnglishPartner"))
+        assertFalse(first == 0)
+        assertEquals(R.string.game_you, participantDisplayNameRes("You"))
     }
 
     @Test fun nextRankProgressAndHighestRankAreReported() {

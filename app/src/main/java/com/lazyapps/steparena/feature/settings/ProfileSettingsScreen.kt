@@ -39,7 +39,7 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
     var weight by remember { mutableStateOf("") }
     var stepLengthCm by remember { mutableStateOf("") }
     var automatic by remember { mutableStateOf(true) }
-    var message by remember { mutableStateOf<String?>(null) }
+    var messageRes by remember { mutableStateOf<Int?>(null) }
     val validator = remember { DefaultUserBodyProfileValidator() }
     LaunchedEffect(Unit) {
         repository.current().let {
@@ -63,17 +63,17 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
                 Checkbox(automatic, { automatic = it })
                 Text(stringResource(R.string.profile_auto_step))
             }
-            Text("距離: km　速度: km/h　体重: kg")
+            Text(stringResource(R.string.profile_units))
             Button(onClick = {
                 val result = validator.validate(height, weight, stepLengthCm, automatic)
-                if (!result.isValid) message = "入力値を確認してください"
+                if (!result.isValid) messageRes = R.string.profile_invalid
                 else scope.launch {
                     runCatching { repository.save(requireNotNull(result.profile)) }
-                        .onSuccess { message = "保存しました" }
-                        .onFailure { message = "入力値を確認してください" }
+                        .onSuccess { messageRes = R.string.profile_saved }
+                        .onFailure { messageRes = R.string.profile_invalid }
                 }
             }) { Text(stringResource(R.string.profile_save)) }
-            message?.let { Text(it) }
+            messageRes?.let { Text(stringResource(it)) }
         }
         Text(stringResource(R.string.profile_history_policy))
     }

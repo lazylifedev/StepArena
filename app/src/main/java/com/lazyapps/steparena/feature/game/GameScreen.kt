@@ -1,37 +1,61 @@
 package com.lazyapps.steparena.feature.game
 
-import androidx.compose.foundation.layout.*
+import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.component.RankBadge
 import com.lazyapps.steparena.core.designsystem.component.RankProgressBar
 import com.lazyapps.steparena.core.designsystem.component.StepProgressRing
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
-import com.lazyapps.steparena.game.*
+import com.lazyapps.steparena.game.GameNotificationType
+import com.lazyapps.steparena.game.LeagueStatus
+import com.lazyapps.steparena.game.MatchOutcome
+import com.lazyapps.steparena.game.MatchStatus
+import com.lazyapps.steparena.game.RankDefinition
+import com.lazyapps.steparena.game.RankSystem
+import com.lazyapps.steparena.game.SeasonStatus
+import java.text.NumberFormat
 import java.time.Instant
-import java.time.ZoneId
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
 
-enum class GamePage(val label: String) {
-    MATCH("チャレンジ"), RANK("歩行ランク"), LEAGUE("週間グループ"),
-    SEASON("月間記録"), ACHIEVEMENTS("達成記録")
-}
+enum class GamePage { MATCH, RANK, LEAGUE, SEASON, ACHIEVEMENTS }
 
 object GameTestTags {
     const val SCREEN = "game_screen"
@@ -44,24 +68,31 @@ object GameTestTags {
 fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf(initialPage) }
-    val promotion = state.notificationEvents.firstOrNull {
+    state.notificationEvents.firstOrNull {
         it.type == GameNotificationType.PROMOTION && !it.acknowledged
-    }
-    promotion?.let { event ->
+    }?.let { event ->
         AlertDialog(
             modifier = Modifier.testTag(GameTestTags.PROMOTION),
             onDismissRequest = { vm.acknowledgeEvent(event.id) },
-            title = { Text("歩行ランクが更新されました") },
-            text = { Text("歩行レート ${formatNumber(state.profile?.rating ?: 0)}") },
+            title = { Text(stringResource(R.string.game_promotion_title)) },
+            text = {
+                Text(stringResource(R.string.game_rating_value, formatNumber(state.profile?.rating ?: 0)))
+            },
             confirmButton = {
-                TextButton(onClick = { vm.acknowledgeEvent(event.id) }) { Text("閉じる") }
+                TextButton(onClick = { vm.acknowledgeEvent(event.id) }) {
+                    Text(stringResource(R.string.common_close))
+                }
             },
         )
     }
     Column(Modifier.fillMaxSize().testTag(GameTestTags.SCREEN)) {
-        ScrollableTabRow(selectedTabIndex = page.ordinal) {
-            GamePage.entries.forEach {
-                Tab(selected = page == it, onClick = { page = it }, text = { Text(it.label) })
+        PrimaryScrollableTabRow(selectedTabIndex = page.ordinal) {
+            GamePage.entries.forEach { item ->
+                Tab(
+                    selected = page == item,
+                    onClick = { page = item },
+                    text = { Text(stringResource(item.labelRes())) },
+                )
             }
         }
         when (page) {
@@ -81,48 +112,78 @@ private fun MatchPage(state: GameUiState) = LazyColumn(
     verticalArrangement = Arrangement.spacedBy(12.dp),
 ) {
     item {
-        Text("今日のチャレンジ", style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.semantics { heading() })
-        Text("毎日の歩数を、端末内で自動生成されたパートナーと比べます。実在するユーザーとのオンライン対戦ではありません。")
+        Text(
+            stringResource(R.string.game_today_title),
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.semantics { heading() },
+        )
+        Text(stringResource(R.string.game_today_explanation))
     }
     state.todayMatch?.let { match ->
         item {
-            GameCard("今日の進捗") {
+            GameCard(stringResource(R.string.game_today_progress)) {
                 StepProgressRing(
-                    progress = (match.eligibleUserSteps.toFloat() / match.opponentTargetSteps.coerceAtLeast(1))
-                        .coerceIn(0f, 1f),
-                    description = "今日のチャレンジ進捗。あなた${match.eligibleUserSteps}歩、パートナー目標${match.opponentTargetSteps}歩",
+                    progress = (match.eligibleUserSteps.toFloat() /
+                        match.opponentTargetSteps.coerceAtLeast(1)).coerceIn(0f, 1f),
+                    description = stringResource(
+                        R.string.game_progress_description,
+                        formatNumber(match.eligibleUserSteps),
+                        formatNumber(match.opponentTargetSteps),
+                    ),
                     modifier = Modifier.size(152.dp),
                 ) {
-                    Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                        Text("あなた", style = MaterialTheme.typography.labelLarge)
-                        Text("${formatNumber(match.eligibleUserSteps)}歩", style = MaterialTheme.typography.titleLarge)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(stringResource(R.string.game_you), style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            stringResource(R.string.records_value_steps, formatNumber(match.eligibleUserSteps)),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
                     }
                 }
-                Text("パートナー目標 ${formatNumber(match.opponentTargetSteps)}歩")
-                Text(progressText(match.eligibleUserSteps, match.opponentTargetSteps))
-                Text("チャレンジ対象歩数 ${formatNumber(match.eligibleUserSteps)}歩")
+                Text(stringResource(R.string.game_partner_target, formatNumber(match.opponentTargetSteps)))
+                Text(
+                    if (match.eligibleUserSteps >= match.opponentTargetSteps) {
+                        stringResource(R.string.game_goal_achieved)
+                    } else {
+                        stringResource(
+                            R.string.game_steps_remaining,
+                            formatNumber(match.opponentTargetSteps - match.eligibleUserSteps),
+                        )
+                    },
+                )
+                Text(stringResource(R.string.game_eligible_steps, formatNumber(match.eligibleUserSteps)))
                 if (match.restrictedUserSteps + match.excludedUserSteps > 0) {
-                    Text("一部の補完歩数は公平性のため制限されています。")
+                    Text(stringResource(R.string.game_restricted_steps))
                 }
                 if (match.totalUserSteps > 30_000) {
                     Text(
-                        "健康への配慮から、チャレンジに使える歩数は1日30,000歩が上限です。",
+                        stringResource(R.string.game_health_cap),
                         modifier = Modifier.testTag(GameTestTags.HEALTH_CAP),
                     )
                 }
             }
         }
-    } ?: item { Text("今日のチャレンジを準備しています。", modifier = Modifier.testTag(GameTestTags.EMPTY)) }
-    item { Text("過去のチャレンジ", style = MaterialTheme.typography.titleLarge) }
+    } ?: item {
+        Text(stringResource(R.string.game_today_loading), modifier = Modifier.testTag(GameTestTags.EMPTY))
+    }
+    item { Text(stringResource(R.string.game_past_title), style = MaterialTheme.typography.titleLarge) }
     val finalized = state.recentMatches.filter { it.status == MatchStatus.FINALIZED }
-    if (finalized.isEmpty()) item { Text("記録されたチャレンジはまだありません。") }
-    items(finalized) {
-        GameCard(formatDate(it.localDate)) {
-            Text(it.outcome?.displayName() ?: "集計中", style = MaterialTheme.typography.titleMedium)
-            Text("あなた ${formatNumber(it.eligibleUserSteps)}歩")
-            Text("パートナー目標 ${formatNumber(it.opponentTargetSteps)}歩")
-            Text("歩行レート ${formatNumber(it.ratingBefore)} → ${it.ratingAfter?.let(::formatNumber) ?: "―"}")
+    if (finalized.isEmpty()) item { Text(stringResource(R.string.game_past_empty)) }
+    items(finalized) { match ->
+        GameCard(formatDate(match.localDate)) {
+            Text(
+                stringResource((match.outcome ?: MatchOutcome.IN_PROGRESS).displayNameRes()),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(stringResource(R.string.game_user_steps, formatNumber(match.eligibleUserSteps)))
+            Text(stringResource(R.string.game_partner_target, formatNumber(match.opponentTargetSteps)))
+            Text(
+                stringResource(
+                    R.string.game_rating_change,
+                    formatNumber(match.ratingBefore),
+                    match.ratingAfter?.let(::formatNumber) ?: stringResource(R.string.records_no_value),
+                ),
+            )
         }
     }
 }
@@ -133,28 +194,40 @@ private fun RankPage(state: GameUiState) = LazyColumn(
     contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
 ) {
-    item { Text("歩行ランク", style = MaterialTheme.typography.headlineMedium) }
+    item { Text(stringResource(R.string.game_rank_title), style = MaterialTheme.typography.headlineMedium) }
     state.profile?.let { profile ->
         item {
             val rank = RankSystem.definition(profile.rating)
             GameCard(rank.displayName) {
                 RankBadge(rank.displayName)
-                Text("歩行レート ${formatNumber(profile.rating)}", style = MaterialTheme.typography.headlineSmall)
-                Text("目標達成 ${profile.wins}回 / あと一歩 ${profile.losses}回 / 同じ歩数 ${profile.draws}回")
-                Text("連続達成 ${profile.currentWinStreak}回 / 最長 ${profile.bestWinStreak}回")
+                Text(
+                    stringResource(R.string.game_rating_value, formatNumber(profile.rating)),
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(stringResource(R.string.game_result_counts, profile.wins, profile.losses, profile.draws))
+                Text(
+                    stringResource(
+                        R.string.game_streak_counts,
+                        profile.currentWinStreak,
+                        profile.bestWinStreak,
+                    ),
+                )
                 val next = nextRankProgress(profile.rating)
                 if (next == null) {
-                    Text("現在の最高ランクです")
+                    Text(stringResource(R.string.game_highest_rank))
                 } else {
-                    Text("次の歩行ランク ${next.rank.displayName}")
-                    Text("次の歩行ランクまで ${formatNumber(next.remaining)}")
+                    Text(stringResource(R.string.game_next_rank, next.rank.displayName))
+                    Text(stringResource(R.string.game_next_rank_remaining, formatNumber(next.remaining)))
                     RankProgressBar(
                         progress = next.progress,
-                        description = "次の歩行ランクまでの進捗 ${(next.progress * 100).toInt()}パーセント",
+                        description = stringResource(
+                            R.string.game_rank_progress_description,
+                            (next.progress * 100).toInt(),
+                        ),
                     )
                 }
                 if (profile.beginnerMatchesRemaining > 0) {
-                    Text("初心者サポート 残り${profile.beginnerMatchesRemaining}回")
+                    Text(stringResource(R.string.game_beginner_support, profile.beginnerMatchesRemaining))
                 }
             }
         }
@@ -167,25 +240,38 @@ private fun LeaguePage(state: GameUiState) = LazyColumn(
     contentPadding = PaddingValues(16.dp),
 ) {
     item {
-        Text("週間グループ", style = MaterialTheme.typography.headlineMedium)
-        Text("自動生成された10人分の歩数スコアと比べて、今週の位置を確認できます。実在するユーザーの記録ではありません。")
+        Text(stringResource(R.string.game_league_title), style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.game_league_explanation))
     }
     state.league?.let { league ->
         item {
-            Text("${formatDate(league.weekStartLocalDate)}〜${formatDate(league.weekEndLocalDate)}")
-            Text("あなたの週間順位 ${league.userRank ?: "-"}位 / 10人")
-            Text("週間ポイント ${formatNumber(league.userPoints)}")
-            if (league.status == LeagueStatus.FINALIZED) {
-                Text("週間記録を集計しました")
-            }
+            Text(
+                stringResource(
+                    R.string.game_date_range,
+                    formatDate(league.weekStartLocalDate),
+                    formatDate(league.weekEndLocalDate),
+                ),
+            )
+            Text(stringResource(R.string.game_league_rank, league.userRank ?: "-", 10))
+            Text(stringResource(R.string.game_weekly_points, formatNumber(league.userPoints)))
+            if (league.status == LeagueStatus.FINALIZED) Text(stringResource(R.string.game_league_finalized))
         }
         items(participantRows(league.participantsJson)) { (name, points) ->
             ListItem(
-                headlineContent = { Text(participantDisplayName(name), fontWeight = if (name == "You") FontWeight.Bold else null) },
-                trailingContent = { Text("${formatNumber(points)}ポイント") },
+                headlineContent = {
+                    Text(
+                        stringResource(participantDisplayNameRes(name)),
+                        fontWeight = if (name == "You") FontWeight.Bold else null,
+                    )
+                },
+                trailingContent = {
+                    Text(stringResource(R.string.game_points_value, formatNumber(points)))
+                },
             )
         }
-    } ?: item { Text("週間グループを準備しています。", modifier = Modifier.testTag(GameTestTags.EMPTY)) }
+    } ?: item {
+        Text(stringResource(R.string.game_league_loading), modifier = Modifier.testTag(GameTestTags.EMPTY))
+    }
 }
 
 @Composable
@@ -194,18 +280,26 @@ private fun SeasonPage(state: GameUiState) = LazyColumn(
     contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
 ) {
-    item { Text("月間記録", style = MaterialTheme.typography.headlineMedium) }
+    item { Text(stringResource(R.string.game_season_title), style = MaterialTheme.typography.headlineMedium) }
     state.season?.let { season ->
         item {
             GameCard(formatMonth(season.id)) {
-                Text(season.status.displayName())
-                Text("歩行レート ${formatNumber(season.startRating)} → ${formatNumber(season.endRating ?: state.profile?.rating ?: 0)}")
-                Text("目標達成 ${season.wins}回 / あと一歩 ${season.losses}回 / 同じ歩数 ${season.draws}回")
-                Text("合計チャレンジ対象歩数 ${formatNumber(season.totalEligibleSteps)}歩")
-                Text("最長連続達成 ${season.bestWinStreak}回")
+                Text(stringResource(season.status.displayNameRes()))
+                Text(
+                    stringResource(
+                        R.string.game_rating_change,
+                        formatNumber(season.startRating),
+                        formatNumber(season.endRating ?: state.profile?.rating ?: 0),
+                    ),
+                )
+                Text(stringResource(R.string.game_result_counts, season.wins, season.losses, season.draws))
+                Text(stringResource(R.string.game_total_eligible_steps, formatNumber(season.totalEligibleSteps)))
+                Text(stringResource(R.string.game_best_streak, season.bestWinStreak))
             }
         }
-    } ?: item { Text("月間記録を準備しています。", modifier = Modifier.testTag(GameTestTags.EMPTY)) }
+    } ?: item {
+        Text(stringResource(R.string.game_season_loading), modifier = Modifier.testTag(GameTestTags.EMPTY))
+    }
 }
 
 @Composable
@@ -214,17 +308,21 @@ private fun AchievementPage(state: GameUiState) = LazyColumn(
     contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
 ) {
-    item { Text("達成記録", style = MaterialTheme.typography.headlineMedium) }
+    item { Text(stringResource(R.string.game_achievement_title), style = MaterialTheme.typography.headlineMedium) }
     items(achievementDefinitions) { definition ->
         val unlocked = state.achievements.firstOrNull { it.achievementId == definition.id }
-        GameCard(definition.title) {
-            Text(definition.description)
+        GameCard(stringResource(definition.titleRes)) {
+            Text(stringResource(definition.descriptionRes))
             Text(
-                if (unlocked != null) "達成済み" else definition.progress(unlocked?.progressValue ?: 0),
+                if (unlocked != null) stringResource(R.string.game_achievement_unlocked)
+                else stringResource(
+                    definition.progressRes,
+                    formatNumber(unlocked?.progressValue ?: 0),
+                ),
                 fontWeight = FontWeight.Bold,
             )
             unlocked?.let {
-                Text("達成日 ${formatEpochDate(it.unlockedAtEpochMillis)}")
+                Text(stringResource(R.string.game_achievement_date, formatEpochDate(it.unlockedAtEpochMillis)))
             }
         }
     }
@@ -234,7 +332,11 @@ private fun AchievementPage(state: GameUiState) = LazyColumn(
 private fun GameCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     GlassSurface(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() },
+            )
             content()
         }
     }
@@ -242,49 +344,82 @@ private fun GameCard(title: String, content: @Composable ColumnScope.() -> Unit)
 
 private data class AchievementPresentation(
     val id: String,
-    val title: String,
-    val description: String,
-    val progress: (Long) -> String = { "未達成" },
-)
-private val achievementDefinitions = listOf(
-    AchievementPresentation("first_1000_steps", "はじめの1,000歩", "1日に1,000歩を記録する") { "${formatNumber(it)} / 1,000歩" },
-    AchievementPresentation("three_day_streak", "3日連続記録", "3日連続で歩数を記録する") { "$it / 3日" },
-    AchievementPresentation("seven_day_streak", "7日連続記録", "7日連続で歩数を記録する") { "$it / 7日" },
-    AchievementPresentation("first_win", "初めての目標達成", "デイリーチャレンジを1回達成する"),
-    AchievementPresentation("three_wins", "3回連続達成", "チャレンジを3回連続で達成する") { "$it / 3回" },
-    AchievementPresentation("five_wins", "5回連続達成", "チャレンジを5回連続で達成する") { "$it / 5回" },
-    AchievementPresentation("daily_10000_steps", "1日10,000歩", "1日に10,000歩を記録する") { "${formatNumber(it)} / 10,000歩" },
-    AchievementPresentation("daily_20000_steps", "1日20,000歩", "1日に20,000歩を記録する") { "${formatNumber(it)} / 20,000歩" },
-    AchievementPresentation("silver_promotion", "Silver到達", "歩行ランクSilverに到達する"),
-    AchievementPresentation("season_10_matches", "月間10チャレンジ", "1か月に10回チャレンジする") { "$it / 10回" },
-    AchievementPresentation("seven_days_no_recovery", "補完なし7日連続", "補完なしで7日連続記録する") { "$it / 7日" },
-    AchievementPresentation("gap_recovery_success", "欠測補完成功", "欠測した歩数を補完する"),
+    @param:StringRes val titleRes: Int,
+    @param:StringRes val descriptionRes: Int,
+    @param:StringRes val progressRes: Int = R.string.game_achievement_not_unlocked,
 )
 
-private fun signed(value: Int?) = value?.let { if (it >= 0) "+$it" else "$it" } ?: "-"
-fun MatchOutcome.displayName(): String = when (this) {
-    MatchOutcome.WIN -> "目標達成"
-    MatchOutcome.LOSS -> "あと一歩"
-    MatchOutcome.DRAW -> "同じ歩数"
-    MatchOutcome.NO_CONTEST -> "判定対象外"
-    MatchOutcome.IN_PROGRESS -> "集計中"
-    MatchOutcome.CANCELLED -> "記録なし"
+private val achievementDefinitions = listOf(
+    AchievementPresentation("first_1000_steps", R.string.achievement_first_1000_title, R.string.achievement_first_1000_body, R.string.achievement_progress_1000_steps),
+    AchievementPresentation("three_day_streak", R.string.achievement_three_days_title, R.string.achievement_three_days_body, R.string.achievement_progress_three_days),
+    AchievementPresentation("seven_day_streak", R.string.achievement_seven_days_title, R.string.achievement_seven_days_body, R.string.achievement_progress_seven_days),
+    AchievementPresentation("first_win", R.string.achievement_first_win_title, R.string.achievement_first_win_body),
+    AchievementPresentation("three_wins", R.string.achievement_three_wins_title, R.string.achievement_three_wins_body, R.string.achievement_progress_three_wins),
+    AchievementPresentation("five_wins", R.string.achievement_five_wins_title, R.string.achievement_five_wins_body, R.string.achievement_progress_five_wins),
+    AchievementPresentation("daily_10000_steps", R.string.achievement_daily_10000_title, R.string.achievement_daily_10000_body, R.string.achievement_progress_10000_steps),
+    AchievementPresentation("daily_20000_steps", R.string.achievement_daily_20000_title, R.string.achievement_daily_20000_body, R.string.achievement_progress_20000_steps),
+    AchievementPresentation("silver_promotion", R.string.achievement_silver_title, R.string.achievement_silver_body),
+    AchievementPresentation("season_10_matches", R.string.achievement_ten_matches_title, R.string.achievement_ten_matches_body, R.string.achievement_progress_ten_matches),
+    AchievementPresentation("seven_days_no_recovery", R.string.achievement_no_recovery_title, R.string.achievement_no_recovery_body, R.string.achievement_progress_seven_days),
+    AchievementPresentation("gap_recovery_success", R.string.achievement_recovery_title, R.string.achievement_recovery_body),
+)
+
+@StringRes
+fun GamePage.labelRes(): Int = when (this) {
+    GamePage.MATCH -> R.string.game_tab_match
+    GamePage.RANK -> R.string.game_tab_rank
+    GamePage.LEAGUE -> R.string.game_tab_league
+    GamePage.SEASON -> R.string.game_tab_season
+    GamePage.ACHIEVEMENTS -> R.string.game_tab_achievements
 }
-fun SeasonStatus.displayName(): String = when (this) {
-    SeasonStatus.ACTIVE -> "集計中"
-    SeasonStatus.FINALIZED -> "集計済み"
+
+@StringRes
+fun MatchOutcome.displayNameRes(): Int = when (this) {
+    MatchOutcome.WIN -> R.string.game_outcome_win
+    MatchOutcome.LOSS -> R.string.game_outcome_loss
+    MatchOutcome.DRAW -> R.string.game_outcome_draw
+    MatchOutcome.NO_CONTEST -> R.string.game_outcome_no_contest
+    MatchOutcome.IN_PROGRESS -> R.string.game_outcome_in_progress
+    MatchOutcome.CANCELLED -> R.string.game_outcome_cancelled
 }
-private fun progressText(steps: Long, target: Long) =
-    if (steps >= target) "目標を達成しました" else "あと${formatNumber(target - steps)}歩"
-fun participantDisplayName(name: String) = when (name) {
-    "You" -> "あなた"
-    else -> mapOf("Aoi" to "あさひ", "Ren" to "こもれび", "Sora" to "そよかぜ",
-        "Hina" to "ひなた", "Riku" to "みちくさ", "Yui" to "あおぞら",
-        "Kai" to "かわべ", "Mio" to "つきみ")[name]
-        ?: partnerNames[Math.floorMod(name.hashCode(), partnerNames.size)]
+
+@StringRes
+fun SeasonStatus.displayNameRes(): Int = when (this) {
+    SeasonStatus.ACTIVE -> R.string.game_season_active
+    SeasonStatus.FINALIZED -> R.string.game_season_finalized
 }
-private val partnerNames = listOf("あさひ", "こもれび", "そよかぜ", "ひなた", "みちくさ", "あおぞら", "かわべ", "つきみ", "なぎさ", "わかば")
+
+@StringRes
+fun participantDisplayNameRes(name: String): Int {
+    val fixed = mapOf(
+        "You" to R.string.game_you,
+        "Aoi" to R.string.partner_asahi,
+        "Ren" to R.string.partner_komorebi,
+        "Sora" to R.string.partner_soyokaze,
+        "Hina" to R.string.partner_hinata,
+        "Riku" to R.string.partner_michikusa,
+        "Yui" to R.string.partner_aozora,
+        "Kai" to R.string.partner_kawabe,
+        "Mio" to R.string.partner_tsukimi,
+    )
+    return fixed[name] ?: partnerNameResources[Math.floorMod(name.hashCode(), partnerNameResources.size)]
+}
+
+private val partnerNameResources = intArrayOf(
+    R.string.partner_asahi,
+    R.string.partner_komorebi,
+    R.string.partner_soyokaze,
+    R.string.partner_hinata,
+    R.string.partner_michikusa,
+    R.string.partner_aozora,
+    R.string.partner_kawabe,
+    R.string.partner_tsukimi,
+    R.string.partner_nagisa,
+    R.string.partner_wakaba,
+)
+
 data class NextRankProgress(val rank: RankDefinition, val remaining: Int, val progress: Float)
+
 fun nextRankProgress(rating: Int): NextRankProgress? {
     val current = RankSystem.definition(rating)
     val next = RankSystem.definitions.getOrNull(RankSystem.definitions.indexOf(current) + 1) ?: return null
@@ -292,20 +427,26 @@ fun nextRankProgress(rating: Int): NextRankProgress? {
     return NextRankProgress(
         rank = next,
         remaining = (next.minimumRating - rating).coerceAtLeast(0),
-        progress = ((rating - current.minimumRating).toFloat() / span.coerceAtLeast(1)).coerceIn(0f, 1f),
+        progress = ((rating - current.minimumRating).toFloat() / span.coerceAtLeast(1))
+            .coerceIn(0f, 1f),
     )
 }
+
 private fun formatNumber(value: Number): String =
-    java.text.NumberFormat.getNumberInstance(Locale.JAPAN).format(value)
+    NumberFormat.getNumberInstance(Locale.getDefault()).format(value)
+
 private fun formatDate(value: String): String = runCatching {
-    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.JAPAN))
+    LocalDate.parse(value).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 }.getOrDefault(value)
+
 private fun formatMonth(value: String): String = runCatching {
-    YearMonth.parse(value.take(7)).format(DateTimeFormatter.ofPattern("yyyy年M月", Locale.JAPAN))
-}.getOrDefault("月間記録")
+    YearMonth.parse(value.take(7)).format(DateTimeFormatter.ofPattern("yyyy-MM", Locale.getDefault()))
+}.getOrDefault(value)
+
 private fun formatEpochDate(value: Long): String =
     Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate()
-        .format(DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.getDefault()))
+        .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+
 private fun participantRows(json: String): List<Pair<String, Int>> =
     Regex(""""name":"([^"]+)","points":(\d+)""").findAll(json)
         .map { it.groupValues[1] to it.groupValues[2].toInt() }.toList()

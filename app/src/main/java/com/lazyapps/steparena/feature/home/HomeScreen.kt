@@ -164,19 +164,22 @@ private fun HomeReadyContent(
                 GlassSurface(
                     Modifier.fillMaxWidth().testTag(HomeTestTags.MANUAL_SESSION),
                 ) {
-                    Text("計測中", color = StepArenaColors.Emerald)
+                    Text(stringResource(R.string.home_manual_tracking), color = StepArenaColors.Emerald)
                     Text(
-                        "開始 ${StepArenaTimeFormatter.time(
+                        stringResource(R.string.home_manual_started, StepArenaTimeFormatter.time(
                             java.time.Instant.ofEpochMilli(manual.startedAtEpochMillis),
                             ZoneId.systemDefault(),
                             locale,
                             true,
-                        )}",
+                        )),
                     )
-                    Text("セッション ${numberFormat.format(manual.steps)}歩")
+                    Text(stringResource(R.string.home_manual_steps, numberFormat.format(manual.steps)))
                     Text(
-                        "${ActivityFormatter.distance(manual.distanceMeters, DistanceUnit.KILOMETER, locale)}・" +
+                        stringResource(
+                            R.string.home_manual_metrics,
+                            ActivityFormatter.distance(manual.distanceMeters, DistanceUnit.KILOMETER, locale),
                             ActivityFormatter.duration(manual.elapsedSeconds),
+                        ),
                     )
                 }
             }
@@ -184,9 +187,9 @@ private fun HomeReadyContent(
         item {
             PrimaryActionButton(
                 text = when (uiState.sessionState) {
-                    SessionState.TRACKING_STOPPED -> "歩数計測を開始"
-                    SessionState.TRACKING -> "散歩を開始"
-                    SessionState.MANUAL_WALK -> "散歩を終了"
+                    SessionState.TRACKING_STOPPED -> stringResource(R.string.home_start_tracking)
+                    SessionState.TRACKING -> stringResource(R.string.home_start_walk)
+                    SessionState.MANUAL_WALK -> stringResource(R.string.home_end_walk)
                 },
                 onClick = {
                     when (uiState.sessionState) {
@@ -206,7 +209,7 @@ private fun HomeReadyContent(
                 TextButton(
                     onClick = { showStopConfirmation = true },
                     modifier = Modifier.testTag(HomeTestTags.STOP_TRACKING_BUTTON),
-                ) { Text("歩数計測を停止") }
+                ) { Text(stringResource(R.string.home_stop_tracking)) }
             }
         }
         item {
@@ -275,9 +278,17 @@ private fun HomeReadyContent(
             }
         }
         item {
+            val opponentName = if (snapshot.match.opponentName.isBlank()) {
+                stringResource(R.string.match_opponent_preparing)
+            } else {
+                snapshot.match.opponentName
+            }
             MatchCard(
                 title = stringResource(R.string.match_title),
-                opponent = stringResource(R.string.match_opponent, snapshot.match.opponentName),
+                opponent = stringResource(
+                    R.string.match_opponent,
+                    opponentName,
+                ),
                 selfLabel = stringResource(R.string.match_you),
                 opponentLabel = stringResource(R.string.match_rival),
                 selfProgress = snapshot.match.selfProgress,
@@ -324,16 +335,16 @@ private fun HomeReadyContent(
     if (showStopConfirmation) {
         AlertDialog(
             onDismissRequest = { showStopConfirmation = false },
-            title = { Text("歩数計測を停止しますか？") },
-            text = { Text("停止中はStepArenaのリアルタイム歩数が更新されません。") },
+            title = { Text(stringResource(R.string.home_stop_confirm_title)) },
+            text = { Text(stringResource(R.string.home_stop_confirm_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     showStopConfirmation = false
                     onAction(HomeAction.StopTracking)
-                }) { Text("停止") }
+                }) { Text(stringResource(R.string.home_stop)) }
             },
             dismissButton = {
-                TextButton(onClick = { showStopConfirmation = false }) { Text("キャンセル") }
+                TextButton(onClick = { showStopConfirmation = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }

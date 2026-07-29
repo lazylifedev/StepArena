@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class Phase6PoliciesTest {
     @Test fun onboardingVersionOnlyChangesForMaterialFlowChanges() {
@@ -39,5 +40,26 @@ class Phase6PoliciesTest {
         assertFalse(output.contains("12345"))
         assertFalse(output.contains("secret"))
         assertFalse(output.contains("external"))
+    }
+
+    @Test fun releaseComposableSourcesDoNotContainJapaneseStringLiterals() {
+        val direct = File("src/main/java/com/lazyapps/steparena")
+        val sourceRoot = if (direct.isDirectory) direct else File("app", direct.path)
+        assertTrue("Release source root must exist", sourceRoot.isDirectory)
+        val targets = listOf(File(sourceRoot, "feature"), File(sourceRoot, "app"))
+            .flatMap { root -> root.walkTopDown().filter { it.extension == "kt" }.toList() }
+        val japaneseLiteral = Regex(
+            "\"[^\"\\r\\n]*[\\u3040-\\u30ff\\u3400-\\u9fff][^\"\\r\\n]*\"",
+        )
+        val violations = targets.flatMap { file ->
+            file.readLines().mapIndexedNotNull { index, line ->
+                if (japaneseLiteral.containsMatchIn(line)) {
+                    "${file.relativeTo(sourceRoot)}:${index + 1}"
+                } else {
+                    null
+                }
+            }
+        }
+        assertEquals("Public UI strings must use Android resources", emptyList<String>(), violations)
     }
 }

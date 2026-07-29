@@ -1,5 +1,6 @@
 package com.lazyapps.steparena.feature.settings
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -8,9 +9,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DataUsage
-import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
@@ -52,29 +53,29 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.md),
     ) {
         Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineMedium)
-        SettingsHeading("計測")
-        SettingRow(Icons.Default.HealthAndSafety, "Health Connect", "未接続・任意の歩数補完", onRecoverySettings)
-        SettingRow(Icons.Default.DirectionsWalk, "補完履歴", "補完された歩数の確認", onRecoveryHistory)
-        SettingRow(Icons.Default.Info, stringResource(R.string.settings_diagnostics), "計測状態と権限の確認", onDiagnostics)
-        SettingsHeading("プロフィール・計算")
-        SettingRow(Icons.Default.Person, stringResource(R.string.settings_profile), "歩幅と消費カロリーの設定", onProfile)
-        SettingsHeading("チャレンジ")
+        SettingsHeading(R.string.settings_heading_tracking)
+        SettingRow(Icons.Default.HealthAndSafety, R.string.settings_health_connect, R.string.settings_health_connect_summary, onRecoverySettings)
+        SettingRow(Icons.AutoMirrored.Filled.DirectionsWalk, R.string.settings_recovery_history, R.string.settings_recovery_history_summary, onRecoveryHistory)
+        SettingRow(Icons.Default.Info, R.string.settings_diagnostics, R.string.settings_diagnostics_summary, onDiagnostics)
+        SettingsHeading(R.string.settings_heading_profile)
+        SettingRow(Icons.Default.Person, R.string.settings_profile, R.string.settings_profile_summary, onProfile)
+        SettingsHeading(R.string.settings_heading_challenge)
         GameNotificationSetting()
-        SettingRow(Icons.Default.DirectionsWalk, "チャレンジ説明をもう一度見る", "端末内パートナーと歩数ルール", onReplayOnboarding)
-        SettingsHeading("データ管理")
-        SettingRow(Icons.Default.DataUsage, "データ管理", "書き出し・初期化・全削除", onDataManagement)
-        SettingsHeading("アプリ情報")
-        SettingRow(Icons.Default.Info, "プライバシーポリシー", "データの取り扱い", onPrivacy)
-        SettingRow(Icons.Default.Info, "利用上の注意・免責", "安全に利用するための情報", onTerms)
-        SettingRow(Icons.Default.Info, "オープンソースライセンス", "利用しているソフトウェア", onLicenses)
-        SettingRow(Icons.Default.Info, "バージョンとアプリ情報", "StepArenaについて", onAbout)
+        SettingRow(Icons.AutoMirrored.Filled.DirectionsWalk, R.string.settings_replay_onboarding, R.string.settings_replay_onboarding_summary, onReplayOnboarding)
+        SettingsHeading(R.string.settings_heading_data)
+        SettingRow(Icons.Default.DataUsage, R.string.data_management_title, R.string.settings_data_summary, onDataManagement)
+        SettingsHeading(R.string.settings_heading_info)
+        SettingRow(Icons.Default.Info, R.string.info_privacy_title, R.string.settings_privacy_summary, onPrivacy)
+        SettingRow(Icons.Default.Info, R.string.info_terms_title, R.string.settings_terms_summary, onTerms)
+        SettingRow(Icons.Default.Info, R.string.info_licenses_title, R.string.settings_licenses_summary, onLicenses)
+        SettingRow(Icons.Default.Info, R.string.settings_about, R.string.settings_about_summary, onAbout)
     }
 }
 
 @Composable
-private fun SettingsHeading(label: String) {
+private fun SettingsHeading(@StringRes labelRes: Int) {
     Text(
-        label,
+        stringResource(labelRes),
         style = MaterialTheme.typography.titleLarge,
         modifier = Modifier.semantics { heading() },
     )
@@ -93,8 +94,8 @@ private fun GameNotificationSetting() {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(Icons.Default.Notifications, contentDescription = null)
             Column(Modifier.weight(1f)) {
-                Text("チャレンジ記録の通知", style = MaterialTheme.typography.titleMedium)
-                Text("目標達成・歩行ランク・達成記録を通知（22:00〜8:00を除く）")
+                Text(stringResource(R.string.settings_game_notifications), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.settings_game_notifications_summary))
             }
             Switch(
                 checked = enabled,
@@ -110,10 +111,17 @@ private fun GameNotificationSetting() {
 }
 
 @Composable
-private fun SettingRow(icon: ImageVector, label: String, supporting: String, onClick: () -> Unit) {
+private fun SettingRow(
+    icon: ImageVector,
+    @StringRes labelRes: Int,
+    @StringRes supportingRes: Int,
+    onClick: () -> Unit,
+) {
+    val label = stringResource(labelRes)
+    val clickLabel = stringResource(R.string.settings_open, label)
     GlassSurface(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(
-            onClickLabel = "${label}を開く",
+            onClickLabel = clickLabel,
             onClick = onClick,
         ),
     ) {
@@ -121,7 +129,7 @@ private fun SettingRow(icon: ImageVector, label: String, supporting: String, onC
             Icon(icon, contentDescription = null)
             Column(Modifier.weight(1f)) {
                 Text(label, style = MaterialTheme.typography.titleMedium)
-                Text(supporting, style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(supportingRes), style = MaterialTheme.typography.bodyMedium)
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null)
         }

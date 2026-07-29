@@ -236,7 +236,7 @@ class HomeViewModel(
         trackingStatus = status,
         lastHealthyAt = lastHealthyAt,
         match = DailyMatch(
-            gameMatch?.opponentName ?: "準備中",
+            gameMatch?.opponentName.orEmpty(),
             gameMatch?.let { steps.toFloat().div(it.opponentTargetSteps.coerceAtLeast(1)).coerceIn(0f, 1f) } ?: 0f,
             gameMatch?.let {
                 val now = java.time.ZonedDateTime.now()

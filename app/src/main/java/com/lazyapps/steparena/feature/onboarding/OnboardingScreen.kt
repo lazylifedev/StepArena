@@ -1,5 +1,6 @@
 package com.lazyapps.steparena.feature.onboarding
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,8 +15,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Sensors
@@ -27,6 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import com.lazyapps.steparena.R
 
 object OnboardingTestTags {
     const val SCREEN = "onboarding_screen"
@@ -35,18 +39,17 @@ object OnboardingTestTags {
 }
 
 data class OnboardingPage(
-    val title: String,
-    val body: String,
+    @param:StringRes val titleRes: Int,
+    @param:StringRes val bodyRes: Int,
     val icon: ImageVector,
-    val action: String = "次へ",
 )
 
 val onboardingPages = listOf(
-    OnboardingPage("歩くことを、毎日の楽しいチャレンジに。", "StepArenaは端末の歩数センサーで日々の活動を記録する歩数計アプリです。チャレンジパートナーは端末内で自動生成され、実在ユーザーとのオンライン対戦ではありません。アカウントは不要で、通常データは端末内に保存します。無理な歩行を促すものではありません。", Icons.Default.DirectionsWalk),
-    OnboardingPage("計測方法", "Step Counterを利用します。精度やバックグラウンド動作は端末により異なり、再起動や省電力設定で停止する場合があります。Health Connectは任意・既定OFFの補完機能です。医療用測定ではありません。", Icons.Default.Sensors),
-    OnboardingPage("必要なときに権限を確認", "身体活動は計測開始時、通知は計測通知が必要なとき、Health Connectの歩数読取は設定でONにしたときだけ説明して要求します。拒否しても記録の閲覧、設定、ヘルプは利用できます。", Icons.Default.Lock),
-    OnboardingPage("チャレンジのルール", "今日のチャレンジ対象歩数を、自動生成されたパートナーの目標と比べます。対象歩数の上限は1日30,000歩です。補完・推定歩数には制限がありますが、通常の歩数記録は上限後も残ります。", Icons.Default.EmojiEvents),
-    OnboardingPage("準備ができました", "まずは歩数計測を開始してください。Health Connectは後から設定できます。", Icons.Default.CheckCircle),
+    OnboardingPage(R.string.onboarding_title_1, R.string.onboarding_body_1, Icons.AutoMirrored.Filled.DirectionsWalk),
+    OnboardingPage(R.string.onboarding_title_2, R.string.onboarding_body_2, Icons.Default.Sensors),
+    OnboardingPage(R.string.onboarding_title_3, R.string.onboarding_body_3, Icons.Default.Lock),
+    OnboardingPage(R.string.onboarding_title_4, R.string.onboarding_body_4, Icons.Default.EmojiEvents),
+    OnboardingPage(R.string.onboarding_title_5, R.string.onboarding_body_5, Icons.Default.CheckCircle),
 )
 
 @Composable
@@ -58,15 +61,25 @@ fun OnboardingScreen(
     onLater: () -> Unit = onNext,
 ) {
     val page = onboardingPages[step.coerceIn(onboardingPages.indices)]
+    val progressDescription = stringResource(
+        R.string.onboarding_progress_description,
+        step + 1,
+        onboardingPages.size,
+    )
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp).testTag(OnboardingTestTags.SCREEN),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.Start,
     ) {
-        Text("${step + 1} / ${onboardingPages.size}", color = MaterialTheme.colorScheme.secondary)
+        Text(
+            stringResource(R.string.onboarding_page_progress, step + 1, onboardingPages.size),
+            color = MaterialTheme.colorScheme.secondary,
+        )
         LinearProgressIndicator(
             progress = { (step + 1f) / onboardingPages.size },
-            modifier = Modifier.fillMaxWidth().testTag("onboarding_progress"),
+            modifier = Modifier.fillMaxWidth().testTag("onboarding_progress").semantics {
+                contentDescription = progressDescription
+            },
         )
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Icon(
@@ -75,25 +88,27 @@ fun OnboardingScreen(
                 modifier = Modifier.padding(top = 16.dp).testTag("onboarding_icon"),
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Text(page.title, style = MaterialTheme.typography.headlineMedium,
+            Text(stringResource(page.titleRes), style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(top = 16.dp).semantics { heading() })
-            Text(page.body, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 24.dp))
+            Text(stringResource(page.bodyRes), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 24.dp))
         }
         if (step == onboardingPages.lastIndex) {
             Button(onClick = onStartTracking, modifier = Modifier.fillMaxWidth().testTag(OnboardingTestTags.NEXT)) {
-                Text("歩数計測を開始")
+                Text(stringResource(R.string.onboarding_start_tracking))
             }
             OutlinedButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) {
-                Text("あとで開始")
+                Text(stringResource(R.string.onboarding_start_later))
             }
         } else {
-            Button(onClick = onNext, modifier = Modifier.fillMaxWidth().testTag(OnboardingTestTags.NEXT)) { Text(page.action) }
+            Button(onClick = onNext, modifier = Modifier.fillMaxWidth().testTag(OnboardingTestTags.NEXT)) {
+                Text(stringResource(R.string.onboarding_next))
+            }
         }
         if (step > 0) {
             OutlinedButton(
                 onClick = onBack,
                 modifier = Modifier.fillMaxWidth().testTag(OnboardingTestTags.BACK),
-            ) { Text("戻る") }
+            ) { Text(stringResource(R.string.onboarding_back)) }
         }
     }
 }

@@ -15,8 +15,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -196,7 +196,7 @@ private fun transitionsFor(level: MotionLevel): Pair<EnterTransition, ExitTransi
 
 private fun destinationIcon(destination: AppDestination): ImageVector = when (destination) {
     AppDestination.HOME -> Icons.Default.Home
-    AppDestination.MATCH -> Icons.Default.DirectionsWalk
+    AppDestination.MATCH -> Icons.AutoMirrored.Filled.DirectionsWalk
     AppDestination.RECORDS -> Icons.Default.BarChart
     AppDestination.ACHIEVEMENTS -> Icons.Default.EmojiEvents
     AppDestination.SETTINGS -> Icons.Default.Settings
