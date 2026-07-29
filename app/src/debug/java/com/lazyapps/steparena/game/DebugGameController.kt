@@ -29,6 +29,7 @@ class DebugGameController(private val application: DebugStepArenaApplication) {
             DebugGameScenario.ABNORMAL_STEPS -> setSteps(100_001, DataQuality.UNKNOWN)
             DebugGameScenario.CREATE_MATCH -> repository.ensureTodayMatch()
             DebugGameScenario.SET_NPC_LOW -> updateMatch { it.copy(opponentId = "debug-low", opponentTargetSteps = 1_000) }
+            DebugGameScenario.SET_NPC_4000 -> updateMatch { it.copy(opponentId = "debug-4000", opponentTargetSteps = 4_000) }
             DebugGameScenario.SET_NPC_HIGH -> updateMatch { it.copy(opponentId = "debug-high", opponentTargetSteps = 30_000) }
             DebugGameScenario.WIN -> updateMatch { it.copy(opponentId = "debug-win", opponentTargetSteps = 1) }
             DebugGameScenario.LOSS -> updateMatch { it.copy(opponentId = "debug-loss", opponentTargetSteps = 30_000) }
@@ -81,7 +82,6 @@ class DebugGameController(private val application: DebugStepArenaApplication) {
                 database.gameNotificationEvents().deleteDebugEvents()
                 database.daily().deleteDebugRecords()
                 database.achievementUnlocks().deleteDebug()
-                repository.ensureTodayMatch()
             }
         }
     }

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -31,5 +32,15 @@ class DebugGameScreenTest {
         assertEquals(null, executed)
         compose.onNodeWithText("実行").performClick()
         assertEquals(DebugGameScenario.COUNTER_5000, executed)
+    }
+
+    @Test fun phase51RequiredResetAndNpcTargetAreReachable() {
+        compose.setContent { StepArenaTheme { DebugGameScreen({}, {}) } }
+        compose.onNodeWithTag(DebugGameTestTags.action(DebugGameScenario.SET_NPC_4000))
+            .performScrollTo()
+            .assertIsDisplayed()
+        compose.onNodeWithTag(DebugGameTestTags.action(DebugGameScenario.RESET_DEBUG_DATA))
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 }

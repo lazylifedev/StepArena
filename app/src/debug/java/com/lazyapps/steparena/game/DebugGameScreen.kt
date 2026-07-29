@@ -93,6 +93,7 @@ private val debugCategories = listOf(
     "試合" to listOf(
         DebugGameScenario.CREATE_MATCH to "今日の試合を生成",
         DebugGameScenario.SET_NPC_LOW to "NPC目標を低く設定",
+        DebugGameScenario.SET_NPC_4000 to "NPC目標を4,000歩に設定",
         DebugGameScenario.SET_NPC_HIGH to "NPC目標を高く設定",
         DebugGameScenario.WIN to "勝利状態を作る",
         DebugGameScenario.LOSS to "敗北状態を作る",
@@ -139,6 +140,10 @@ private val debugCategories = listOf(
         DebugGameScenario.CHANGE_TIME_ZONE to "ZoneId変更",
         DebugGameScenario.CLOCK_ROLLBACK to "時刻巻き戻し相当",
         DebugGameScenario.SAME_DAY_REPROCESS to "同日再処理",
+    ),
+    "保守" to listOf(
+        DebugGameScenario.RERUN_WORK_MANAGER to "Game Maintenanceを実行",
+        DebugGameScenario.RESET_DEBUG_DATA to "Debugゲーム・当日活動データを初期化",
     ),
 )
 
