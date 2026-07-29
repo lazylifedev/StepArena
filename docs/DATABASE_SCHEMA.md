@@ -22,3 +22,10 @@ Migration 1 to 2 is non-destructive. It persists unclassified-step quality,
 profile inputs applied to hourly metrics, walking-session recovery fields, and
 active automatic/manual session references. Exported Room schemas `1.json` and
 `2.json` are both retained.
+The dedicated `Migration1To2PreservesActivityDataTest` creates a real version 1
+database, inserts hourly, daily, session, and processing-state fixtures, and opens it
+as version 2 with schema validation. Existing hourly rows receive immutable version 1
+assumptions: 0.70 m step length, 60 kg applied weight, and formula version 1.
+Daily `unclassifiedStepsQuality` is `UNKNOWN` when the count is zero and `RECOVERED`
+when it is positive. These migration values are historical evidence and are not
+rewritten by later profile changes.

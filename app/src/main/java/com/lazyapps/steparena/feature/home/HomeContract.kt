@@ -13,16 +13,27 @@ sealed interface HomeContent {
 data class HomeUiState(
     val content: HomeContent = HomeContent.Loading,
     val motionLevel: MotionLevel = MotionLevel.FULL,
-    val sessionState: SessionState = SessionState.IDLE,
+    val sessionState: SessionState = SessionState.TRACKING_STOPPED,
     val trackingUiStatus: com.lazyapps.steparena.tracking.TrackingStatus =
         com.lazyapps.steparena.tracking.TrackingStatus.INITIALIZING,
     val sensorSupported: Boolean = true,
+    val manualSession: ManualSessionUi? = null,
 )
 
-enum class SessionState { IDLE, STARTED }
+data class ManualSessionUi(
+    val id: String,
+    val startedAtEpochMillis: Long,
+    val steps: Long,
+    val distanceMeters: Double,
+    val elapsedSeconds: Long,
+)
+
+enum class SessionState { TRACKING_STOPPED, TRACKING, MANUAL_WALK }
 
 sealed interface HomeAction {
     data object StartSession : HomeAction
+    data object StartManualWalk : HomeAction
+    data class EndManualWalk(val sessionId: String) : HomeAction
     data object StopTracking : HomeAction
     data object OpenDiagnostics : HomeAction
     data object Retry : HomeAction

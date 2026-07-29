@@ -42,3 +42,8 @@ hourly, daily, session and last-processed sensor state updates.
 `WalkingDurationCalculator` and `UserBodyProfileValidator` logic is separated
 from repository orchestration. `ActivityRepository` remains the Room transaction
 boundary and restores active session identity from persisted state.
+Phase 3.2 keeps service lifecycle in `StepTrackingService` and walking-session
+transactions in `ActivityRepository`. Home observes `trackingRequested` and the
+Room-backed active manual session independently. Notification start/end commands are
+service intents, while UUID validation and automatic/manual priority are enforced by
+the repository.

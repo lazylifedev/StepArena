@@ -50,6 +50,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE hourly_activity_records ADD COLUMN appliedWeightKg REAL NOT NULL DEFAULT 60.0")
                 db.execSQL("ALTER TABLE hourly_activity_records ADD COLUMN calorieFormulaVersion INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE daily_activity_records ADD COLUMN unclassifiedStepsQuality TEXT NOT NULL DEFAULT 'UNKNOWN'")
+                db.execSQL("UPDATE daily_activity_records SET unclassifiedStepsQuality = 'RECOVERED' WHERE unclassifiedSteps > 0")
                 db.execSQL("ALTER TABLE walking_sessions ADD COLUMN lastWalkingEventAtEpochMillis INTEGER")
                 db.execSQL("ALTER TABLE walking_sessions ADD COLUMN pausedSinceEpochMillis INTEGER")
                 db.execSQL("ALTER TABLE walking_sessions ADD COLUMN isManual INTEGER NOT NULL DEFAULT 0")

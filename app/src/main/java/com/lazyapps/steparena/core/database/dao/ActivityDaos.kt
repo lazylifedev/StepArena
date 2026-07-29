@@ -40,6 +40,10 @@ interface WalkingSessionDao {
     suspend fun countForDate(date: String): Int
     @Query("SELECT * FROM walking_sessions WHERE status IN ('ACTIVE','PAUSED') AND isManual = :manual ORDER BY startedAtEpochMillis DESC LIMIT 1")
     suspend fun active(manual: Boolean): WalkingSessionEntity?
+    @Query("SELECT * FROM walking_sessions WHERE status IN ('ACTIVE','PAUSED') AND isManual = 1 ORDER BY startedAtEpochMillis DESC LIMIT 1")
+    fun observeActiveManual(): Flow<WalkingSessionEntity?>
+    @Query("SELECT * FROM walking_sessions WHERE status IN ('ACTIVE','PAUSED')")
+    suspend fun activeSessions(): List<WalkingSessionEntity>
 }
 
 @Dao

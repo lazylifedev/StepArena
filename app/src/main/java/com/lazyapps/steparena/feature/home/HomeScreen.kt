@@ -74,6 +74,8 @@ import java.util.Locale
 object HomeTestTags {
     const val CONTENT = "home_content"
     const val START_BUTTON = "start_session_button"
+    const val STOP_TRACKING_BUTTON = "stop_tracking_button"
+    const val MANUAL_SESSION = "manual_session"
     const val TRACKING_STATUS = "tracking_status"
     const val MATCH_CARD = "match_card"
     const val BOTTOM_REACH_MARKER = "home_bottom_marker"
@@ -159,22 +161,54 @@ private fun HomeReadyContent(
             StepsPanel(snapshot, goalProgress, numberFormat, uiState.motionLevel)
         }
         item {
+            uiState.manualSession?.let { manual ->
+                GlassSurface(
+                    Modifier.fillMaxWidth().testTag(HomeTestTags.MANUAL_SESSION),
+                ) {
+                    Text("計測中", color = StepArenaColors.Emerald)
+                    Text(
+                        "開始 ${StepArenaTimeFormatter.time(
+                            java.time.Instant.ofEpochMilli(manual.startedAtEpochMillis),
+                            ZoneId.systemDefault(),
+                            locale,
+                            true,
+                        )}",
+                    )
+                    Text("セッション ${numberFormat.format(manual.steps)}歩")
+                    Text(
+                        "${ActivityFormatter.distance(manual.distanceMeters, DistanceUnit.KILOMETER, locale)}・" +
+                            ActivityFormatter.duration(manual.elapsedSeconds),
+                    )
+                }
+            }
+        }
+        item {
             PrimaryActionButton(
-                text = if (uiState.sessionState == SessionState.STARTED) {
-                    "常駐計測を停止"
-                } else {
-                    "常駐計測を開始"
+                text = when (uiState.sessionState) {
+                    SessionState.TRACKING_STOPPED -> "歩数計測を開始"
+                    SessionState.TRACKING -> "散歩を開始"
+                    SessionState.MANUAL_WALK -> "散歩を終了"
                 },
                 onClick = {
-                    if (uiState.sessionState == SessionState.STARTED) {
-                        showStopConfirmation = true
-                    } else {
-                        onAction(HomeAction.StartSession)
+                    when (uiState.sessionState) {
+                        SessionState.TRACKING_STOPPED -> onAction(HomeAction.StartSession)
+                        SessionState.TRACKING -> onAction(HomeAction.StartManualWalk)
+                        SessionState.MANUAL_WALK -> uiState.manualSession?.let {
+                            onAction(HomeAction.EndManualWalk(it.id))
+                        }
                     }
                 },
                 enabled = uiState.sensorSupported,
                 modifier = Modifier.testTag(HomeTestTags.START_BUTTON),
             )
+        }
+        if (uiState.sessionState != SessionState.TRACKING_STOPPED) {
+            item {
+                TextButton(
+                    onClick = { showStopConfirmation = true },
+                    modifier = Modifier.testTag(HomeTestTags.STOP_TRACKING_BUTTON),
+                ) { Text("歩数計測を停止") }
+            }
         }
         item {
             SectionHeader(

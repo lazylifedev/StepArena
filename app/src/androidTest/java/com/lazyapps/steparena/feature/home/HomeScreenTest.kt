@@ -42,7 +42,9 @@ class HomeScreenTest {
         composeRule.setContent {
             StepArenaTheme {
                 HomeScreen(state, {
-                    if (it == HomeAction.StartSession) state = state.copy(sessionState = SessionState.STARTED)
+                    if (it == HomeAction.StartSession) {
+                        state = state.copy(sessionState = SessionState.TRACKING)
+                    }
                 })
             }
         }
@@ -50,6 +52,28 @@ class HomeScreenTest {
             .performScrollToNode(hasTestTag(HomeTestTags.START_BUTTON))
         composeRule.onNodeWithTag(HomeTestTags.START_BUTTON).performClick()
         composeRule.onNodeWithTag(HomeTestTags.START_BUTTON).assertIsDisplayed()
+    }
+
+    @Test fun primaryAction_distinguishesTrackingAndManualWalk() {
+        setState(readyState.copy(sessionState = SessionState.TRACKING))
+        composeRule.onNodeWithTag(HomeTestTags.CONTENT)
+            .performScrollToNode(hasText("散歩を開始"))
+        composeRule.onNodeWithText("散歩を開始").assertIsDisplayed()
+        composeRule.onNodeWithText("歩数計測を停止").assertIsDisplayed()
+    }
+
+    @Test fun manualWalk_displaysSessionMetricsAndEndAction() {
+        setState(
+            readyState.copy(
+                sessionState = SessionState.MANUAL_WALK,
+                manualSession = ManualSessionUi("manual-uuid", 1_775_000_000_000, 842, 589.4, 480),
+            ),
+        )
+        composeRule.onNodeWithTag(HomeTestTags.CONTENT)
+            .performScrollToNode(hasTestTag(HomeTestTags.MANUAL_SESSION))
+        composeRule.onNodeWithText("セッション 842歩").assertIsDisplayed()
+        composeRule.onNodeWithText("散歩を終了").assertIsDisplayed()
+        composeRule.onNodeWithText("歩数計測を停止").assertIsDisplayed()
     }
 
     @Test fun bottomNavigation_opensSafePlaceholder() {
@@ -78,6 +102,10 @@ class HomeScreenTest {
                 HomeScreen(HomeUiState(HomeContent.Ready(value), MotionLevel.OFF), {})
             }
         }
+    }
+
+    private fun setState(state: HomeUiState) {
+        composeRule.setContent { StepArenaTheme { HomeScreen(state, {}) } }
     }
 
     private val readyState get() = HomeUiState(HomeContent.Ready(snapshot), MotionLevel.OFF)

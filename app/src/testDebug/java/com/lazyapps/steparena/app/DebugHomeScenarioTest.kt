@@ -9,7 +9,7 @@ import org.junit.Test
 class DebugHomeScenarioTest {
     @Test
     fun everyScenario_producesAnEvaluationState() {
-        assertEquals(22, DebugHomeScenario.entries.size)
+        assertEquals(23, DebugHomeScenario.entries.size)
 
         DebugHomeScenario.entries.forEach { scenario ->
             val state = scenario.uiState(MotionLevel.OFF)

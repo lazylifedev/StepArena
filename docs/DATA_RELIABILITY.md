@@ -44,3 +44,12 @@ Step Detector only improves timing, walking-duration, and session-boundary estim
 Recovered unclassified steps retain `RECOVERED` quality across daily rebuilds.
 Daily quality merges hourly quality with unclassified quality. Home reliability
 is derived from the stored quality instead of treating every record as estimated.
+## Manual walk invariants
+
+Daily steps equal hourly steps plus unclassified steps. A manual session is a
+non-additive view of the same accepted counter deltas. Processing-state idempotency
+prevents a counter value from being accepted twice, and session routing selects
+exactly one of automatic or manual. Completed sessions reject later deltas.
+`activeDurationSeconds + pausedDurationSeconds <= elapsedDurationSeconds` is enforced
+when updating and finalizing sessions. Missing detector evidence lowers duration and
+speed quality rather than inventing active time.

@@ -37,6 +37,44 @@ class ActivityRepository(
     fun observeHours(date: LocalDate, zoneId: ZoneId) =
         database.hourly().observeDate(date.toString(), zoneId.id)
     fun observeSessions() = database.sessions().observeAll()
+    fun observeActiveManualSession() = database.sessions().observeActiveManual()
+    suspend fun currentManualSession() = database.sessions().active(true)
+
+    suspend fun startManualSession(
+        at: Instant,
+        zoneId: ZoneId,
+        trackingServiceSessionId: String,
+    ): WalkingSessionEntity = writer.withLock {
+        database.withTransaction {
+            database.sessions().active(true)?.let { return@withTransaction it }
+            database.sessions().active(false)?.let { finishSessionLocked(it, at) }
+            val profile = profileRepository.current()
+            val id = UUID.randomUUID().toString()
+            val session = newManualSession(id, at, zoneId, trackingServiceSessionId, profile)
+            database.sessions().upsert(session)
+            updateProcessingSessionIds(at)
+            session
+        }
+    }
+
+    suspend fun endManualSession(id: String, at: Instant): Boolean = writer.withLock {
+        database.withTransaction {
+            val session = database.sessions().get(id)
+            if (session == null || !session.isManual ||
+                session.status !in setOf(WalkingSessionStatus.ACTIVE, WalkingSessionStatus.PAUSED)
+            ) return@withTransaction false
+            finishSessionLocked(session, at, forceCompleted = true)
+            updateProcessingSessionIds(at)
+            true
+        }
+    }
+
+    suspend fun finishAllActiveSessions(at: Instant) = writer.withLock {
+        database.withTransaction {
+            database.sessions().activeSessions().forEach { finishSessionLocked(it, at) }
+            updateProcessingSessionIds(at)
+        }
+    }
 
     suspend fun recordDetector(at: Instant) = writer.withLock {
         detectorEvents.addLast(at)
@@ -84,10 +122,18 @@ class ActivityRepository(
                 val bucketDuration = if (allocations.size == 1) addedDuration else 0
                 upsertHour(bucket, steps, at, profile, quality, bucketDuration)
             }
-            updateAutoSession(
-                delta, at, zoneId, profile, quality, trackingServiceSessionId,
-                addedDuration, consumedDetectors.size,
-            )
+            splitManualSessionAtDateBoundary(at, zoneId, profile, trackingServiceSessionId)
+            val manual = database.sessions().active(true)
+            if (manual != null) {
+                updateManualSession(
+                    manual, delta, at, profile, quality, addedDuration, consumedDetectors.size,
+                )
+            } else {
+                updateAutoSession(
+                    delta, at, zoneId, profile, quality, trackingServiceSessionId,
+                    addedDuration, consumedDetectors.size,
+                )
+            }
             val affectedDays = allocations.keys.map { it.date to it.zone }.toSet()
             if (longGap) {
                 rebuildDay(
@@ -376,10 +422,14 @@ class ActivityRepository(
         }
     }
 
-    private suspend fun finishSessionLocked(session: WalkingSessionEntity, at: Instant) {
+    private suspend fun finishSessionLocked(
+        session: WalkingSessionEntity,
+        at: Instant,
+        forceCompleted: Boolean = false,
+    ) {
         val elapsed = Duration.between(Instant.ofEpochMilli(session.startedAtEpochMillis), at)
             .seconds.coerceAtLeast(session.activeDurationSeconds)
-        val completed = session.steps >= policy.minimumSessionSteps ||
+        val completed = forceCompleted || session.steps >= policy.minimumSessionSteps ||
             session.activeDurationSeconds >= policy.minimumSessionDurationSeconds
         database.sessions().upsert(
             session.copy(
@@ -388,6 +438,127 @@ class ActivityRepository(
                 pausedDurationSeconds = (elapsed - session.activeDurationSeconds).coerceAtLeast(0),
                 pausedSinceEpochMillis = null,
                 status = if (completed) WalkingSessionStatus.COMPLETED else WalkingSessionStatus.DISCARDED,
+                updatedAtEpochMillis = at.toEpochMilli(),
+            ),
+        )
+    }
+
+    private suspend fun updateManualSession(
+        old: WalkingSessionEntity,
+        delta: Long,
+        at: Instant,
+        profile: UserBodyProfile,
+        quality: DataQuality,
+        addedDurationSeconds: Long,
+        detectorCount: Int,
+    ) {
+        val steps = old.steps + delta
+        val elapsed = Duration.between(Instant.ofEpochMilli(old.startedAtEpochMillis), at)
+            .seconds.coerceAtLeast(0)
+        val active = (old.activeDurationSeconds + addedDurationSeconds).coerceIn(0, elapsed)
+        val distance = steps * stepLengthEstimator.estimate(profile).meters
+        val speed = WalkingSpeedCalculator.movingKmh(distance, active)
+        val calories = calorieEstimator.estimate(profile.weightKg, distance, active, speed)?.kcal
+        database.sessions().upsert(
+            old.copy(
+                steps = steps,
+                distanceMeters = distance,
+                activeDurationSeconds = active,
+                elapsedDurationSeconds = elapsed,
+                pausedDurationSeconds = (elapsed - active).coerceAtLeast(0),
+                estimatedCaloriesKcal = calories,
+                averageMovingSpeedKmh = speed,
+                averageElapsedSpeedKmh = WalkingSpeedCalculator.movingKmh(distance, elapsed),
+                status = WalkingSessionStatus.ACTIVE,
+                stepsQuality = mergeQuality(listOf(old.stepsQuality, quality)),
+                distanceQuality = DataQuality.ESTIMATED,
+                durationQuality = if (active >= 60) quality else DataQuality.UNKNOWN,
+                caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
+                speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
+                lastWalkingEventAtEpochMillis = at.toEpochMilli(),
+                pausedSinceEpochMillis = null,
+                detectorEventCount = old.detectorEventCount + detectorCount,
+                estimatedStepCount = old.estimatedStepCount +
+                    if (quality in setOf(DataQuality.ESTIMATED, DataQuality.MIXED)) delta else 0,
+                recoveredStepCount = old.recoveredStepCount +
+                    if (quality == DataQuality.RECOVERED) delta else 0,
+                updatedAtEpochMillis = at.toEpochMilli(),
+            ),
+        )
+    }
+
+    private suspend fun splitManualSessionAtDateBoundary(
+        at: Instant,
+        zoneId: ZoneId,
+        profile: UserBodyProfile,
+        trackingServiceSessionId: String?,
+    ) {
+        val old = database.sessions().active(true) ?: return
+        val date = at.atZone(zoneId).toLocalDate()
+        if (old.localDate == date.toString()) return
+        val boundary = date.atStartOfDay(zoneId).toInstant()
+        finishSessionLocked(old, boundary, forceCompleted = true)
+        database.sessions().upsert(
+            newManualSession(
+                UUID.randomUUID().toString(),
+                boundary,
+                zoneId,
+                trackingServiceSessionId ?: old.trackingServiceSessionId.orEmpty(),
+                profile,
+            ),
+        )
+    }
+
+    private fun newManualSession(
+        id: String,
+        at: Instant,
+        zoneId: ZoneId,
+        trackingServiceSessionId: String,
+        profile: UserBodyProfile,
+    ) = WalkingSessionEntity(
+        id = id,
+        localDate = at.atZone(zoneId).toLocalDate().toString(),
+        zoneId = zoneId.id,
+        startedAtEpochMillis = at.toEpochMilli(),
+        endedAtEpochMillis = null,
+        steps = 0,
+        distanceMeters = 0.0,
+        activeDurationSeconds = 0,
+        elapsedDurationSeconds = 0,
+        pausedDurationSeconds = 0,
+        estimatedCaloriesKcal = 0.0,
+        averageMovingSpeedKmh = null,
+        averageElapsedSpeedKmh = null,
+        sessionType = WalkingSessionType.MANUAL_WALK,
+        status = WalkingSessionStatus.ACTIVE,
+        stepsQuality = DataQuality.UNKNOWN,
+        distanceQuality = DataQuality.ESTIMATED,
+        durationQuality = DataQuality.UNKNOWN,
+        caloriesQuality = if (profile.weightKg == null) DataQuality.ESTIMATED else DataQuality.UNKNOWN,
+        speedQuality = DataQuality.UNKNOWN,
+        trackingServiceSessionId = trackingServiceSessionId,
+        lastWalkingEventAtEpochMillis = null,
+        pausedSinceEpochMillis = null,
+        isManual = true,
+        detectorEventCount = 0,
+        estimatedStepCount = 0,
+        recoveredStepCount = 0,
+        createdAtEpochMillis = at.toEpochMilli(),
+        updatedAtEpochMillis = at.toEpochMilli(),
+    )
+
+    private suspend fun updateProcessingSessionIds(at: Instant) {
+        val old = database.processingState().get()
+        database.processingState().upsert(
+            ActivityProcessingStateEntity(
+                lastCounterValue = old?.lastCounterValue,
+                lastEventEpochMillis = old?.lastEventEpochMillis,
+                lastZoneId = old?.lastZoneId,
+                lastBootSessionId = old?.lastBootSessionId,
+                activeAutoSessionId = database.sessions().active(false)?.id,
+                activeManualSessionId = database.sessions().active(true)?.id,
+                lastDetectorEventEpochMillis = old?.lastDetectorEventEpochMillis,
+                lastWalkingEventEpochMillis = old?.lastWalkingEventEpochMillis,
                 updatedAtEpochMillis = at.toEpochMilli(),
             ),
         )

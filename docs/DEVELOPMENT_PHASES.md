@@ -39,3 +39,9 @@ gates.
 Corrects sensor time, walking duration, session identity/timeouts, Room v2,
 time-zone/DST reads, quality retention, settings navigation, and localization.
 Daily, weekly, and monthly record periods remain disabled for a later phase.
+## Phase 3.2 completion
+
+Phase 3.2 separates continuous tracking from manual walking, adds manual UUID
+lifecycle/UI/notification actions, automatic-to-manual priority, midnight splitting,
+process restoration through Room, stale-action rejection, and a dedicated Room 1 to 2
+migration test. Physical walking validation remains an explicit pre-release gate.
