@@ -20,3 +20,10 @@
 - Release ビルドで Debug 専用画面・識別子・内部 enum が露出しないこと
 
 週別・月別 Records は集計データと画面設計を同時に導入する将来範囲とし、未完成 Chip は Release UI に表示しません。
+
+## Phase 6.6
+
+- 時間別グラフ全体に、当日合計と最大時間帯を含む TalkBack 要約を追加。速度は合計せず最速時間帯のみ、値のない指標は「今日の歩行記録はありません」とする。
+- Foreground Service、計測停止警告、チャレンジ記録の通知文言とチャネル名・説明・操作ラベルを文字列リソースへ移動。
+- Release の `feature` / `app` Composable と、`service` / `recovery` / `game` の通知実装を静的監査対象とする。
+- 公開日時は端末ロケールまたは既存 Formatter を使い、日本語固定 Locale は導入しない。

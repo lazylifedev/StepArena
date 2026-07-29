@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -48,6 +49,9 @@ import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaColors
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
+import com.lazyapps.steparena.core.units.ActivityFormatter
+import com.lazyapps.steparena.core.units.DistanceUnit
+import com.lazyapps.steparena.core.units.SpeedUnit
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -181,11 +185,8 @@ private fun HourChart(
 ) {
     val recordsByHour = records.groupBy { it.hourOfDay }
     val maximum = records.maxOfOrNull { it.value(metric) ?: 0.0 }?.coerceAtLeast(1.0) ?: 1.0
-    val chartDescription = stringResource(
-        R.string.records_chart_description,
-        stringResource(metric.labelRes()),
-        records.size,
-    )
+    val summary = remember(records, metric) { chartAccessibilitySummary(metric, records) }
+    val chartDescription = stringResource(summary.templateRes, *summary.arguments.toTypedArray())
     val actionLabel = stringResource(R.string.records_show_hour_detail)
     GlassSurface(
         Modifier.fillMaxWidth().testTag("hourly_chart").semantics {
@@ -291,8 +292,9 @@ private fun HourSelection(
 
 @Composable
 private fun HourDetail(record: HourlyActivityRecordEntity) {
+    val locale = LocalConfiguration.current.locales[0]
     Text(stringResource(R.string.records_hour_steps, formatNumber(record.steps)))
-    Text(stringResource(R.string.records_hour_distance, format(record.distanceMeters, "%.2f km", 1_000.0)))
+    Text(stringResource(R.string.records_hour_distance, formatDistance(record.distanceMeters, locale)))
     Text(
         stringResource(
             R.string.records_hour_duration,
@@ -301,14 +303,15 @@ private fun HourDetail(record: HourlyActivityRecordEntity) {
             } ?: stringResource(R.string.records_no_value),
         ),
     )
-    Text(stringResource(R.string.records_hour_calories, format(record.estimatedCaloriesKcal, "%.0f kcal")))
-    Text(stringResource(R.string.records_hour_speed, format(record.averageWalkingSpeedKmh, "%.2f km/h")))
+    Text(stringResource(R.string.records_hour_calories, formatCalories(record.estimatedCaloriesKcal, locale)))
+    Text(stringResource(R.string.records_hour_speed, formatSpeed(record.averageWalkingSpeedKmh, locale)))
     Text(stringResource(R.string.records_hour_quality, stringResource(record.stepsQuality.labelRes())))
     if (record.appliedWeightKg == 60.0) Text(stringResource(R.string.calorie_default_weight))
 }
 
 @Composable
 private fun SessionRow(session: WalkingSessionEntity, onClick: () -> Unit) {
+    val locale = LocalConfiguration.current.locales[0]
     GlassSurface(Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("session_row")) {
         Text(formatTime(session.startedAtEpochMillis))
         Text(
@@ -321,7 +324,7 @@ private fun SessionRow(session: WalkingSessionEntity, onClick: () -> Unit) {
         Text(
             stringResource(
                 R.string.records_session_metrics,
-                format(session.distanceMeters, "%.2f km", 1_000.0),
+                formatDistance(session.distanceMeters, locale),
                 session.activeDurationSeconds / 60,
             ),
         )
@@ -336,6 +339,7 @@ private fun SessionRow(session: WalkingSessionEntity, onClick: () -> Unit) {
 
 @Composable
 private fun SessionDetail(session: WalkingSessionEntity) {
+    val locale = LocalConfiguration.current.locales[0]
     GlassSurface(Modifier.fillMaxWidth().testTag("session_detail")) {
         Text(stringResource(R.string.records_session_detail), style = MaterialTheme.typography.titleMedium)
         Text(stringResource(R.string.records_session_start, formatTime(session.startedAtEpochMillis)))
@@ -350,7 +354,7 @@ private fun SessionDetail(session: WalkingSessionEntity) {
             stringResource(
                 R.string.records_session_steps_distance,
                 formatNumber(session.steps),
-                format(session.distanceMeters, "%.2f km", 1_000.0),
+                formatDistance(session.distanceMeters, locale),
             ),
         )
         Text(
@@ -361,12 +365,12 @@ private fun SessionDetail(session: WalkingSessionEntity) {
                 session.pausedDurationSeconds,
             ),
         )
-        Text(stringResource(R.string.records_session_calories, format(session.estimatedCaloriesKcal, "%.0f kcal")))
+        Text(stringResource(R.string.records_session_calories, formatCalories(session.estimatedCaloriesKcal, locale)))
         Text(
             stringResource(
                 R.string.records_session_speeds,
-                format(session.averageMovingSpeedKmh, "%.2f km/h"),
-                format(session.averageElapsedSpeedKmh, "%.2f km/h"),
+                formatSpeed(session.averageMovingSpeedKmh, locale),
+                formatSpeed(session.averageElapsedSpeedKmh, locale),
             ),
         )
         Text(stringResource(R.string.records_session_source, stringResource(session.stepsQuality.labelRes())))
@@ -444,9 +448,16 @@ private fun offsetText(seconds: Int): String {
         (absolute % 60).toString().padStart(2, '0')
 }
 
-private fun format(value: Double?, pattern: String, divisor: Double = 1.0): String =
-    value?.takeIf { it.isFinite() }?.let { String.format(Locale.getDefault(), pattern, it / divisor) }
-        ?: "—"
+private fun formatDistance(value: Double?, locale: Locale): String =
+    value?.takeIf(Double::isFinite)
+        ?.let { ActivityFormatter.distance(it, DistanceUnit.KILOMETER, locale) } ?: "—"
+
+private fun formatCalories(value: Double?, locale: Locale): String =
+    value?.takeIf(Double::isFinite)?.let { ActivityFormatter.calories(it, locale) } ?: "—"
+
+private fun formatSpeed(value: Double?, locale: Locale): String =
+    value?.takeIf(Double::isFinite)
+        ?.let { ActivityFormatter.speed(it / 3.6, SpeedUnit.KILOMETERS_PER_HOUR, locale) } ?: "—"
 
 private fun formatTime(epoch: Long): String = DateTimeFormatter.ofPattern("M/d HH:mm")
     .format(Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault()))

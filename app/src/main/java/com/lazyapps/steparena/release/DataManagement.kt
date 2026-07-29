@@ -209,7 +209,7 @@ fun escapeJson(value: String): String = buildString {
     }
 }
 
-fun safeDiagnosticLines(values: Map<String, String?>): String =
+fun safeDiagnosticLines(values: Map<String, String?>, unsetValue: String = "unset"): String =
     values.filterKeys {
         it.lowercase() !in setOf("height", "weight", "steps", "serial", "androidid", "recordid", "path")
-    }.entries.joinToString("\n") { "${it.key}: ${it.value ?: "未設定"}" }
+    }.entries.joinToString("\n") { "${it.key}: ${it.value ?: unsetValue}" }

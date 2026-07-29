@@ -29,3 +29,15 @@
 正式署名AABの生成は、upload key設定後に実施する。
 現在のAABは公開提出用署名確認前のビルド成果物。
 未完了公開ゲートがあるためGoogle Play本番アップロード、main統合、pushは行わない。
+
+## Phase 6.6
+
+- [x] グラフ要約Presentation ModelとUnit Test
+- [x] 通知本文・操作ラベル・チャネル名／説明のリソース化
+- [x] Records単位表示を既存ActivityFormatterへ統一
+- [x] 公開UIのLocale.JAPAN / Locale.JAPANESE固定なし
+- [x] Unit 114/114、Records UI 3/3、SOV41全Instrumentation 28/28
+- [x] assembleDebug / assembleRelease / bundleRelease、lint Error 0、git diff --check
+- [x] Release APK / AABエントリとRelease ManifestのDebug/Fake識別子0件
+- [ ] SOV41 TalkBackでグラフ全体・個別棒を確認
+- [ ] Android設定で既存通知チャネルの新名称を確認

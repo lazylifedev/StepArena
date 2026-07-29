@@ -2,6 +2,7 @@ package com.lazyapps.steparena.game
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.database.StepArenaDatabase
 import com.lazyapps.steparena.core.database.entity.*
 import com.lazyapps.steparena.core.database.model.DataQuality
@@ -192,8 +193,8 @@ class LocalGameRepository(
             GameNotificationType.MATCH_RESULT,
             match.id,
             "match:${match.id}",
-            "今日のチャレンジ結果",
-            "チャレンジ結果は${result.notificationName()}でした",
+            context.getString(R.string.notification_challenge_result_title),
+            context.getString(R.string.notification_challenge_result_text, result.notificationName()),
             "match",
             now,
         )
@@ -204,8 +205,12 @@ class LocalGameRepository(
                 GameNotificationType.PROMOTION,
                 match.id,
                 "promotion:${match.id}:${afterRank.displayName}",
-                "歩行ランクが更新されました",
-                "${beforeRank.displayName}から${afterRank.displayName}へ更新されました",
+                context.getString(R.string.notification_rank_updated_title),
+                context.getString(
+                    R.string.notification_rank_updated_text,
+                    beforeRank.displayName,
+                    afterRank.displayName,
+                ),
                 "rank",
                 now,
             )
@@ -273,7 +278,9 @@ class LocalGameRepository(
                 val band = LeagueRanking.resultBand(rank)
                 createNotification(
                     GameNotificationType.WEEKLY_LEAGUE, current.id, "league:${current.id}",
-                    "週間グループを集計しました", "今週の順位は${rank}位でした", "league", now,
+                    context.getString(R.string.notification_weekly_group_title),
+                    context.getString(R.string.notification_weekly_group_text, rank),
+                    "league", now,
                 )
             }
         }
@@ -320,7 +327,9 @@ class LocalGameRepository(
                 )
                 createNotification(
                     GameNotificationType.SEASON, current.id, "season:${current.id}",
-                    "月間記録を集計しました", "今月の歩行記録が確定しました", "season", now,
+                    context.getString(R.string.notification_monthly_record_title),
+                    context.getString(R.string.notification_monthly_record_text),
+                    "season", now,
                 )
             }
         }
@@ -359,7 +368,8 @@ class LocalGameRepository(
             if (inserted != -1L) {
                 createNotification(
                     GameNotificationType.ACHIEVEMENT, id, "achievement:$id",
-                    "実績解除", achievementTitle(id), "achievements", now,
+                    context.getString(R.string.notification_achievement_title),
+                    achievementTitle(id), "achievements", now,
                 )
             }
         }
@@ -404,29 +414,32 @@ class LocalGameRepository(
         return best
     }
 
-    private fun achievementTitle(id: String) = mapOf(
-        "first_1000_steps" to "初回1,000歩",
-        "three_day_streak" to "3日連続計測",
-        "seven_day_streak" to "7日連続計測",
-        "first_win" to "初めての目標達成",
-        "three_wins" to "3回連続達成",
-        "five_wins" to "5回連続達成",
-        "daily_10000_steps" to "1日10,000歩",
-        "daily_20000_steps" to "1日20,000歩",
-        "silver_promotion" to "Silver到達",
-        "season_10_matches" to "月間10チャレンジ",
-        "seven_days_no_recovery" to "補完なし7日連続",
-        "gap_recovery_success" to "欠測補完成功",
-    )[id] ?: id
+    private fun achievementTitle(id: String): String {
+        val resource = mapOf(
+            "first_1000_steps" to R.string.achievement_first_1000_title,
+            "three_day_streak" to R.string.achievement_three_days_title,
+            "seven_day_streak" to R.string.achievement_seven_days_title,
+            "first_win" to R.string.achievement_first_win_title,
+            "three_wins" to R.string.achievement_three_wins_title,
+            "five_wins" to R.string.achievement_five_wins_title,
+            "daily_10000_steps" to R.string.achievement_daily_10000_title,
+            "daily_20000_steps" to R.string.achievement_daily_20000_title,
+            "silver_promotion" to R.string.achievement_silver_title,
+            "season_10_matches" to R.string.achievement_ten_matches_title,
+            "seven_days_no_recovery" to R.string.achievement_no_recovery_title,
+            "gap_recovery_success" to R.string.achievement_recovery_title,
+        )[id]
+        return resource?.let(context::getString) ?: id
+    }
 
     private fun MatchOutcome.notificationName() = when (this) {
-        MatchOutcome.WIN -> "目標達成"
-        MatchOutcome.LOSS -> "あと一歩"
-        MatchOutcome.DRAW -> "同じ歩数"
-        MatchOutcome.NO_CONTEST -> "判定対象外"
-        MatchOutcome.IN_PROGRESS -> "集計中"
-        MatchOutcome.CANCELLED -> "記録なし"
-    }
+        MatchOutcome.WIN -> R.string.game_outcome_win
+        MatchOutcome.LOSS -> R.string.game_outcome_loss
+        MatchOutcome.DRAW -> R.string.game_outcome_draw
+        MatchOutcome.NO_CONTEST -> R.string.game_outcome_no_contest
+        MatchOutcome.IN_PROGRESS -> R.string.game_outcome_in_progress
+        MatchOutcome.CANCELLED -> R.string.game_outcome_cancelled
+    }.let(context::getString)
 
     private fun seasonId(date: LocalDate) = "%04d-%02d".format(date.year, date.monthValue)
 }

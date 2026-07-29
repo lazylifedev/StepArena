@@ -120,7 +120,7 @@ class StepTrackingService : Service(), SensorEventListener {
             }
         }
         if (BuildConfig.DEBUG && intent?.action == debugAction()) {
-            promote(NotificationModel(0, null, "Debug計測を準備中"))
+            promote(NotificationModel(0, null, getString(R.string.notification_status_debug_preparing)))
             val value = intent.getFloatExtra(debugValueExtra(), Float.NaN)
             scope.launch {
                 if (setupStarted.compareAndSet(false, true)) {
@@ -134,7 +134,7 @@ class StepTrackingService : Service(), SensorEventListener {
                                 sessionId = it.sessionId ?: UUID.randomUUID().toString(),
                             )
                         }
-                        promote(NotificationModel(state.accumulatedTodaySteps, state.lastSensorEventAt, "計測中"))
+                        promote(NotificationModel(state.accumulatedTodaySteps, state.lastSensorEventAt, getString(R.string.notification_status_tracking)))
                         startHeartbeat()
                     }
                 } else if (state.sessionId == null) {
@@ -159,7 +159,7 @@ class StepTrackingService : Service(), SensorEventListener {
             }
             return START_STICKY
         }
-        promote(NotificationModel(0, null, "計測を準備中"))
+        promote(NotificationModel(0, null, getString(R.string.notification_status_preparing)))
         if (setupStarted.compareAndSet(false, true)) scope.launch { restoreAndRegister() }
         return START_STICKY
     }
@@ -377,7 +377,10 @@ class StepTrackingService : Service(), SensorEventListener {
             val model = NotificationModel(
                 state.accumulatedTodaySteps,
                 state.lastSensorEventAt,
-                if (manual == null) "計測中" else "散歩中",
+                getString(
+                    if (manual == null) R.string.notification_status_tracking
+                    else R.string.notification_status_walking,
+                ),
                 manual,
             )
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(model))
@@ -420,10 +423,10 @@ class StepTrackingService : Service(), SensorEventListener {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "歩数計測",
+            getString(R.string.notification_channel_step_tracking),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "StepArenaの歩数計測状態"
+            description = getString(R.string.notification_channel_step_tracking_description)
             setSound(null, null)
             enableVibration(false)
             setShowBadge(false)
@@ -460,12 +463,15 @@ class StepTrackingService : Service(), SensorEventListener {
         )
         val updated = model.lastUpdated?.atZone(ZoneId.systemDefault())
             ?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--"
-        val title = if (manual == null) "StepArenaで歩数を計測中" else "StepArenaで散歩中"
+        val title = getString(
+            if (manual == null) R.string.notification_tracking_title
+            else R.string.notification_walking_title,
+        )
         val text = if (manual == null) {
-            "今日 ${model.steps}歩・最終更新 $updated"
+            getString(R.string.notification_tracking_text, model.steps, updated)
         } else {
             val minutes = manual.elapsedDurationSeconds / 60
-            "セッション ${manual.steps}歩・${minutes}分 / 今日 ${model.steps}歩"
+            getString(R.string.notification_walking_text, manual.steps, minutes, model.steps)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -476,8 +482,15 @@ class StepTrackingService : Service(), SensorEventListener {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, "アプリを開く", open)
-            .addAction(0, if (manual == null) "計測を停止" else "散歩を終了", stop)
+            .addAction(0, getString(R.string.notification_action_open_app), open)
+            .addAction(
+                0,
+                getString(
+                    if (manual == null) R.string.notification_action_stop_tracking
+                    else R.string.notification_action_end_walk,
+                ),
+                stop,
+            )
             .build()
     }
 

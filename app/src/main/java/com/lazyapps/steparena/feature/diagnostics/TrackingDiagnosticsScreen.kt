@@ -130,6 +130,7 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
                 "unresolvedGapCount" to unresolvedGapCount.toString(),
                 "lastErrorCode" to state.lastStopReason?.name,
             ),
+            unset,
         )
         Button(
             onClick = {

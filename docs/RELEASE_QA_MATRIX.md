@@ -19,3 +19,13 @@
 - TalkBackと200%文字: 未完了。
 - Android 10 / 13 / 14 / 15または16: 利用可能なエミュレーター未確認。
 - ZIP、ゲーム初期化、全削除、削除復旧: 実機手動確認未完了。
+
+## Phase 6.6
+
+|領域|自動確認|手動ゲート|
+|---|---|---|
+|グラフ要約|5指標、空、null、最大時間帯、DST重複時間|SOV41 TalkBack|
+|通知|常駐、停止警告、チャレンジ、ランク、週間、月間、達成記録のリソース・旧用語監査|Android設定の既存チャネル名称更新|
+|単位・Locale|RecordsとHomeの共通Formatter、公開UIの日本語固定Locale監査|端末Locale変更時の表示|
+
+2026-07-30時点でUnit 114/114、Records UI 3/3、SOV41全Instrumentation 28/28、Debug/Release組立、AAB、両lint（Error 0）、Release Debug/Fake識別子監査が成功。TalkBack実読み上げとAndroid設定の既存チャネル名称更新は手動ゲートとして残す。
