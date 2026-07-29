@@ -37,6 +37,10 @@ import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import com.lazyapps.steparena.feature.home.HomeAction
 import com.lazyapps.steparena.feature.home.HomeViewModel
 import com.lazyapps.steparena.feature.onboarding.OnboardingScreen
+import com.lazyapps.steparena.game.DebugGameController
+import com.lazyapps.steparena.game.DebugGameScenario
+import com.lazyapps.steparena.game.DebugGameScreen
+import com.lazyapps.steparena.game.GameNotificationDispatcher
 import com.lazyapps.steparena.service.tracking.StepTrackingService
 import com.lazyapps.steparena.tracking.DiagnosticLogEntry
 import com.lazyapps.steparena.tracking.DiagnosticLogRepository
@@ -48,10 +52,12 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private var trackingState by mutableStateOf(StepTrackingState())
     private var debugMenuVisible by mutableStateOf(false)
+    private var debugGameVisible by mutableStateOf(false)
     private var diagnosticEntries by mutableStateOf(emptyList<DiagnosticLogEntry>())
     private var startAfterPermission = false
     private var onboardingPermissionStep: Int? = null
     private var homeViewModel: HomeViewModel? = null
+    private var initialGameRoute by mutableStateOf("home")
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
@@ -73,6 +79,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initialGameRoute = notificationRoute(intent)
         val repository = TrackingStateRepository(applicationContext)
         lifecycleScope.launch { reconcileForceStop(applicationContext, repository) }
         lifecycleScope.launch { repository.state.collect { trackingState = it } }
@@ -123,9 +130,15 @@ class MainActivity : ComponentActivity() {
                                 vm.onAction(action)
                             }
                         },
+                        initialRoute = initialGameRoute,
                     )
                 }
-                if (debugMenuVisible) {
+                if (debugGameVisible) {
+                    DebugGameScreen(
+                        onClose = { debugGameVisible = false },
+                        onRun = ::runDebugGameScenario,
+                    )
+                } else if (debugMenuVisible) {
                     DebugTrackingSheet(
                         state = trackingState,
                         entries = diagnosticEntries,
@@ -134,6 +147,10 @@ class MainActivity : ComponentActivity() {
                             diagnosticEntries = DiagnosticLogRepository(applicationContext).read()
                         },
                         onFakeValue = ::sendFakeSensor,
+                        onOpenGame = {
+                            debugMenuVisible = false
+                            debugGameVisible = true
+                        },
                     )
                 }
             }
@@ -175,6 +192,23 @@ class MainActivity : ComponentActivity() {
                 .putExtra(StepTrackingService.debugValueExtra(), value),
         )
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        initialGameRoute = notificationRoute(intent)
+    }
+
+    private fun notificationRoute(intent: Intent): String {
+        val route = intent.getStringExtra(GameNotificationDispatcher.EXTRA_DESTINATION)
+        return route?.takeIf { it in setOf("match", "rank", "achievements", "league", "season") } ?: "home"
+    }
+
+    private fun runDebugGameScenario(scenario: DebugGameScenario) {
+        lifecycleScope.launch {
+            DebugGameController(application as DebugStepArenaApplication).run(scenario)
+        }
+    }
 }
 
 object DebugTrackingTestTags {
@@ -191,6 +225,7 @@ private fun DebugTrackingSheet(
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
     onFakeValue: (Float) -> Unit,
+    onOpenGame: () -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -213,6 +248,9 @@ private fun DebugTrackingSheet(
                 DiagnosticText("previous exit", state.lastExitSummary)
             }
             item {
+                Button(onClick = onOpenGame, modifier = Modifier.fillMaxWidth()) {
+                    Text("開発用ゲームシナリオ")
+                }
                 Column(
                     Modifier.fillMaxWidth().testTag(DebugTrackingTestTags.FAKE_SENSOR),
                     verticalArrangement = Arrangement.spacedBy(6.dp),

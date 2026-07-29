@@ -102,3 +102,21 @@ data class AchievementUnlockEntity(
     val seasonId: String?,
     val acknowledged: Boolean,
 )
+
+@Entity(
+    tableName = "game_notification_events",
+    indices = [Index(value = ["deduplicationKey"], unique = true)],
+)
+data class GameNotificationEventEntity(
+    @PrimaryKey val id: String,
+    val type: GameNotificationType,
+    val sourceId: String,
+    val deduplicationKey: String,
+    val title: String,
+    val message: String,
+    val destinationRoute: String,
+    val createdAtEpochMillis: Long,
+    val notBeforeEpochMillis: Long,
+    val deliveredAtEpochMillis: Long?,
+    val acknowledged: Boolean,
+)

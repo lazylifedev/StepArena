@@ -9,10 +9,7 @@ class GameMaintenanceWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = runCatching {
         val repository = (applicationContext as StepArenaApplication).gameRepository
-        repository.finalizePendingMatches()
-        repository.ensureTodayMatch()
-        repository.rebuildCurrentLeague()
-        repository.evaluateAchievements()
+        repository.runMaintenance()
     }.fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
 
     companion object {

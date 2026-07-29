@@ -37,3 +37,8 @@ Migration 2→3 は既存の時間別、日次、セッション、processing st
 # Schema version 4 (Phase 5)
 
 `game_player_profile`、`daily_matches`、`weekly_leagues`、`game_seasons`、`achievement_unlocks`を追加した。Migration 3→4は追加CREATE TABLE/INDEXのみで、既存の計測、履歴、補完、セッションテーブルを変更しない。プロフィール、現在シーズン、当日試合はmigration SQLではなく初回Repository保守処理で冪等に作成する。
+# Schema version 5
+
+`game_notification_events` を追加した。`deduplicationKey` は一意で、
+未配信検索、配信済み時刻、画面確認済みフラグを保持する。
+Migration 4→5は既存ゲームデータを変更しない。

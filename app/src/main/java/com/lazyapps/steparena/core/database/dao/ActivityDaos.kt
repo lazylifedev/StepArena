@@ -33,6 +33,8 @@ interface DailyActivityDao {
     fun recent(limit: Int): Flow<List<DailyActivityRecordEntity>>
     @Query("SELECT * FROM daily_activity_records ORDER BY localDate DESC LIMIT :limit")
     suspend fun recentNow(limit: Int): List<DailyActivityRecordEntity>
+    @Query("DELETE FROM daily_activity_records WHERE id LIKE 'debug-daily-%'")
+    suspend fun deleteDebugRecords()
 }
 
 @Dao

@@ -36,8 +36,9 @@ import com.lazyapps.steparena.core.database.dao.*
         WeeklyLeagueEntity::class,
         GameSeasonEntity::class,
         AchievementUnlockEntity::class,
+        GameNotificationEventEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -53,6 +54,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
     abstract fun weeklyLeagues(): WeeklyLeagueDao
     abstract fun gameSeasons(): GameSeasonDao
     abstract fun achievementUnlocks(): AchievementUnlockDao
+    abstract fun gameNotificationEvents(): GameNotificationEventDao
 
     companion object {
         @Volatile private var instance: StepArenaDatabase? = null
@@ -61,7 +63,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 context.applicationContext,
                 StepArenaDatabase::class.java,
                 "step_arena.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
         }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -125,6 +127,24 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 db.execSQL("""CREATE TABLE IF NOT EXISTS `weekly_leagues` (`id` TEXT NOT NULL, `weekStartLocalDate` TEXT NOT NULL, `weekEndLocalDate` TEXT NOT NULL, `zoneId` TEXT NOT NULL, `status` TEXT NOT NULL, `userPoints` INTEGER NOT NULL, `userRank` INTEGER, `participantsJson` TEXT NOT NULL, `finalizedAtEpochMillis` INTEGER, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))""")
                 db.execSQL("""CREATE TABLE IF NOT EXISTS `game_seasons` (`id` TEXT NOT NULL, `startedAtEpochMillis` INTEGER NOT NULL, `endedAtEpochMillis` INTEGER NOT NULL, `startRating` INTEGER NOT NULL, `endRating` INTEGER, `highestRankTier` TEXT NOT NULL, `highestRankDivision` INTEGER, `wins` INTEGER NOT NULL, `losses` INTEGER NOT NULL, `draws` INTEGER NOT NULL, `totalEligibleSteps` INTEGER NOT NULL, `bestWinStreak` INTEGER NOT NULL, `status` TEXT NOT NULL, `rewardClaimed` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))""")
                 db.execSQL("""CREATE TABLE IF NOT EXISTS `achievement_unlocks` (`achievementId` TEXT NOT NULL, `unlockedAtEpochMillis` INTEGER NOT NULL, `progressValue` INTEGER NOT NULL, `seasonId` TEXT, `acknowledged` INTEGER NOT NULL, PRIMARY KEY(`achievementId`))""")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `game_notification_events` (
+                        `id` TEXT NOT NULL, `type` TEXT NOT NULL, `sourceId` TEXT NOT NULL,
+                        `deduplicationKey` TEXT NOT NULL, `title` TEXT NOT NULL,
+                        `message` TEXT NOT NULL, `destinationRoute` TEXT NOT NULL,
+                        `createdAtEpochMillis` INTEGER NOT NULL, `notBeforeEpochMillis` INTEGER NOT NULL,
+                        `deliveredAtEpochMillis` INTEGER, `acknowledged` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`))""",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_game_notification_events_deduplicationKey` " +
+                        "ON `game_notification_events` (`deduplicationKey`)",
+                )
             }
         }
     }

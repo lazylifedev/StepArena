@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
  * Application entry point reserved for dependency injection and process-wide services.
  * Phase 0/1 intentionally uses manual construction to avoid adding an unused DI runtime.
  */
-class StepArenaApplication : Application() {
+open class StepArenaApplication : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val database by lazy { StepArenaDatabase.get(this) }
     val profileRepository by lazy { UserProfileRepository(this) }
@@ -34,16 +34,14 @@ class StepArenaApplication : Application() {
             activityRepository,
         )
     }
-    val gameRepository by lazy { LocalGameRepository(this, database) }
+    open val gameRepository by lazy { LocalGameRepository(this, database) }
 
     override fun onCreate() {
         super.onCreate()
         TrackingHealthWorker.schedule(this)
         GameMaintenanceWorker.schedule(this)
         applicationScope.launch {
-            gameRepository.finalizePendingMatches()
-            gameRepository.ensureTodayMatch()
-            gameRepository.evaluateAchievements()
+            gameRepository.runMaintenance()
         }
     }
 }

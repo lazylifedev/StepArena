@@ -56,3 +56,8 @@ WorkManager は遅延可能な補助監視であり、常時計測 Service の�
 # Phase 5 game boundary
 
 Compose UI → `GameRepository` → `LocalGameRepository` → Room DAO の方向に依存する。NPC生成、rating、対戦有効歩数はUI/Roomから独立した純粋なドメイン処理であり、将来`RemoteGameRepository`または`HybridGameRepository`へ差し替えられる。
+# Phase 5.1 ゲーム保守
+
+アプリ起動と一意な定期Workは同じ冪等な `runMaintenance` を呼ぶ。
+試合、リーグ、シーズン、実績、通知候補はRoomを正本とし、UIはFlowから表示モデルを組み立てる。
+Debug操作画面とシナリオ実行器はdebug source setだけに置く。

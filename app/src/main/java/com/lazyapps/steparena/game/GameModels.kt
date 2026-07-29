@@ -15,6 +15,35 @@ enum class CompetitiveStepRestrictionReason {
 }
 enum class LeagueStatus { ACTIVE, FINALIZED }
 enum class SeasonStatus { ACTIVE, FINALIZED }
+enum class GameNotificationType { MATCH_RESULT, PROMOTION, ACHIEVEMENT, WEEKLY_LEAGUE, SEASON }
+enum class LeagueResultBand { TOP_THREE, MIDDLE, BOTTOM }
+
+data class LeagueParticipant(
+    val id: String,
+    val name: String,
+    val points: Int,
+    val eligibleSteps: Long,
+)
+
+object LeagueRanking {
+    fun rank(participants: List<LeagueParticipant>): List<LeagueParticipant> =
+        participants.sortedWith(
+            compareByDescending<LeagueParticipant> { it.points }
+                .thenByDescending { it.eligibleSteps }
+                .thenBy { it.id },
+        )
+
+    fun resultBand(rank: Int): LeagueResultBand = when (rank) {
+        in 1..3 -> LeagueResultBand.TOP_THREE
+        in 4..7 -> LeagueResultBand.MIDDLE
+        else -> LeagueResultBand.BOTTOM
+    }
+}
+
+object QuietHours {
+    fun isQuiet(localTime: java.time.LocalTime): Boolean =
+        localTime >= java.time.LocalTime.of(22, 0) || localTime < java.time.LocalTime.of(8, 0)
+}
 
 data class RankDefinition(
     val tier: RankTier,

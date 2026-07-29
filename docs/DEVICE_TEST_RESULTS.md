@@ -214,3 +214,19 @@ SOV41 Fake Counterおよび物理歩行の検証結果は、実行日時・APK�
 - Debug APKのインストールとMainActivity起動を確認
 - Fake Counterによる5,000歩、勝敗3種、昇格、週間順位、シーズン、実績、補完率、UNKNOWN、再起動、日付変更の一連の手動シナリオは未実施
 - 物理歩行試験は公開前ゲートとして未実施
+# Phase 5.1
+
+SOV41（Android 11）でDebugシナリオA〜E、DAO/Migration/Instrumentation/Compose UIを
+実施して結果を追記する。Debugシナリオ合格を物理歩行試験合格とは扱わない。
+物理歩行、画面OFF、プロセス復元、距離・カロリー・速度、バッテリー最適化は未検証。
+
+## 2026-07-29 SOV41
+
+- 端末: SOV41 / Android 11 / `QV7209CF25`
+- connected Debug Android Test: 22/22成功
+- Migration 4→5、既存DAO/Instrumentation、Debug Compose UIを含む
+- Debugメニューを音量下長押しで開き、「開発用ゲームシナリオ」、警告文、歩数操作を実画面で確認
+- Counter +5,000を確認ダイアログ経由で2回実行し、対戦画面で10,000歩を確認
+- force-stop後の再起動でも対戦有効10,000歩・総歩数10,000歩の維持を確認
+- `am crash` 後に再起動し、MainActivityの再生成と前景復帰を確認
+- 手動シナリオA〜Eの全操作証跡は未完了。自動試験成功のみを手動合格とは扱わない

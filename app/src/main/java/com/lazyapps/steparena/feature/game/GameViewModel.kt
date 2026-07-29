@@ -15,6 +15,7 @@ data class GameUiState(
     val league: WeeklyLeagueEntity? = null,
     val season: GameSeasonEntity? = null,
     val achievements: List<AchievementUnlockEntity> = emptyList(),
+    val notificationEvents: List<GameNotificationEventEntity> = emptyList(),
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -26,6 +27,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         repository.observeCurrentLeague(),
         repository.observeCurrentSeason(),
         repository.observeAchievements(),
+        repository.observeNotificationEvents(),
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         GameUiState(
@@ -35,6 +37,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             values[3] as WeeklyLeagueEntity?,
             values[4] as GameSeasonEntity?,
             values[5] as List<AchievementUnlockEntity>,
+            values[6] as List<GameNotificationEventEntity>,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GameUiState())
 
@@ -44,5 +47,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             repository.ensureTodayMatch()
             repository.evaluateAchievements()
         }
+    }
+
+    fun acknowledgeEvent(id: String) {
+        viewModelScope.launch { repository.acknowledgeNotificationEvent(id) }
     }
 }

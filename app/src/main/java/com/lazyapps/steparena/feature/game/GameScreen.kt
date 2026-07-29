@@ -7,24 +7,43 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.lazyapps.steparena.core.database.entity.DailyMatchEntity
 import com.lazyapps.steparena.game.*
-import java.time.*
-import java.time.temporal.ChronoUnit
 
 enum class GamePage(val label: String) {
     MATCH("対戦"), RANK("ランク"), LEAGUE("リーグ"), SEASON("シーズン"), ACHIEVEMENTS("実績")
+}
+
+object GameTestTags {
+    const val SCREEN = "game_screen"
+    const val PROMOTION = "promotion_dialog"
+    const val HEALTH_CAP = "competitive_health_cap"
+    const val EMPTY = "game_empty"
 }
 
 @Composable
 fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf(initialPage) }
-    Column(Modifier.fillMaxSize()) {
+    val promotion = state.notificationEvents.firstOrNull {
+        it.type == GameNotificationType.PROMOTION && !it.acknowledged
+    }
+    promotion?.let { event ->
+        AlertDialog(
+            modifier = Modifier.testTag(GameTestTags.PROMOTION),
+            onDismissRequest = { vm.acknowledgeEvent(event.id) },
+            title = { Text("ランク昇格") },
+            text = { Text("${event.message}\n${state.profile?.rating ?: 0} RP") },
+            confirmButton = {
+                TextButton(onClick = { vm.acknowledgeEvent(event.id) }) { Text("閉じる") }
+            },
+        )
+    }
+    Column(Modifier.fillMaxSize().testTag(GameTestTags.SCREEN)) {
         ScrollableTabRow(selectedTabIndex = page.ordinal) {
             GamePage.entries.forEach {
                 Tab(selected = page == it, onClick = { page = it }, text = { Text(it.label) })
@@ -40,8 +59,10 @@ fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewM
     }
 }
 
-@Composable private fun MatchPage(state: GameUiState) = LazyColumn(
-    modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+@Composable
+private fun MatchPage(state: GameUiState) = LazyColumn(
+    Modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
 ) {
     item {
@@ -51,122 +72,125 @@ fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewM
     state.todayMatch?.let { match ->
         item {
             GameCard("今日の対戦") {
-                Text("あなた  ${match.eligibleUserSteps} 対 ${match.opponentName}  ${opponentProgress(match)}")
+                Text("あなた ${match.eligibleUserSteps} 対 ${match.opponentName}")
                 LinearProgressIndicator(
                     progress = {
-                        (match.eligibleUserSteps.toFloat() / match.opponentTargetSteps.coerceAtLeast(1)).coerceIn(0f, 1f)
-                    }, modifier = Modifier.fillMaxWidth(),
+                        (match.eligibleUserSteps.toFloat() / match.opponentTargetSteps.coerceAtLeast(1))
+                            .coerceIn(0f, 1f)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                Text("相手の最終目標 ${match.opponentTargetSteps}歩")
-                Text("対戦有効歩数 ${match.eligibleUserSteps}歩 / 総歩数 ${match.totalUserSteps}歩")
+                Text("相手の目標 ${match.opponentTargetSteps}歩")
+                Text("対戦有効 ${match.eligibleUserSteps}歩 / 総歩数 ${match.totalUserSteps}歩")
                 Text("品質: ${match.competitiveQuality}")
                 if (match.restrictedUserSteps + match.excludedUserSteps > 0) {
-                    Text("一部の補完歩数は公平性のため制限されています。")
+                    Text("補完・推定・不明品質の歩数は公平性のため制限されます。")
                 }
-                Text("残り ${remainingToday()}")
+                if (match.totalUserSteps > 30_000) {
+                    Text(
+                        "健康への配慮から、対戦に使える歩数は1日30,000歩が上限です。",
+                        modifier = Modifier.testTag(GameTestTags.HEALTH_CAP),
+                    )
+                }
             }
         }
-    }
+    } ?: item { Text("今日の対戦を準備しています。", modifier = Modifier.testTag(GameTestTags.EMPTY)) }
     item { Text("過去の対戦", style = MaterialTheme.typography.titleLarge) }
-    if (state.recentMatches.isEmpty()) item { Text("確定済みの対戦はまだありません。") }
-    items(state.recentMatches.filter { it.status == MatchStatus.FINALIZED }) {
+    val finalized = state.recentMatches.filter { it.status == MatchStatus.FINALIZED }
+    if (finalized.isEmpty()) item { Text("確定済みの対戦はまだありません。") }
+    items(finalized) {
         GameCard(it.localDate) {
-            Text("${it.opponentName}  ${it.outcome ?: MatchOutcome.IN_PROGRESS}")
+            Text("${it.opponentName}: ${it.outcome}")
             Text("有効 ${it.eligibleUserSteps}歩 / 相手 ${it.opponentTargetSteps}歩")
-            Text("rating ${signed(it.ratingDelta)}")
-            if (it.restrictionReasons.isNotBlank()) Text("制限理由: ${it.restrictionReasons}")
+            Text("rating ${signed(it.ratingDelta)} (${it.ratingBefore} → ${it.ratingAfter})")
         }
     }
 }
 
-@Composable private fun RankPage(state: GameUiState) = LazyColumn(
-    modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+@Composable
+private fun RankPage(state: GameUiState) = LazyColumn(
+    Modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
 ) {
-    val profile = state.profile
     item { Text("ランク", style = MaterialTheme.typography.headlineMedium) }
-    if (profile == null) item { CircularProgressIndicator() } else {
-        val rank = RankSystem.definition(profile.rating)
-        val next = RankSystem.definitions.getOrNull(RankSystem.definitions.indexOf(rank) + 1)
+    state.profile?.let { profile ->
         item {
+            val rank = RankSystem.definition(profile.rating)
             GameCard(rank.displayName) {
                 Text("${profile.rating} RP", style = MaterialTheme.typography.headlineSmall)
-                Text(next?.let { "次のランクまで ${(it.minimumRating - profile.rating).coerceAtLeast(0)} RP" } ?: "最高ランク")
                 Text("勝 ${profile.wins} / 敗 ${profile.losses} / 分 ${profile.draws}")
-                val decided = profile.wins + profile.losses
-                Text("勝率 ${if (decided == 0) 0 else profile.wins * 100 / decided}%")
                 Text("連勝 ${profile.currentWinStreak} / 最高 ${profile.bestWinStreak}")
+                if (profile.beginnerMatchesRemaining > 0) {
+                    Text("初心者保護: 残り${profile.beginnerMatchesRemaining}試合")
+                }
             }
         }
-        item { Text("最近のrating推移", style = MaterialTheme.typography.titleLarge) }
-        items(state.recentMatches.filter { it.ratingAfter != null }.take(10)) {
-            Text("${it.localDate}: ${it.ratingAfter} (${signed(it.ratingDelta)})")
-        }
-    }
+    } ?: item { CircularProgressIndicator() }
 }
 
-@Composable private fun LeaguePage(state: GameUiState) = LazyColumn(
-    modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+@Composable
+private fun LeaguePage(state: GameUiState) = LazyColumn(
+    Modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
 ) {
     item { Text("週間リーグ", style = MaterialTheme.typography.headlineMedium) }
-    item { Text("月曜00:00から日曜までのローカルNPCリーグです。") }
-    val league = state.league
-    if (league == null) item { Text("リーグを準備しています。") } else {
-        item { Text("現在 ${league.userRank ?: "-"}位 / 10人・勝点 ${league.userPoints}") }
-        val rows = participantRows(league.participantsJson)
-            .sortedByDescending { it.second }
-        items(rows) { (name, points) ->
+    state.league?.let { league ->
+        item {
+            Text("${league.weekStartLocalDate}〜${league.weekEndLocalDate}")
+            Text("${league.userRank ?: "-"}位 / 10人・${league.userPoints} pt")
+            if (league.status == LeagueStatus.FINALIZED) {
+                Text("確定: ${LeagueRanking.resultBand(league.userRank ?: 10)}")
+            }
+        }
+        items(participantRows(league.participantsJson)) { (name, points) ->
             ListItem(
                 headlineContent = { Text(name, fontWeight = if (name == "You") FontWeight.Bold else null) },
                 trailingContent = { Text("$points pt") },
             )
         }
-    }
+    } ?: item { Text("リーグを準備しています。", modifier = Modifier.testTag(GameTestTags.EMPTY)) }
 }
 
-@Composable private fun SeasonPage(state: GameUiState) = LazyColumn(
-    modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+@Composable
+private fun SeasonPage(state: GameUiState) = LazyColumn(
+    Modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
 ) {
     item { Text("月間シーズン", style = MaterialTheme.typography.headlineMedium) }
     state.season?.let { season ->
         item {
             GameCard(season.id) {
-                Text("残り ${ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.now().plusMonths(1).withDayOfMonth(1))}日")
-                Text("開始 ${RankSystem.definition(season.startRating).displayName}")
-                Text("現在 ${state.profile?.let { RankSystem.definition(it.rating).displayName } ?: "-"}")
-                Text("最高 ${season.highestRankTier.name} ${season.highestRankDivision ?: ""}")
-                Text("勝 ${state.profile?.wins ?: 0} / 敗 ${state.profile?.losses ?: 0}")
+                Text("状態: ${season.status}")
+                Text("rating ${season.startRating} → ${season.endRating ?: state.profile?.rating ?: "-"}")
+                Text("勝 ${season.wins} / 敗 ${season.losses} / 分 ${season.draws}")
                 Text("対戦有効歩数 ${season.totalEligibleSteps}")
-                Text("最高連勝 ${state.profile?.bestWinStreak ?: 0}")
+                Text("最高連勝 ${season.bestWinStreak}")
             }
         }
-    } ?: item { Text("シーズンを準備しています。") }
+    } ?: item { Text("シーズンを準備しています。", modifier = Modifier.testTag(GameTestTags.EMPTY)) }
 }
 
-@Composable private fun AchievementPage(state: GameUiState) = LazyColumn(
-    modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+@Composable
+private fun AchievementPage(state: GameUiState) = LazyColumn(
+    Modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
 ) {
     item { Text("実績", style = MaterialTheme.typography.headlineMedium) }
-    val definitions = listOf(
-        "first_step" to ("はじめの一歩" to "1日1,000歩を記録"),
-        "first_win" to ("初勝利" to "デイリー対戦で初勝利"),
-        "three_wins" to ("連勝開始" to "3連勝を達成"),
-        "five_wins" to ("止まらない歩み" to "5連勝を達成"),
-        "silver_promotion" to ("Bronze突破" to "Silverへ昇格"),
-    )
-    items(definitions) { (id, text) ->
-        val unlocked = state.achievements.any { it.achievementId == id }
+    items(achievementDefinitions) { (id, title) ->
+        val unlocked = state.achievements.firstOrNull { it.achievementId == id }
         ListItem(
-            headlineContent = { Text(text.first) },
-            supportingContent = { Text(text.second) },
-            trailingContent = { Text(if (unlocked) "解除済み" else "未解除") },
+            headlineContent = { Text(title) },
+            supportingContent = { Text("進捗 ${unlocked?.progressValue ?: 0}") },
+            trailingContent = { Text(if (unlocked != null) "解除済み" else "未解除") },
         )
     }
 }
 
-@Composable private fun GameCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+@Composable
+private fun GameCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge)
@@ -175,23 +199,22 @@ fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewM
     }
 }
 
-private fun opponentProgress(match: DailyMatchEntity): Long {
-    val now = ZonedDateTime.now()
-    return LocalOpponentGenerator().progress(
-        LocalOpponent(
-            match.opponentId, match.opponentName, match.opponentAvatarKey,
-            match.opponentRankTier, match.opponentRankDivision, match.opponentTargetSteps,
-            match.opponentPersonality,
-        ),
-        now.hour * 60 + now.minute,
-    )
-}
-private fun remainingToday(): String {
-    val now = ZonedDateTime.now()
-    val minutes = Duration.between(now, now.toLocalDate().plusDays(1).atStartOfDay(now.zone)).toMinutes()
-    return "${minutes / 60}時間${minutes % 60}分"
-}
+private val achievementDefinitions = listOf(
+    "first_1000_steps" to "初回1,000歩",
+    "three_day_streak" to "3日連続計測",
+    "seven_day_streak" to "7日連続計測",
+    "first_win" to "初勝利",
+    "three_wins" to "3連勝",
+    "five_wins" to "5連勝",
+    "daily_10000_steps" to "1日10,000歩",
+    "daily_20000_steps" to "1日20,000歩",
+    "silver_promotion" to "Silver昇格",
+    "season_10_matches" to "1シーズン10試合",
+    "seven_days_no_recovery" to "補完なし7日連続",
+    "gap_recovery_success" to "欠測補完成功",
+)
+
 private fun signed(value: Int?) = value?.let { if (it >= 0) "+$it" else "$it" } ?: "-"
 private fun participantRows(json: String): List<Pair<String, Int>> =
-    Regex("""\{"name":"([^"]+)","points":(\d+)}""").findAll(json)
+    Regex(""""name":"([^"]+)","points":(\d+)""").findAll(json)
         .map { it.groupValues[1] to it.groupValues[2].toInt() }.toList()

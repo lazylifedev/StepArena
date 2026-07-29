@@ -1,14 +1,10 @@
 package com.lazyapps.steparena.feature.settings
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,6 +17,7 @@ import androidx.compose.ui.res.stringResource
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
+import com.lazyapps.steparena.game.GameNotificationDispatcher
 
 @Composable
 fun SettingsScreen(
@@ -36,7 +33,7 @@ fun SettingsScreen(
         Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineMedium)
         SettingRow(stringResource(R.string.settings_profile), onProfile)
         SettingRow(stringResource(R.string.settings_diagnostics), onDiagnostics)
-        SettingRow("Health Connect と計測復旧", onRecoverySettings)
+        SettingRow("Health Connectと計測復旧", onRecoverySettings)
         SettingRow("補完履歴", onRecoveryHistory)
         GameNotificationSetting()
     }
@@ -45,22 +42,25 @@ fun SettingsScreen(
 @Composable
 private fun GameNotificationSetting() {
     val context = LocalContext.current
-    val preferences = remember { context.getSharedPreferences("game_notifications", 0) }
-    var enabled by remember { mutableStateOf(preferences.getBoolean("enabled", false)) }
-    GlassSurface(Modifier.fillMaxWidth()) {
-        androidx.compose.foundation.layout.Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
+    val preferences = remember {
+        context.getSharedPreferences(GameNotificationDispatcher.PREFERENCES, 0)
+    }
+    var enabled by remember {
+        mutableStateOf(preferences.getBoolean(GameNotificationDispatcher.KEY_ENABLED, false))
+    }
+    GlassSurface(Modifier.fillMaxWidth().testTag("game_notification_setting")) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text("ゲーム結果の通知", style = MaterialTheme.typography.titleMedium)
-                Text("対戦結果・昇格・実績などを控えめに通知します。")
+                Text("対戦・昇格・実績・リーグ・シーズンを通知します（22:00〜8:00を除く）")
             }
             Switch(
                 checked = enabled,
                 onCheckedChange = {
                     enabled = it
-                    preferences.edit().putBoolean("enabled", it).apply()
+                    preferences.edit()
+                        .putBoolean(GameNotificationDispatcher.KEY_ENABLED, it)
+                        .apply()
                 },
             )
         }
