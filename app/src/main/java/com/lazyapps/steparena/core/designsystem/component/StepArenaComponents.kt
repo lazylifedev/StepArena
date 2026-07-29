@@ -1,6 +1,9 @@
 package com.lazyapps.steparena.core.designsystem.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
@@ -114,20 +117,26 @@ fun TrackingStatusChip(
     text: String,
     isHealthy: Boolean,
     modifier: Modifier = Modifier,
+    motionLevel: MotionLevel = MotionLevel.FULL,
 ) {
     val statusColor = if (isHealthy) StepArenaColors.Emerald else StepArenaColors.Amber
+    val animatedStatusColor by animateColorAsState(
+        targetValue = statusColor,
+        animationSpec = tween(motionDuration(motionLevel)),
+        label = "trackingStatusColor",
+    )
     Row(
         modifier = modifier
             .clip(CircleShape)
-            .background(statusColor.copy(alpha = 0.14f))
-            .border(1.dp, statusColor.copy(alpha = 0.5f), CircleShape)
+            .background(animatedStatusColor.copy(alpha = 0.14f))
+            .border(1.dp, animatedStatusColor.copy(alpha = 0.5f), CircleShape)
             .padding(horizontal = StepArenaSpacing.sm, vertical = StepArenaSpacing.xs)
             .semantics { contentDescription = text },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(8.dp).background(statusColor, CircleShape))
+        Box(Modifier.size(8.dp).background(animatedStatusColor, CircleShape))
         Spacer(Modifier.width(StepArenaSpacing.xs))
-        Text(text, style = MaterialTheme.typography.labelLarge, color = statusColor)
+        Text(text, style = MaterialTheme.typography.labelLarge, color = animatedStatusColor)
     }
 }
 
@@ -290,6 +299,7 @@ fun MatchCard(
     opponentProgress: Float,
     supportingText: String,
     modifier: Modifier = Modifier,
+    motionLevel: MotionLevel = MotionLevel.FULL,
     expandedText: String? = null,
     expanded: Boolean = false,
     onClick: () -> Unit = {},
@@ -299,12 +309,16 @@ fun MatchCard(
         Spacer(Modifier.height(StepArenaSpacing.md))
         Text(opponent, style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(StepArenaSpacing.sm))
-        ProgressLine(selfLabel, selfProgress, StepArenaColors.Cyan)
+        ProgressLine(selfLabel, selfProgress, StepArenaColors.Cyan, motionLevel)
         Spacer(Modifier.height(StepArenaSpacing.xs))
-        ProgressLine(opponentLabel, opponentProgress, StepArenaColors.Violet)
+        ProgressLine(opponentLabel, opponentProgress, StepArenaColors.Violet, motionLevel)
         Spacer(Modifier.height(StepArenaSpacing.sm))
         Text(supportingText, style = MaterialTheme.typography.bodyMedium, color = StepArenaColors.TextSecondary)
-        AnimatedVisibility(visible = expanded && expandedText != null) {
+        AnimatedVisibility(
+            visible = expanded && expandedText != null,
+            enter = fadeIn(tween(motionDuration(motionLevel))),
+            exit = fadeOut(tween(motionDuration(motionLevel))),
+        ) {
             Text(
                 text = expandedText.orEmpty(),
                 modifier = Modifier.padding(top = StepArenaSpacing.sm),
@@ -316,17 +330,30 @@ fun MatchCard(
 }
 
 @Composable
-private fun ProgressLine(label: String, progress: Float, color: Color) {
+private fun ProgressLine(
+    label: String,
+    progress: Float,
+    color: Color,
+    motionLevel: MotionLevel,
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(
+            durationMillis = motionDuration(motionLevel),
+            easing = StepArenaMotion.emphasized,
+        ),
+        label = "matchProgress",
+    )
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.width(72.dp), style = MaterialTheme.typography.bodyMedium)
         androidx.compose.material3.LinearProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
+            progress = { animatedProgress },
             modifier = Modifier.weight(1f).height(7.dp).clip(CircleShape),
             color = color,
             trackColor = StepArenaColors.Gray800,
         )
         Spacer(Modifier.width(StepArenaSpacing.xs))
-        Text("${(progress.coerceIn(0f, 1f) * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+        Text("${(animatedProgress * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -394,4 +421,10 @@ private fun StatePanel(
             content()
         }
     }
+}
+
+private fun motionDuration(level: MotionLevel): Int = when (level) {
+    MotionLevel.FULL -> StepArenaMotion.standard
+    MotionLevel.REDUCED -> StepArenaMotion.quick
+    MotionLevel.OFF -> 0
 }
