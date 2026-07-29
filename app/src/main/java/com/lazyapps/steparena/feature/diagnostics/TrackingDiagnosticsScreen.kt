@@ -11,11 +11,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +33,13 @@ import com.lazyapps.steparena.recovery.TrackingHealthStatus
 import com.lazyapps.steparena.recovery.evaluateTrackingHealth
 import java.time.Duration
 import java.time.Instant
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Build
+import com.lazyapps.steparena.BuildConfig
+import com.lazyapps.steparena.release.safeDiagnosticLines
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 object DiagnosticsTestTags { const val SCREEN = "tracking_diagnostics" }
 
@@ -50,6 +61,16 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         TrackingHealthStatus.STALE,
         TrackingHealthStatus.STOPPED,
     )
+    var diagnosticExportText by remember { mutableStateOf("") }
+    val exportDiagnostics = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+        if (uri != null) runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use {
+                it.write(diagnosticExportText)
+            }
+        }
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(20.dp).testTag(DiagnosticsTestTags.SCREEN),
@@ -91,6 +112,35 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         if (heartbeatStale) {
             Text("Serviceが停止している可能性があります", color = MaterialTheme.colorScheme.error)
         }
+        val safeDiagnostics = safeDiagnosticLines(
+            mapOf(
+                "appVersion" to "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                "androidVersion" to Build.VERSION.RELEASE,
+                "deviceModel" to Build.MODEL,
+                "databaseSchema" to "5",
+                "trackingStatus" to state.trackingStatus.name,
+                "trackingRequested" to state.trackingRequested.toString(),
+                "stepCounterAvailable" to diagnostics.stepSensorAvailable.toString(),
+                "healthConnectAvailability" to healthConnectAvailability.name,
+                "healthConnectPermission" to healthConnectPermissions.isNotEmpty().toString(),
+                "unresolvedGapCount" to unresolvedGapCount.toString(),
+                "lastErrorCode" to state.lastStopReason?.name,
+            ),
+        )
+        Button(
+            onClick = {
+                context.getSystemService(ClipboardManager::class.java)
+                    .setPrimaryClip(ClipData.newPlainText("StepArena diagnostics", safeDiagnostics))
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("診断情報をコピー") }
+        Button(
+            onClick = {
+                diagnosticExportText = safeDiagnostics
+                exportDiagnostics.launch("StepArena-diagnostics.txt")
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("診断情報を書き出す") }
     }
 }
 

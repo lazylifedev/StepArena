@@ -25,6 +25,7 @@ import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.tracking.reconcileForceStop
 import com.lazyapps.steparena.game.GameNotificationDispatcher
 import kotlinx.coroutines.launch
+import com.lazyapps.steparena.release.ONBOARDING_VERSION
 
 class MainActivity : ComponentActivity() {
     private var trackingState by mutableStateOf(StepTrackingState())
@@ -69,21 +70,36 @@ class MainActivity : ComponentActivity() {
                         step = trackingState.onboardingStep,
                         onNext = {
                             val step = trackingState.onboardingStep
-                            if (step == 2) {
-                                onboardingPermissionStep = step
-                                requestPermissions(startTracking = false, includeNotification = false)
-                            } else {
-                                if (step == 3) {
-                                    requestPermissions(startTracking = false, includeNotification = true)
+                            lifecycleScope.launch {
+                                repository.update { it.copy(onboardingStep = (step + 1).coerceAtMost(4)) }
+                            }
+                        },
+                        onStartTracking = {
+                            lifecycleScope.launch {
+                                repository.update {
+                                    it.copy(
+                                        onboardingComplete = true, onboardingStep = 4,
+                                        onboardingVersion = ONBOARDING_VERSION,
+                                        trackingExplanationSeen = true,
+                                        notificationExplanationSeen = true,
+                                        healthConnectExplanationSeen = true,
+                                        gameRulesExplanationSeen = true,
+                                    )
                                 }
-                                lifecycleScope.launch {
-                                    repository.update {
-                                        if (step >= 6) {
-                                            it.copy(onboardingComplete = true, onboardingStep = 6)
-                                        } else {
-                                            it.copy(onboardingStep = step + 1)
-                                        }
-                                    }
+                            }
+                            requestPermissions(startTracking = true, includeNotification = true)
+                        },
+                        onLater = {
+                            lifecycleScope.launch {
+                                repository.update {
+                                    it.copy(
+                                        onboardingComplete = true, onboardingStep = 4,
+                                        onboardingVersion = ONBOARDING_VERSION,
+                                        trackingExplanationSeen = true,
+                                        notificationExplanationSeen = true,
+                                        healthConnectExplanationSeen = true,
+                                        gameRulesExplanationSeen = true,
+                                    )
                                 }
                             }
                         },
@@ -107,6 +123,10 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         initialRoute = initialGameRoute,
+                        onReplayOnboarding = {
+                            lifecycleScope.launch { repository.update { it.copy(onboardingComplete = false, onboardingStep = 0) } }
+                        },
+                        onAllDataDeleted = { recreate() },
                     )
                 }
             }

@@ -30,3 +30,9 @@ so synthetic and physical inputs cannot be mixed.
 Heartbeat の既定間隔は 5 分、警告は 12 分、重度判定は 30 分とする。
 stale 時は同じ gap の初回だけ通知し、明示停止中は通知しない。
 バックグラウンドから Service、権限画面、バッテリー設定画面を無条件に開始しない。
+
+# Phase 6 permission UX
+
+ACTIVITY_RECOGNITIONは計測開始操作の直前、POST_NOTIFICATIONSは計測通知が必要な直前に
+用途を説明して要求する。拒否後にループせず、記録・設定・診断を利用可能にする。
+バッテリー設定はtrackingRequested、複数回stale、最適化対象、説明未確認、非明示停止を満たす場合だけ案内する。

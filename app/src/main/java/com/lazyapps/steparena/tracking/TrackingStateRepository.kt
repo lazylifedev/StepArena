@@ -20,6 +20,7 @@ class TrackingStateRepository(private val context: Context) {
     val state: Flow<StepTrackingState> = context.trackingDataStore.data.map(::decode)
 
     suspend fun current(): StepTrackingState = state.first()
+    suspend fun clear() { context.trackingDataStore.edit { it.clear() } }
     suspend fun update(transform: (StepTrackingState) -> StepTrackingState): StepTrackingState {
         var result = StepTrackingState()
         context.trackingDataStore.edit { preferences ->
@@ -66,6 +67,12 @@ class TrackingStateRepository(private val context: Context) {
         sessionId = p[Keys.SESSION],
         onboardingStep = p[Keys.ONBOARDING_STEP] ?: 0,
         onboardingComplete = p[Keys.ONBOARDING_COMPLETE] ?: false,
+        onboardingVersion = p[Keys.ONBOARDING_VERSION] ?: 0,
+        trackingExplanationSeen = p[Keys.TRACKING_EXPLANATION] ?: false,
+        notificationExplanationSeen = p[Keys.NOTIFICATION_EXPLANATION] ?: false,
+        healthConnectExplanationSeen = p[Keys.HEALTH_EXPLANATION] ?: false,
+        gameRulesExplanationSeen = p[Keys.GAME_EXPLANATION] ?: false,
+        privacyPolicyVersionSeen = p[Keys.PRIVACY_VERSION] ?: 0,
         batteryGuidanceAcknowledged = p[Keys.BATTERY_ACK] ?: false,
         notificationGuidanceAcknowledged = p[Keys.NOTIFICATION_ACK] ?: false,
         needsReview = p[Keys.NEEDS_REVIEW] ?: false,
@@ -91,6 +98,12 @@ class TrackingStateRepository(private val context: Context) {
         nullable(p, Keys.SESSION, s.sessionId)
         p[Keys.ONBOARDING_STEP] = s.onboardingStep
         p[Keys.ONBOARDING_COMPLETE] = s.onboardingComplete
+        p[Keys.ONBOARDING_VERSION] = s.onboardingVersion
+        p[Keys.TRACKING_EXPLANATION] = s.trackingExplanationSeen
+        p[Keys.NOTIFICATION_EXPLANATION] = s.notificationExplanationSeen
+        p[Keys.HEALTH_EXPLANATION] = s.healthConnectExplanationSeen
+        p[Keys.GAME_EXPLANATION] = s.gameRulesExplanationSeen
+        p[Keys.PRIVACY_VERSION] = s.privacyPolicyVersionSeen
         p[Keys.BATTERY_ACK] = s.batteryGuidanceAcknowledged
         p[Keys.NOTIFICATION_ACK] = s.notificationGuidanceAcknowledged
         p[Keys.NEEDS_REVIEW] = s.needsReview
@@ -130,6 +143,12 @@ class TrackingStateRepository(private val context: Context) {
         val SESSION = stringPreferencesKey("session_id")
         val ONBOARDING_STEP = intPreferencesKey("onboarding_step")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val ONBOARDING_VERSION = intPreferencesKey("onboarding_version")
+        val TRACKING_EXPLANATION = booleanPreferencesKey("tracking_explanation_seen")
+        val NOTIFICATION_EXPLANATION = booleanPreferencesKey("notification_explanation_seen")
+        val HEALTH_EXPLANATION = booleanPreferencesKey("health_connect_explanation_seen")
+        val GAME_EXPLANATION = booleanPreferencesKey("game_rules_explanation_seen")
+        val PRIVACY_VERSION = intPreferencesKey("privacy_policy_version_seen")
         val BATTERY_ACK = booleanPreferencesKey("battery_guidance_ack")
         val NOTIFICATION_ACK = booleanPreferencesKey("notification_guidance_ack")
         val NEEDS_REVIEW = booleanPreferencesKey("needs_review")

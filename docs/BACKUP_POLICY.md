@@ -1,0 +1,5 @@
+# Backup Policy
+
+Room、DataStore、SharedPreferences、キャッシュをAndroidクラウドバックアップと端末間転送から除外する。Counter baselineやHealth Connect処理済み記録の別端末復元による二重加算を防ぐためである。
+
+正式なバックアップ手段はユーザー操作のZIPエクスポート。Debugデータも常に除外する。活動履歴はユーザーが削除するまで保持し、診断ログは最大30日、エクスポート一時物は処理後削除、古い通知イベントは定期整理する。

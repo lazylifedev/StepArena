@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Clock
+import com.lazyapps.steparena.release.DataManagementRepository
 
 interface AppGraph {
     val database: StepArenaDatabase
@@ -57,6 +58,7 @@ open class StepArenaApplication : Application(), AppGraph {
         super.onCreate()
         scheduleBackgroundWork()
         applicationScope.launch {
+            DataManagementRepository(this@StepArenaApplication).completeInterruptedDeletionIfNeeded()
             gameRepository.runMaintenance()
         }
     }

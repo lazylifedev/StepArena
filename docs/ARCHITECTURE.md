@@ -73,3 +73,9 @@ Activity再生成後の全画面が同じgraphを取得する。
 通常Foreground Serviceは隔離モードで起動せず、Fake CounterはDebug DBへの直接シナリオ
 入力だけを使う。production Workerはproduction Repository、Debug WorkerはDebug Repository
 に固定され、実行時のモード推測でDBを選ばない。
+
+## Phase 6 release layer
+
+`release/DataManagement.kt`が既存Room v5の件数集計、snapshotエクスポート、ゲーム領域削除、
+全削除復旧フラグを担当する。Compose設定ルートはSAFを起動するだけで、ネットワーク送信を行わない。
+公開情報はアプリ内本文を常に表示し、未設定の外部URLやサポート先をRelease UIへ出さない。

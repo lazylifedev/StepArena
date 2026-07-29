@@ -38,6 +38,8 @@ class RecoverySettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun reset() { context.recoverySettingsStore.edit { it.clear() } }
+
     private companion object {
         val HEALTH = booleanPreferencesKey("health_connect_enabled")
         val AUTO = booleanPreferencesKey("automatic_recovery")

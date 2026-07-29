@@ -14,3 +14,7 @@ Android 13 以下の Provider アプリ型を SDK の状態 API で判定する�
 取得レコードは origin、record ID、更新日時、区間を保持する。StepArena 自身の origin を
 除外し、record ID または fingerprint で二重適用を防止する。Android の端末内歩数は
 `android` または Health Connect の synthetic package として分類し、固定の SPN は仮定しない。
+
+Phase 6では設定でユーザーが明示的にONにした場合だけ説明・権限要求する。画面にはProvider、
+権限、Stepsのみ、既定／自動補完OFF、データ元、最終読取、補完履歴、無効化方法を示す。
+エクスポートと診断には外部record IDや詳細DataOriginを含めない。

@@ -34,6 +34,8 @@ class HomeScreenTest {
 
     @Test fun stoppedTrackingState_isDisplayed() {
         setHome(snapshot.copy(trackingStatus = TrackingStatus.MAY_BE_STOPPED))
+        composeRule.onNodeWithTag(HomeTestTags.CONTENT)
+            .performScrollToNode(hasText("計測が停止している可能性があります"))
         composeRule.onNodeWithText("計測が停止している可能性があります").assertIsDisplayed()
     }
 

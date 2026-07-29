@@ -61,3 +61,12 @@ Debug実機検証UI、ゲーム通知、週間リーグ/月間シーズン確定
 Debug実機シナリオはproductionデータから完全隔離する。独立DB/DataStore、graph切替、
 Worker/通知/Fake Counter/reset分離とproduction不変Instrumentation TestをシナリオAの
 再開条件とする。Aが合格するまでB〜Eは開始しない。
+
+# Phase 6
+
+Google Play公開準備として、5ページのオンボーディング、利用直前の権限説明、カテゴリ化した設定、
+データ使用状況、SAF ZIPエクスポート、ゲームのみ初期化、全削除、アプリ内Privacy/免責/ライセンス、
+バックアップ除外、アクセシビリティ、Play申告草案とRelease QAを対象とする。
+
+Roomは既存テーブルで実現できるためschema v5を維持する。物理歩行、Health Connect実Provider、
+Play Console最終入力、公開URLとサポート窓口、GitHub既定ブランチ変更は外部の公開前ゲートとして残す。

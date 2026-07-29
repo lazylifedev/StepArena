@@ -22,6 +22,7 @@ class UserProfileRepository(private val context: Context) {
     }
 
     suspend fun current(): UserBodyProfile = profile.first()
+    suspend fun reset() { context.profileDataStore.edit { it.clear() } }
 
     suspend fun save(profile: UserBodyProfile) {
         require(profile.heightCm == null || profile.heightCm.isFinite() && profile.heightCm in 100.0..250.0)

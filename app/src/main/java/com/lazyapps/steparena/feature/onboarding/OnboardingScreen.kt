@@ -23,17 +23,21 @@ object OnboardingTestTags {
 data class OnboardingPage(val title: String, val body: String, val action: String = "次へ")
 
 val onboardingPages = listOf(
-    OnboardingPage("StepArenaへようこそ", "毎日の散歩を試合に変える、日本向けの歩数アプリです。"),
-    OnboardingPage("端末で歩数を計測", "端末の歩数センサーを使い、アプリを閉じても計測を続けます。省電力設定により停止する場合があります。"),
-    OnboardingPage("身体活動へのアクセス", "歩数を取得するため、次の画面で身体活動権限を確認します。", "権限を確認"),
-    OnboardingPage("通知について", "計測中の状態、停止操作、更新状況を常駐通知でお知らせします。", "通知を確認"),
-    OnboardingPage("バッテリー制限", "現在の省電力状態を診断します。必要な場合だけ設定画面を案内します。"),
-    OnboardingPage("計測テスト", "センサー対応を確認してから計測を開始してください。"),
-    OnboardingPage("計測準備完了", "今日の歩数計測を開始できます。", "ホームへ"),
+    OnboardingPage("歩くことを、毎日の小さな対戦に。", "StepArenaは端末の歩数センサーで日々の活動を記録するローカル歩数ゲームです。対戦相手はローカル生成NPCで、実在ユーザーとのオンライン対戦ではありません。アカウントは不要で、通常データは端末内に保存します。無理な歩行を促すものではありません。"),
+    OnboardingPage("計測方法", "Step Counterを利用します。精度やバックグラウンド動作は端末により異なり、再起動や省電力設定で停止する場合があります。Health Connectは任意・既定OFFの補完機能です。医療用測定ではありません。"),
+    OnboardingPage("必要なときに権限を確認", "身体活動は計測開始時、通知は計測通知が必要なとき、Health Connectの歩数読取は設定でONにしたときだけ説明して要求します。拒否しても記録の閲覧、設定、ヘルプは利用できます。"),
+    OnboardingPage("ゲームのルール", "今日の対戦有効歩数でローカルNPCと競います。対戦上限は1日30,000歩です。補完・推定歩数には制限がありますが、通常の歩数記録は上限後も残ります。"),
+    OnboardingPage("準備ができました", "まずは歩数計測を開始してください。Health Connectは後から設定できます。"),
 )
 
 @Composable
-fun OnboardingScreen(step: Int, onNext: () -> Unit, onBack: () -> Unit) {
+fun OnboardingScreen(
+    step: Int,
+    onNext: () -> Unit,
+    onBack: () -> Unit,
+    onStartTracking: () -> Unit = onNext,
+    onLater: () -> Unit = onNext,
+) {
     val page = onboardingPages[step.coerceIn(onboardingPages.indices)]
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp).testTag(OnboardingTestTags.SCREEN),
@@ -43,7 +47,16 @@ fun OnboardingScreen(step: Int, onNext: () -> Unit, onBack: () -> Unit) {
         Text("${step + 1} / ${onboardingPages.size}", color = MaterialTheme.colorScheme.secondary)
         Text(page.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 16.dp))
         Text(page.body, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 24.dp))
-        Button(onClick = onNext, modifier = Modifier.testTag(OnboardingTestTags.NEXT)) { Text(page.action) }
+        if (step == onboardingPages.lastIndex) {
+            Button(onClick = onStartTracking, modifier = Modifier.testTag(OnboardingTestTags.NEXT)) {
+                Text("歩数計測を開始")
+            }
+            OutlinedButton(onClick = onLater, modifier = Modifier.padding(top = 8.dp)) {
+                Text("あとで開始")
+            }
+        } else {
+            Button(onClick = onNext, modifier = Modifier.testTag(OnboardingTestTags.NEXT)) { Text(page.action) }
+        }
         if (step > 0) {
             OutlinedButton(
                 onClick = onBack,

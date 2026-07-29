@@ -41,6 +41,9 @@ import com.lazyapps.steparena.feature.records.RecordsScreen
 import com.lazyapps.steparena.feature.settings.ProfileSettingsScreen
 import com.lazyapps.steparena.feature.settings.SettingsScreen
 import com.lazyapps.steparena.feature.settings.RecoverySettingsScreen
+import com.lazyapps.steparena.feature.settings.DataManagementScreen
+import com.lazyapps.steparena.feature.settings.InfoDocument
+import com.lazyapps.steparena.feature.settings.InfoDocumentScreen
 import com.lazyapps.steparena.feature.diagnostics.RecoveryHistoryScreen
 import com.lazyapps.steparena.feature.game.GamePage
 import com.lazyapps.steparena.feature.game.GameScreen
@@ -62,6 +65,8 @@ fun StepArenaApp(
     navController: NavHostController = rememberNavController(),
     initialRoute: String = AppDestination.HOME.route,
     environmentBanner: String? = null,
+    onReplayOnboarding: () -> Unit = {},
+    onAllDataDeleted: () -> Unit = {},
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selectedRoute = backStackEntry?.destination?.route ?: AppDestination.HOME.route
@@ -128,12 +133,23 @@ fun StepArenaApp(
                         onDiagnostics = { navController.navigate("settings/diagnostics") },
                         onRecoverySettings = { navController.navigate("settings/recovery") },
                         onRecoveryHistory = { navController.navigate("settings/recovery-history") },
+                        onDataManagement = { navController.navigate("settings/data") },
+                        onPrivacy = { navController.navigate("settings/privacy") },
+                        onTerms = { navController.navigate("settings/terms") },
+                        onLicenses = { navController.navigate("settings/licenses") },
+                        onAbout = { navController.navigate("settings/about") },
+                        onReplayOnboarding = onReplayOnboarding,
                     )
                 }
                 composable("settings/profile") { ProfileSettingsScreen() }
                 composable("settings/diagnostics") { TrackingDiagnosticsScreen(trackingState) }
                 composable("settings/recovery") { RecoverySettingsScreen() }
                 composable("settings/recovery-history") { RecoveryHistoryScreen() }
+                composable("settings/data") { DataManagementScreen(onAllDataDeleted) }
+                composable("settings/privacy") { InfoDocumentScreen(InfoDocument.PRIVACY) }
+                composable("settings/terms") { InfoDocumentScreen(InfoDocument.TERMS) }
+                composable("settings/licenses") { InfoDocumentScreen(InfoDocument.LICENSES) }
+                composable("settings/about") { InfoDocumentScreen(InfoDocument.ABOUT) }
             }
         }
     }
