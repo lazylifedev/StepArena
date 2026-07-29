@@ -3,11 +3,12 @@ package com.lazyapps.steparena.feature.home
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -17,12 +18,16 @@ import com.lazyapps.steparena.app.navigation.StepArenaApp
 import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import com.lazyapps.steparena.core.model.*
+import com.lazyapps.steparena.test.awaitResumedHost
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import java.time.Instant
 
 class HomeScreenTest {
-    @get:Rule val composeRule = createComposeRule()
+    @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Before fun awaitHost() = composeRule.awaitResumedHost()
 
     @Test fun requiredFiveMetrics_areReachable() {
         setHome()

@@ -6,3 +6,9 @@
 - 100/130/150/200%、320/360/411/600dp、Landscape、分割画面を確認する。
 - Reduce Motionでは遷移を簡略化し、点滅・無限アニメーションを使わない。
 - 自動semantics検査だけで合格とせず、SOV41でTalkBackを手動確認する。
+
+## Phase 6.1
+
+Accessibility関連Composeテスト8件はSOV41で3/3成功した。これはsemanticsと
+画面到達性の自動確認であり、TalkBack手動確認、200%文字、全対象画面のLandscape
+確認を代替しない。これら3項目は未完了。

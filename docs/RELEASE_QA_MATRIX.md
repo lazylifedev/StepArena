@@ -11,3 +11,11 @@
 |ゲーム|WIN/LOSS/DRAW/NO_CONTEST、昇降格、月週境界、30,000歩|既存Unit/Instrumentation|
 
 未検証を合格扱いしない。物理歩行とHealth Connect実Providerは別の公開前ゲート。
+
+## Phase 6.1 status (2026-07-29)
+
+- Android 11 / SOV41: instrumentation 25/25、全件3/3、グループ別3/3成功。
+- Landscape: オンボーディングのみ既存確認。Phase 6対象画面一式は未完了。
+- TalkBackと200%文字: 未完了。
+- Android 10 / 13 / 14 / 15または16: 利用可能なエミュレーター未確認。
+- ZIP、ゲーム初期化、全削除、削除復旧: 実機手動確認未完了。

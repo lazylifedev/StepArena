@@ -259,3 +259,13 @@ force-stop、`am crash`再試験はPhase 6実装後に実施する。未実施�
 - 既存の停止警告テストは画面外要素へscrollしてから検証するよう到達性を修正。
 - TalkBack、200%文字、データエクスポート、ゲーム初期化、全削除、force-stop、`am crash`の
   Phase 6手動シナリオは未完了。
+
+### Phase 6.1 Compose安定化再試験
+
+- 日時: 2026-07-29、SOV41 / Android 11。
+- Composeホストをテストごとの新規ActivityScenarioへ統一し、RESUMED確認後に
+  `setContent`するよう修正。
+- グループ別6分類はすべて3/3成功。全25件も3/3成功。
+- 最終`connectedDebugAndroidTest`は25/25成功。
+- ZIP、ゲーム初期化、全削除、削除中復旧、TalkBack、200%文字、
+  Phase 6としてのLandscape、force-stop、`am crash`は未実施のため未合格。

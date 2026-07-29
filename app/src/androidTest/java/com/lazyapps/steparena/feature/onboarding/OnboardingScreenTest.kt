@@ -1,17 +1,22 @@
 package com.lazyapps.steparena.feature.onboarding
 
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
+import com.lazyapps.steparena.test.awaitResumedHost
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 class OnboardingScreenTest {
-    @get:Rule val composeRule = createComposeRule()
+    @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Before fun awaitHost() = composeRule.awaitResumedHost()
 
     @Test fun introductionAndPermissionRationale_areReachable() {
         var advanced = false
