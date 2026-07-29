@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
@@ -508,31 +507,6 @@ private fun AnimatedMetricCard(
 }
 
 @Composable
-private fun MotionPreview(level: MotionLevel, onSelected: (MotionLevel) -> Unit) {
-    GlassSurface(Modifier.fillMaxWidth()) {
-        SectionHeader(stringResource(R.string.motion_preview_title))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.xs),
-        ) {
-            MotionLevel.entries.forEach { option ->
-                FilterChip(
-                    selected = level == option,
-                    onClick = { onSelected(option) },
-                    label = { Text(motionName(option)) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Text(
-            stringResource(R.string.motion_preview_notice),
-            style = MaterialTheme.typography.bodyMedium,
-            color = StepArenaColors.TextSecondary,
-        )
-    }
-}
-
-@Composable
 private fun trackingText(status: TrackingStatus): String = stringResource(
     when (status) {
         TrackingStatus.ACTIVE -> R.string.tracking_active
@@ -577,15 +551,6 @@ private fun matchSupportingText(snapshot: HomeSnapshot, format: NumberFormat): S
             )
         }
     }
-
-@Composable
-private fun motionName(level: MotionLevel): String = stringResource(
-    when (level) {
-        MotionLevel.FULL -> R.string.motion_full
-        MotionLevel.REDUCED -> R.string.motion_reduced
-        MotionLevel.OFF -> R.string.motion_off
-    },
-)
 
 private fun motionDuration(level: MotionLevel): Int = when (level) {
     MotionLevel.FULL -> StepArenaMotion.expressive

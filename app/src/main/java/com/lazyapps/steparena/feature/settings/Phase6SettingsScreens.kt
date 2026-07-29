@@ -56,7 +56,7 @@ fun DataManagementScreen(onDeleted: () -> Unit) {
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) { Text("データを書き出す") }
         OutlinedButton(onClick = { gameConfirm = 1 }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text("ゲーム進行だけ初期化")
+            Text("チャレンジ記録を初期化")
         }
         OutlinedButton(onClick = { deleteConfirm = 1 }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text("全データを削除")
@@ -68,8 +68,8 @@ fun DataManagementScreen(onDeleted: () -> Unit) {
     }
     if (gameConfirm > 0) AlertDialog(
         onDismissRequest = { gameConfirm = 0 },
-        title = { Text(if (gameConfirm == 1) "ゲーム進行を初期化しますか？" else "本当に初期化しますか？") },
-        text = { Text("歩行ランク、チャレンジ履歴、週間グループ、月間記録、達成記録を削除します。歩数記録とプロフィールは残ります。") },
+        title = { Text(if (gameConfirm == 1) "チャレンジ記録を初期化しますか？" else "本当に初期化しますか？") },
+        text = { Text("歩行ランク、チャレンジ履歴、週間グループ、月間記録、達成記録を初期化します。歩数記録とプロフィールは残ります。") },
         confirmButton = {
             Button(onClick = {
                 if (gameConfirm == 1) gameConfirm = 2 else scope.launch {
@@ -105,7 +105,7 @@ fun DataManagementScreen(onDeleted: () -> Unit) {
     if (resetConfirm) AlertDialog(
         onDismissRequest = { resetConfirm = false },
         title = { Text("設定を初期化しますか？") },
-        text = { Text("表示、通知、Health Connect補完、プロフィール設定を既定値へ戻します。記録とゲーム進行は残ります。") },
+        text = { Text("表示、通知、Health Connect補完、プロフィール設定を既定値へ戻します。歩数記録とチャレンジ記録は残ります。") },
         confirmButton = {
             Button(onClick = {
                 scope.launch { repository.resetSettings(keepOnboarding = true); resetConfirm = false }

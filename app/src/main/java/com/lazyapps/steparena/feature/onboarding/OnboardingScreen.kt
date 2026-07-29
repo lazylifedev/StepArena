@@ -11,6 +11,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,6 +26,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
 
 object OnboardingTestTags {
     const val SCREEN = "onboarding_screen"
@@ -25,14 +34,19 @@ object OnboardingTestTags {
     const val BACK = "onboarding_back"
 }
 
-data class OnboardingPage(val title: String, val body: String, val action: String = "次へ")
+data class OnboardingPage(
+    val title: String,
+    val body: String,
+    val icon: ImageVector,
+    val action: String = "次へ",
+)
 
 val onboardingPages = listOf(
-    OnboardingPage("歩くことを、毎日の楽しいチャレンジに。", "StepArenaは端末の歩数センサーで日々の活動を記録する歩数計アプリです。チャレンジパートナーは端末内で自動生成され、実在ユーザーとのオンライン対戦ではありません。アカウントは不要で、通常データは端末内に保存します。無理な歩行を促すものではありません。"),
-    OnboardingPage("計測方法", "Step Counterを利用します。精度やバックグラウンド動作は端末により異なり、再起動や省電力設定で停止する場合があります。Health Connectは任意・既定OFFの補完機能です。医療用測定ではありません。"),
-    OnboardingPage("必要なときに権限を確認", "身体活動は計測開始時、通知は計測通知が必要なとき、Health Connectの歩数読取は設定でONにしたときだけ説明して要求します。拒否しても記録の閲覧、設定、ヘルプは利用できます。"),
-    OnboardingPage("チャレンジのルール", "今日のチャレンジ対象歩数を、自動生成されたパートナーの目標と比べます。対象歩数の上限は1日30,000歩です。補完・推定歩数には制限がありますが、通常の歩数記録は上限後も残ります。"),
-    OnboardingPage("準備ができました", "まずは歩数計測を開始してください。Health Connectは後から設定できます。"),
+    OnboardingPage("歩くことを、毎日の楽しいチャレンジに。", "StepArenaは端末の歩数センサーで日々の活動を記録する歩数計アプリです。チャレンジパートナーは端末内で自動生成され、実在ユーザーとのオンライン対戦ではありません。アカウントは不要で、通常データは端末内に保存します。無理な歩行を促すものではありません。", Icons.Default.DirectionsWalk),
+    OnboardingPage("計測方法", "Step Counterを利用します。精度やバックグラウンド動作は端末により異なり、再起動や省電力設定で停止する場合があります。Health Connectは任意・既定OFFの補完機能です。医療用測定ではありません。", Icons.Default.Sensors),
+    OnboardingPage("必要なときに権限を確認", "身体活動は計測開始時、通知は計測通知が必要なとき、Health Connectの歩数読取は設定でONにしたときだけ説明して要求します。拒否しても記録の閲覧、設定、ヘルプは利用できます。", Icons.Default.Lock),
+    OnboardingPage("チャレンジのルール", "今日のチャレンジ対象歩数を、自動生成されたパートナーの目標と比べます。対象歩数の上限は1日30,000歩です。補完・推定歩数には制限がありますが、通常の歩数記録は上限後も残ります。", Icons.Default.EmojiEvents),
+    OnboardingPage("準備ができました", "まずは歩数計測を開始してください。Health Connectは後から設定できます。", Icons.Default.CheckCircle),
 )
 
 @Composable
@@ -50,7 +64,17 @@ fun OnboardingScreen(
         horizontalAlignment = Alignment.Start,
     ) {
         Text("${step + 1} / ${onboardingPages.size}", color = MaterialTheme.colorScheme.secondary)
+        LinearProgressIndicator(
+            progress = { (step + 1f) / onboardingPages.size },
+            modifier = Modifier.fillMaxWidth().testTag("onboarding_progress"),
+        )
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Icon(
+                imageVector = page.icon,
+                contentDescription = null,
+                modifier = Modifier.padding(top = 16.dp).testTag("onboarding_icon"),
+                tint = MaterialTheme.colorScheme.primary,
+            )
             Text(page.title, style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(top = 16.dp).semantics { heading() })
             Text(page.body, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 24.dp))

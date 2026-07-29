@@ -26,6 +26,8 @@ class OnboardingScreenTest {
             }
         }
         composeRule.onNodeWithTag(OnboardingTestTags.SCREEN).assertIsDisplayed()
+        composeRule.onNodeWithTag("onboarding_icon").assertIsDisplayed()
+        composeRule.onNodeWithTag("onboarding_progress").assertIsDisplayed()
         composeRule.onNodeWithText("必要なときに権限を確認").assertIsDisplayed()
         composeRule.onNodeWithTag(OnboardingTestTags.NEXT).performClick()
         assertTrue(advanced)

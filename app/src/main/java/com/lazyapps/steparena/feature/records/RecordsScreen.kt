@@ -29,6 +29,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.StepArenaApplication
@@ -119,11 +121,10 @@ private fun HourChart(
     onSelect: (HourlyActivityRecordEntity) -> Unit,
 ) {
     val ordered = records.sortedBy { it.periodStartEpochMillis }
+    val recordsByHour = ordered.groupBy { it.hourOfDay }
     val maximum = ordered.maxOfOrNull { metricValue(it, metric) }?.coerceAtLeast(1.0) ?: 1.0
-    val totalSteps = ordered.sumOf { it.steps }
-    val maxRecord = ordered.maxByOrNull { metricValue(it, metric) }
-    val chartDescription = "今日の${metricLabel(metric)}グラフ。合計${formatNumber(totalSteps)}歩。" +
-        (maxRecord?.let { "最も多い時間帯は${it.hourOfDay}時台で${formatNumber(it.steps)}歩です。" } ?: "")
+    var selectedKey by remember(metric, records) { mutableStateOf<Long?>(null) }
+    val chartDescription = RecordAccessibilityFormatter.chartSummary(ordered, metric)
     GlassSurface(Modifier.fillMaxWidth().testTag("hourly_chart").semantics {
         contentDescription = chartDescription
     }) {
@@ -133,15 +134,38 @@ private fun HourChart(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
-            ordered.forEach { record ->
-                Box(
-                    Modifier.weight(1f)
-                        .height((120 * metricValue(record, metric) / maximum).coerceAtLeast(2.0).dp)
-                        .clickable { onSelect(record) },
+            (0..23).forEach { hour ->
+                val hourRecords = recordsByHour[hour].orEmpty()
+                Row(
+                    modifier = Modifier.weight(1f).fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Box(Modifier.fillMaxSize().padding(horizontal = 1.dp), contentAlignment = Alignment.BottomCenter) {
-                        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                            drawRect(StepArenaColors.CyanSoft)
+                    hourRecords.forEach { record ->
+                        val key = record.periodStartEpochMillis
+                        val quality = stringResource(record.stepsQuality.labelRes())
+                        Box(
+                            Modifier.weight(1f)
+                                .height((120 * metricValue(record, metric) / maximum).coerceAtLeast(2.0).dp)
+                                .semantics {
+                                    contentDescription = RecordAccessibilityFormatter.barDescription(
+                                        record, metric, quality,
+                                    )
+                                    selected = selectedKey == key
+                                    onClick("この時間帯の詳細を表示") {
+                                        selectedKey = key
+                                        onSelect(record)
+                                        true
+                                    }
+                                }
+                                .clickable {
+                                    selectedKey = key
+                                    onSelect(record)
+                                },
+                        ) {
+                            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                                drawRect(StepArenaColors.CyanSoft)
+                            }
                         }
                     }
                 }
@@ -197,14 +221,6 @@ private fun SessionDetail(session: WalkingSessionEntity) {
 
 @Composable private fun EmptyRecords(message: String) =
     GlassSurface(Modifier.fillMaxWidth()) { Text(message); Text("計測を開始するとここに記録されます") }
-
-private fun metricValue(record: HourlyActivityRecordEntity?, metric: RecordMetric): Double = when (metric) {
-    RecordMetric.STEPS -> record?.steps?.toDouble()
-    RecordMetric.DISTANCE -> record?.distanceMeters
-    RecordMetric.DURATION -> record?.walkingDurationSeconds?.toDouble()
-    RecordMetric.CALORIES -> record?.estimatedCaloriesKcal
-    RecordMetric.SPEED -> record?.averageWalkingSpeedKmh
-} ?: 0.0
 
 private fun periodLabelRes(period: RecordPeriod) = when (period) {
     RecordPeriod.HOURLY -> R.string.record_period_hourly

@@ -13,7 +13,6 @@ import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MotionPhotosOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,10 +58,9 @@ fun SettingsScreen(
         SettingRow(Icons.Default.Info, stringResource(R.string.settings_diagnostics), "計測状態と権限の確認", onDiagnostics)
         SettingsHeading("プロフィール・計算")
         SettingRow(Icons.Default.Person, stringResource(R.string.settings_profile), "歩幅と消費カロリーの設定", onProfile)
-        SettingsHeading("ゲーム")
+        SettingsHeading("チャレンジ")
         GameNotificationSetting()
         SettingRow(Icons.Default.DirectionsWalk, "チャレンジ説明をもう一度見る", "端末内パートナーと歩数ルール", onReplayOnboarding)
-        SettingRow(Icons.Default.MotionPhotosOn, "画面の動き", "標準", {})
         SettingsHeading("データ管理")
         SettingRow(Icons.Default.DataUsage, "データ管理", "書き出し・初期化・全削除", onDataManagement)
         SettingsHeading("アプリ情報")
