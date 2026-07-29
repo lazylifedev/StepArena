@@ -140,6 +140,9 @@ walking passes.
 These remain **not run / pending physical walking**. No Fake Sensor result may
 be used to change their status.
 
+物理歩行試験は公開前必須ゲートとして未完了。
+Phase 3以降の開発は継続可能だが、Google Play公開判定には使用しない。
+
 ### Debug injection protocol
 
 The Debug manifest alone exports
