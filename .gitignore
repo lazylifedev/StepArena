@@ -1,0 +1,22 @@
+*.iml
+.gradle/
+.idea/
+**/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+.DS_Store
+
+# Generated Gradle daemon JVM criteria
+gradle/gradle-daemon-jvm.properties
+
+# Signing material and local service credentials
+*.jks
+*.keystore
+*.p12
+*.pem
+keystore.properties
+secrets.properties
+google-services.json
+service-account*.json
