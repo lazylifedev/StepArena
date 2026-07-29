@@ -94,3 +94,30 @@ SOV41 (`QV7209CF25`, Android 11) では全Instrumentation 25件中、新規produ
 最終25/25とシナリオAの手動再試験は未完了である。
 
 したがってAは合格扱いにせず、B〜Eと物理歩行も未実施のままとする。
+
+## 2026-07-29 Phase 5.1 再試験
+
+SOV41 (`QV7209CF25`, Android 11) のインストール停止原因は、Google Play Protectの
+「セキュリティ診断のためにアプリを送信しますか？」ダイアログが未回答のまま
+前面に残っていたことだった。「送信しない」を選択後、Debug APK
+（40,681,584 bytes）とandroidTest APK（3,212,079 bytes）はADB直接インストールに成功した。
+Package Installerのデータ消去、端末再起動、通常アプリデータ削除は行っていない。
+
+`connectedDebugAndroidTest` は初回24/25で、Composeホストを一時的に取得できなかった
+`HomeScreenTest.bottomNavigation_opensLocalMatch` だけが失敗した。同テストの単独再実行は
+1/1成功し、全件再実行も25/25成功した。FATAL/ANRはなかった。
+
+手動シナリオ開始時、Debug初期化がMain thread上の`clearAllTables()`でクラッシュする問題を
+検出し、IO dispatcherへ移した。さらにCounterが時間別DBへ反映されない問題、モード切替後に
+保持されたHomeViewModelが切替前graphを参照する問題、Silver境界用Debug値とラベルの不一致を
+修正した。
+
+- 通常識別値: rating 1,000、勝数0、歩数0、DailyMatch 1、通知0、実績0
+- A: 日次5,000、時間別5,000、DailyMatch 1、WIN、rating 1,000→1,025、勝数1、連勝1
+- A: 再確定後不変、通常再起動後維持、force-stop後維持、通常識別値は全項目不変
+- B: RECOVERED 1,000に対し有効800、制限200、除外0、`RECOVERED_LIMITED`
+- C: 1,600でSilver III、1,599でBronze I
+- D: 2026-07-30、2026-08-06、2026-09-06の日次境界、週・月境界の確定／次期間生成
+- E: 対戦結果1件、実績2件、合計3件。同日再処理2回後もdeduplication keyは3/3で重複なし
+- A〜E終了後の通常識別値は開始時と同一
+- 物理歩行は未実施

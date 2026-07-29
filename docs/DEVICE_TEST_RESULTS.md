@@ -230,3 +230,16 @@ SOV41（Android 11）でDebugシナリオA〜E、DAO/Migration/Instrumentation/C
 - force-stop後の再起動でも対戦有効10,000歩・総歩数10,000歩の維持を確認
 - `am crash` 後に再起動し、MainActivityの再生成と前景復帰を確認
 - 手動シナリオA〜Eの全操作証跡は未完了。自動試験成功のみを手動合格とは扱わない
+
+## 2026-07-29 Phase 5.1 再試験
+
+- Play Protectの未回答ダイアログを「送信しない」で解除し、Debug APKとandroidTest APKの直接インストールに成功
+- `connectedDebugAndroidTest`: 再実行25/25成功（初回の一過性Composeホスト未生成は単独1/1成功）
+- Debug初期化のMain-thread Roomクラッシュ、時間別歩数未反映、モード切替graph残留、Silver境界Debug値を修正
+- シナリオA: 5,000歩、時間別5,000、WIN、rating 1,025、二重確定防止、再起動／force-stop維持
+- シナリオB: RECOVERED 1,000→有効800・制限200
+- シナリオC: Silver昇格1,600、Bronze降格1,599
+- シナリオD: 日・週・月境界と次期間生成を確認
+- シナリオE: 通知候補3件、同日再処理後もdeduplication key 3/3
+- 通常DBはrating 1,000、勝数0、歩数0、DailyMatch 1、通知0、実績0のまま不変
+- 物理歩行、画面OFF、距離・カロリー・速度、バッテリー最適化は未検証
