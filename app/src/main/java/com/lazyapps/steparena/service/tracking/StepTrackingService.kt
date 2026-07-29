@@ -120,7 +120,7 @@ class StepTrackingService : Service(), SensorEventListener {
             }
         }
         if (BuildConfig.DEBUG && intent?.action == debugAction()) {
-            promote(NotificationModel(0, null, getString(R.string.notification_status_debug_preparing)))
+            promote(NotificationModel(0, null, getString(R.string.notification_status_preparing)))
             val value = intent.getFloatExtra(debugValueExtra(), Float.NaN)
             scope.launch {
                 if (setupStarted.compareAndSet(false, true)) {

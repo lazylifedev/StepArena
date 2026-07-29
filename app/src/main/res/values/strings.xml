@@ -420,7 +420,6 @@
     <string name="notification_tracking_text">今日 %1$d歩・最終更新 %2$s</string>
     <string name="notification_walking_title">散歩を記録しています</string>
     <string name="notification_walking_text">散歩 %1$d歩・%2$d分 / 今日 %3$d歩</string>
-    <string name="notification_status_debug_preparing">Debug計測を準備中</string>
     <string name="notification_status_preparing">計測を準備中</string>
     <string name="notification_status_tracking">計測中</string>
     <string name="notification_status_walking">散歩中</string>
