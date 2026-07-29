@@ -16,3 +16,9 @@ Local date, zone id, UTC offset and the source instant are retained. Historical 
 never rewritten when the device time zone changes. The offset is part of an hourly
 bucket's identity so repeated local hours during daylight-saving transitions remain
 distinct.
+# Schema version 2
+
+Migration 1 to 2 is non-destructive. It persists unclassified-step quality,
+profile inputs applied to hourly metrics, walking-session recovery fields, and
+active automatic/manual session references. Exported Room schemas `1.json` and
+`2.json` are both retained.

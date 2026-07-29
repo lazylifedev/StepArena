@@ -20,6 +20,7 @@ import java.time.Instant
 import com.lazyapps.steparena.app.StepArenaApplication
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import com.lazyapps.steparena.core.database.model.DataQuality
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class HomeViewModel(
@@ -52,7 +53,10 @@ class HomeViewModel(
     private fun observeTracking() {
         viewModelScope.launch {
             trackingRepository.state.flatMapLatest { tracking ->
-                activityRepository.observeToday(tracking.currentLocalDate).map { daily ->
+                activityRepository.observeToday(
+                    tracking.currentLocalDate,
+                    java.time.ZoneId.of(tracking.currentZoneId),
+                ).map { daily ->
                     tracking to daily
                 }
             }.collect { (tracking, daily) ->
@@ -78,7 +82,13 @@ class HomeViewModel(
                                 durationSeconds = daily?.walkingDurationSeconds,
                                 calories = daily?.estimatedCaloriesKcal,
                                 speedKmh = daily?.averageWalkingSpeedKmh,
-                                estimated = daily != null,
+                                reliability = when (daily?.stepsQuality) {
+                                    DataQuality.RECOVERED, DataQuality.MIXED ->
+                                        DataReliability.PARTLY_RECOVERED
+                                    DataQuality.ESTIMATED -> DataReliability.PARTLY_ESTIMATED
+                                    DataQuality.MEASURED -> DataReliability.COMPLETE
+                                    else -> DataReliability.NO_DATA
+                                },
                             ),
                         ),
                         motionLevel = motionRepository.read(),
@@ -128,7 +138,7 @@ class HomeViewModel(
         durationSeconds: Long?,
         calories: Double?,
         speedKmh: Double?,
-        estimated: Boolean,
+        reliability: DataReliability,
     ) = HomeSnapshot(
         rank = RankStatus(RankTier.BRONZE, 1, 0, 0),
         metrics = ActivityMetrics(
@@ -144,8 +154,8 @@ class HomeViewModel(
         match = DailyMatch("準備中", 0f, 0f, 0, MatchOutcome.IN_PROGRESS),
         winStreak = 0,
         league = LeagueStatus(0, 0, 0),
-        reliability = if (estimated) DataReliability.PARTLY_ESTIMATED else DataReliability.NO_DATA,
+        reliability = reliability,
         isOffline = false,
-        metricsAvailable = estimated,
+        metricsAvailable = reliability != DataReliability.NO_DATA,
     )
 }

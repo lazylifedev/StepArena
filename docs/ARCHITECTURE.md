@@ -36,3 +36,9 @@ service do not call DAOs directly. DataStore remains responsible for lightweight
 tracking state, sensor baseline, heartbeat, onboarding, and local profile settings.
 `ActivityRepository` serializes writes with a mutex and uses one Room transaction for
 hourly, daily, session and last-processed sensor state updates.
+# Phase 3.1 activity components
+
+`SensorEventClock` converts elapsed-realtime sensor timestamps. Pure
+`WalkingDurationCalculator` and `UserBodyProfileValidator` logic is separated
+from repository orchestration. `ActivityRepository` remains the Room transaction
+boundary and restores active session identity from persisted state.

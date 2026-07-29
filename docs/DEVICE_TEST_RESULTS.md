@@ -176,3 +176,9 @@ This is non-walking simulation evidence only. Physical-walking acceptance remain
 open for hourly placement, duration, distance/calorie/speed plausibility, automatic
 session boundaries, screen-off operation, Activity termination, stop/restart, and
 battery-optimization comparison.
+# Phase 3.1
+
+SOV41 (`QV7209CF25`, Android 11) ran the existing DAO, instrumentation, and
+Compose suite: 8/8 passed. This was a non-walking validation. Real detector event
+timing, walking duration and boundaries, screen-off behavior, metric accuracy,
+and battery-optimization comparison remain physical-walk gates.

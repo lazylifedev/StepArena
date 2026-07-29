@@ -24,10 +24,10 @@ class UserProfileRepository(private val context: Context) {
     suspend fun current(): UserBodyProfile = profile.first()
 
     suspend fun save(profile: UserBodyProfile) {
-        require(profile.heightCm == null || profile.heightCm.isFinite() && profile.heightCm > 0)
-        require(profile.weightKg == null || profile.weightKg.isFinite() && profile.weightKg > 0)
+        require(profile.heightCm == null || profile.heightCm.isFinite() && profile.heightCm in 100.0..250.0)
+        require(profile.weightKg == null || profile.weightKg.isFinite() && profile.weightKg in 25.0..300.0)
         require(profile.manualStepLengthMeters == null ||
-            profile.manualStepLengthMeters.isFinite() && profile.manualStepLengthMeters > 0)
+            profile.manualStepLengthMeters.isFinite() && profile.manualStepLengthMeters in 0.2..2.0)
         context.profileDataStore.edit {
             setNullable(it, HEIGHT, profile.heightCm)
             setNullable(it, WEIGHT, profile.weightKg)

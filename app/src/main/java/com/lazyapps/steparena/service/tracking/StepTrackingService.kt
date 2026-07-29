@@ -32,6 +32,7 @@ import com.lazyapps.steparena.tracking.NotificationUpdatePolicy
 import com.lazyapps.steparena.tracking.StepCounter
 import com.lazyapps.steparena.tracking.StepEventResult
 import com.lazyapps.steparena.tracking.StepTrackingState
+import com.lazyapps.steparena.tracking.RealtimeSensorEventClock
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.tracking.TrackingStatus
 import com.lazyapps.steparena.tracking.TrackingStopReason
@@ -66,6 +67,8 @@ class StepTrackingService : Service(), SensorEventListener {
     private var lastNotifiedAt = Instant.EPOCH
     private var heartbeatJob: Job? = null
     private var fakeSensorMode = false
+    private val sensorEventClock = RealtimeSensorEventClock()
+    private var sessionTimeoutJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -210,20 +213,28 @@ class StepTrackingService : Service(), SensorEventListener {
                 updateNotificationIfNeeded(heartbeat, force = true)
             }
         }
+        sessionTimeoutJob?.cancel()
+        sessionTimeoutJob = scope.launch {
+            while (true) {
+                delay(SESSION_TIMEOUT_CHECK_INTERVAL_MILLIS)
+                activityRepository.checkSessionTimeouts(Instant.now())
+            }
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        val eventAt = sensorEventClock.toInstant(event.timestamp)
         if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
-            scope.launch { activityRepository.recordDetector(Instant.now()) }
+            scope.launch { activityRepository.recordDetector(eventAt) }
             return
         }
         if (event.sensor.type != Sensor.TYPE_STEP_COUNTER) return
         val raw = event.values.firstOrNull() ?: return
-        scope.launch { acceptSensorValue(raw) }
+        scope.launch { acceptSensorValue(raw, eventAt) }
     }
 
-    private suspend fun acceptSensorValue(raw: Float) {
-        val now = Instant.now()
+    private suspend fun acceptSensorValue(raw: Float, eventAt: Instant = Instant.now()) {
+        val now = eventAt
         val zone = ZoneId.systemDefault()
         if (state.currentLocalDate != now.atZone(zone).toLocalDate()) {
             repository.saveDailySummary(
@@ -282,6 +293,7 @@ class StepTrackingService : Service(), SensorEventListener {
         sensorManager.unregisterListener(this)
         if (BuildConfig.DEBUG) setDebugFakeModePersisted(false)
         heartbeatJob?.cancel()
+        sessionTimeoutJob?.cancel()
         scope.launch {
             val now = Instant.now()
             activityRepository.finishSession(state.sessionId, now)
@@ -305,6 +317,7 @@ class StepTrackingService : Service(), SensorEventListener {
     override fun onDestroy() {
         sensorManager.unregisterListener(this)
         heartbeatJob?.cancel()
+        sessionTimeoutJob?.cancel()
         scope.cancel()
         super.onDestroy()
     }
@@ -423,6 +436,7 @@ class StepTrackingService : Service(), SensorEventListener {
         private const val CHANNEL_ID = "step_tracking"
         private const val NOTIFICATION_ID = 2001
         private const val HEARTBEAT_INTERVAL_MILLIS = 5 * 60 * 1000L
+        private const val SESSION_TIMEOUT_CHECK_INTERVAL_MILLIS = 30 * 1000L
         private const val TAG = "StepTracking"
 
         // Generated rather than stored as a release string. The guarded path is unreachable

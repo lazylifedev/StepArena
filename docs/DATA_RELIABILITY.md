@@ -39,3 +39,8 @@ receiver/action in their merged manifest.
 Activity metrics retain `MEASURED`, `ESTIMATED`, `RECOVERED`, `MIXED`, or `UNKNOWN`
 quality. Unknown values are not converted to zero. Step Counter remains authoritative;
 Step Detector only improves timing, walking-duration, and session-boundary estimates.
+# Phase 3.1 quality retention
+
+Recovered unclassified steps retain `RECOVERED` quality across daily rebuilds.
+Daily quality merges hourly quality with unclassified quality. Home reliability
+is derived from the stored quality instead of treating every record as estimated.

@@ -26,12 +26,16 @@ class ActivityRepository(
     private val stepLengthEstimator: StepLengthEstimator = DefaultStepLengthEstimator(),
     private val calorieEstimator: CalorieEstimator = DistanceCalorieEstimator(),
     private val policy: WalkingDetectionPolicy = WalkingDetectionPolicy(),
+    private val durationCalculator: WalkingDurationCalculator =
+        WalkingDurationCalculator(policy.activeGapThresholdSeconds),
 ) {
     private val writer = Mutex()
     private val detectorEvents = ArrayDeque<Instant>()
 
-    fun observeToday(date: LocalDate) = database.daily().observeDate(date.toString())
-    fun observeHours(date: LocalDate) = database.hourly().observeDate(date.toString())
+    fun observeToday(date: LocalDate, zoneId: ZoneId) =
+        database.daily().observeDate(date.toString(), zoneId.id)
+    fun observeHours(date: LocalDate, zoneId: ZoneId) =
+        database.hourly().observeDate(date.toString(), zoneId.id)
     fun observeSessions() = database.sessions().observeAll()
 
     suspend fun recordDetector(at: Instant) = writer.withLock {
@@ -66,11 +70,24 @@ class ActivityRepository(
                 detectorEvents.isEmpty() -> DataQuality.ESTIMATED
                 else -> DataQuality.MIXED
             }
-            val allocations = allocate(delta, previousAt, at, zoneId, longGap)
-            allocations.forEach { (bucket, steps) ->
-                upsertHour(bucket, steps, at, profile, quality)
+            val consumedDetectors = detectorEvents
+                .filter { previousAt == null || !it.isBefore(previousAt) }
+                .filter { !it.isAfter(at) }
+                .take(delta.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            val allocations = allocate(delta, previousAt, at, zoneId, longGap, consumedDetectors)
+            val addedDuration = if (consumedDetectors.isNotEmpty()) {
+                durationCalculator.fromDetectorEvents(consumedDetectors)
+            } else {
+                durationCalculator.fromCounterEvents(previousAt, at)
             }
-            updateSession(delta, at, zoneId, profile, quality, trackingServiceSessionId)
+            allocations.forEach { (bucket, steps) ->
+                val bucketDuration = if (allocations.size == 1) addedDuration else 0
+                upsertHour(bucket, steps, at, profile, quality, bucketDuration)
+            }
+            updateAutoSession(
+                delta, at, zoneId, profile, quality, trackingServiceSessionId,
+                addedDuration, consumedDetectors.size,
+            )
             val affectedDays = allocations.keys.map { it.date to it.zone }.toSet()
             if (longGap) {
                 rebuildDay(
@@ -92,10 +109,15 @@ class ActivityRepository(
                     lastEventEpochMillis = at.toEpochMilli(),
                     lastZoneId = zoneId.id,
                     lastBootSessionId = bootSessionId,
+                    activeAutoSessionId = database.sessions().active(false)?.id,
+                    activeManualSessionId = database.sessions().active(true)?.id,
+                    lastDetectorEventEpochMillis = consumedDetectors.lastOrNull()?.toEpochMilli()
+                        ?: processing?.lastDetectorEventEpochMillis,
+                    lastWalkingEventEpochMillis = at.toEpochMilli(),
                     updatedAtEpochMillis = at.toEpochMilli(),
                 ),
             )
-            detectorEvents.clear()
+            repeat(consumedDetectors.size) { detectorEvents.removeFirstOrNull() }
         }
     }
 
@@ -111,6 +133,11 @@ class ActivityRepository(
                     elapsedDurationSeconds = Duration.between(
                         Instant.ofEpochMilli(session.startedAtEpochMillis), at,
                     ).seconds.coerceAtLeast(session.activeDurationSeconds),
+                    pausedDurationSeconds = (
+                        Duration.between(Instant.ofEpochMilli(session.startedAtEpochMillis), at)
+                            .seconds.coerceAtLeast(session.activeDurationSeconds) -
+                            session.activeDurationSeconds
+                        ).coerceAtLeast(0),
                     status = if (completed) {
                         WalkingSessionStatus.COMPLETED
                     } else {
@@ -128,12 +155,12 @@ class ActivityRepository(
         at: Instant,
         zone: ZoneId,
         longGap: Boolean,
+        matchingDetector: List<Instant>,
     ): Map<HourBucket, Long> {
         if (longGap) return emptyMap()
         if (previousAt == null || !previousAt.isBefore(at)) {
             return mapOf(HourBucket.of(at, zone) to delta)
         }
-        val matchingDetector = detectorEvents.filter { !it.isBefore(previousAt) && !it.isAfter(at) }
         if (matchingDetector.isNotEmpty()) {
             val result = matchingDetector.take(delta.toInt()).groupingBy { HourBucket.of(it, zone) }
                 .eachCount().mapValues { it.value.toLong() }.toMutableMap()
@@ -173,6 +200,7 @@ class ActivityRepository(
         eventAt: Instant,
         profile: UserBodyProfile,
         quality: DataQuality,
+        addedDurationSeconds: Long,
     ) {
         val old = database.hourly().byId(bucket.id)
         val steps = (old?.steps ?: 0) + addedSteps
@@ -180,9 +208,8 @@ class ActivityRepository(
         val distance = steps * stepLength.meters
         val first = old?.firstActivityAtEpochMillis?.let(Instant::ofEpochMilli) ?: eventAt
         val last = eventAt
-        val duration = if (Duration.between(first, last).seconds >= 0) {
-            Duration.between(first, last).seconds.coerceAtMost(3_600)
-        } else null
+        val duration = ((old?.walkingDurationSeconds ?: 0) + addedDurationSeconds)
+            .coerceIn(0, 3_600)
         val speed = WalkingSpeedCalculator.movingKmh(distance, duration)
         val calories = calorieEstimator.estimate(profile.weightKg, distance, duration, speed)
         val now = eventAt.toEpochMilli()
@@ -202,7 +229,7 @@ class ActivityRepository(
                 averageWalkingSpeedKmh = speed,
                 stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, quality)),
                 distanceQuality = DataQuality.ESTIMATED,
-                durationQuality = if (duration == null) DataQuality.UNKNOWN else quality,
+                durationQuality = if (duration == 0L) DataQuality.UNKNOWN else quality,
                 caloriesQuality = calories?.quality ?: DataQuality.UNKNOWN,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 firstActivityAtEpochMillis = first.toEpochMilli(),
@@ -212,6 +239,9 @@ class ActivityRepository(
                     if (quality == DataQuality.RECOVERED) addedSteps else 0,
                 estimatedSteps = (old?.estimatedSteps ?: 0) +
                     if (quality == DataQuality.ESTIMATED || quality == DataQuality.MIXED) addedSteps else 0,
+                appliedStepLengthMeters = stepLength.meters,
+                appliedWeightKg = profile.weightKg ?: DistanceCalorieEstimator.DEFAULT_WEIGHT_KG,
+                calorieFormulaVersion = 1,
                 createdAtEpochMillis = old?.createdAtEpochMillis ?: now,
                 updatedAtEpochMillis = now,
             ),
@@ -229,6 +259,10 @@ class ActivityRepository(
         val hours = database.hourly().forDate(date.toString(), zone.id)
         val old = database.daily().get(date.toString(), zone.id)
         val unclassified = (old?.unclassifiedSteps ?: 0) + addedUnclassifiedSteps
+        val unclassifiedQuality = mergeQuality(
+            listOfNotNull(old?.unclassifiedStepsQuality, addedQuality)
+                .filterNot { it == DataQuality.UNKNOWN },
+        )
         val steps = hours.sumOf { it.steps } + unclassified
         val distance = hours.mapNotNull { it.distanceMeters }.takeIf { it.isNotEmpty() }?.sum()
         val duration = hours.mapNotNull { it.walkingDurationSeconds }.takeIf { it.isNotEmpty() }?.sum()
@@ -247,8 +281,10 @@ class ActivityRepository(
                 estimatedCaloriesKcal = calories,
                 averageWalkingSpeedKmh = speed,
                 stepsQuality = mergeQuality(
-                    hours.map { it.stepsQuality } + listOfNotNull(addedQuality),
+                    hours.map { it.stepsQuality } +
+                        listOf(unclassifiedQuality).filterNot { it == DataQuality.UNKNOWN },
                 ),
+                unclassifiedStepsQuality = unclassifiedQuality,
                 distanceQuality = if (distance == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 durationQuality = mergeQuality(hours.map { it.durationQuality }),
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
@@ -263,25 +299,22 @@ class ActivityRepository(
         )
     }
 
-    private suspend fun updateSession(
+    private suspend fun updateAutoSession(
         delta: Long,
         at: Instant,
         zone: ZoneId,
         profile: UserBodyProfile,
         quality: DataQuality,
         trackingServiceSessionId: String?,
+        addedDurationSeconds: Long,
+        detectorCount: Int,
     ) {
-        // A service session is a stable idempotency key and a session view, not another step source.
-        val id = trackingServiceSessionId ?: return
-        val old = database.sessions().get(id)
+        val old = database.sessions().active(false)
+        val id = old?.id ?: UUID.randomUUID().toString()
         val steps = (old?.steps ?: 0) + delta
         val started = old?.startedAtEpochMillis ?: at.toEpochMilli()
         val elapsed = Duration.between(Instant.ofEpochMilli(started), at).seconds.coerceAtLeast(0)
-        val active = if (old == null) 0 else {
-            (old.activeDurationSeconds + Duration.between(
-                Instant.ofEpochMilli(old.updatedAtEpochMillis), at,
-            ).seconds.coerceIn(0, policy.activeGapThresholdSeconds))
-        }
+        val active = ((old?.activeDurationSeconds ?: 0) + addedDurationSeconds).coerceAtLeast(0)
         val distance = steps * stepLengthEstimator.estimate(profile).meters
         val speed = WalkingSpeedCalculator.movingKmh(distance, active)
         val calories = calorieEstimator.estimate(profile.weightKg, distance, active, speed)?.kcal
@@ -300,7 +333,7 @@ class ActivityRepository(
                 estimatedCaloriesKcal = calories,
                 averageMovingSpeedKmh = speed,
                 averageElapsedSpeedKmh = WalkingSpeedCalculator.movingKmh(distance, elapsed),
-                sessionType = old?.sessionType ?: WalkingSessionType.MANUAL_WALK,
+                sessionType = WalkingSessionType.AUTO_DETECTED,
                 status = WalkingSessionStatus.ACTIVE,
                 stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, quality)),
                 distanceQuality = DataQuality.ESTIMATED,
@@ -308,7 +341,53 @@ class ActivityRepository(
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 trackingServiceSessionId = trackingServiceSessionId,
+                lastWalkingEventAtEpochMillis = at.toEpochMilli(),
+                pausedSinceEpochMillis = null,
+                isManual = false,
+                detectorEventCount = (old?.detectorEventCount ?: 0) + detectorCount,
+                estimatedStepCount = (old?.estimatedStepCount ?: 0) +
+                    if (quality == DataQuality.ESTIMATED || quality == DataQuality.MIXED) delta else 0,
+                recoveredStepCount = (old?.recoveredStepCount ?: 0) +
+                    if (quality == DataQuality.RECOVERED) delta else 0,
                 createdAtEpochMillis = old?.createdAtEpochMillis ?: at.toEpochMilli(),
+                updatedAtEpochMillis = at.toEpochMilli(),
+            ),
+        )
+    }
+
+    suspend fun checkSessionTimeouts(at: Instant) = writer.withLock {
+        database.withTransaction {
+            val session = database.sessions().active(false) ?: return@withTransaction
+            val last = session.lastWalkingEventAtEpochMillis?.let(Instant::ofEpochMilli)
+                ?: return@withTransaction
+            val inactive = Duration.between(last, at).seconds
+            when {
+                inactive >= policy.sessionEndGapSeconds -> finishSessionLocked(session, at)
+                inactive > policy.activeGapThresholdSeconds &&
+                    session.status == WalkingSessionStatus.ACTIVE -> database.sessions().upsert(
+                        session.copy(
+                            status = WalkingSessionStatus.PAUSED,
+                            pausedSinceEpochMillis = last.plusSeconds(policy.activeGapThresholdSeconds)
+                                .toEpochMilli(),
+                            updatedAtEpochMillis = at.toEpochMilli(),
+                        ),
+                    )
+            }
+        }
+    }
+
+    private suspend fun finishSessionLocked(session: WalkingSessionEntity, at: Instant) {
+        val elapsed = Duration.between(Instant.ofEpochMilli(session.startedAtEpochMillis), at)
+            .seconds.coerceAtLeast(session.activeDurationSeconds)
+        val completed = session.steps >= policy.minimumSessionSteps ||
+            session.activeDurationSeconds >= policy.minimumSessionDurationSeconds
+        database.sessions().upsert(
+            session.copy(
+                endedAtEpochMillis = at.toEpochMilli(),
+                elapsedDurationSeconds = elapsed,
+                pausedDurationSeconds = (elapsed - session.activeDurationSeconds).coerceAtLeast(0),
+                pausedSinceEpochMillis = null,
+                status = if (completed) WalkingSessionStatus.COMPLETED else WalkingSessionStatus.DISCARDED,
                 updatedAtEpochMillis = at.toEpochMilli(),
             ),
         )

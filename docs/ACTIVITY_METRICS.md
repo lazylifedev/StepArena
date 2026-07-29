@@ -30,3 +30,11 @@ an hour boundary is divided by elapsed-time ratio while preserving the counter t
 An interval of two hours or more is classified as recovered. The daily invariant is:
 
 `daily steps = assigned hourly steps + unclassified steps`
+# Phase 3.1 corrections
+
+Walking duration is cumulative active time. With detector events, only consecutive
+event gaps of 60 seconds or less are added. Without detector evidence, a counter
+gap of 60 seconds or less is added as `ESTIMATED`; longer gaps add no duration.
+Distance uses the step length stored on each hourly record. Calories retain the
+current `distanceKm * weightKg * 0.5` estimate; missing weight uses 60 kg and the
+UI discloses that fallback.
