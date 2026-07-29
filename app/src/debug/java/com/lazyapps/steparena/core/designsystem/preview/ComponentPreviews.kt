@@ -56,6 +56,7 @@ private fun MatchCardPreview() = PreviewFrame {
         selfProgress = 0.74f,
         opponentProgress = 0.68f,
         supportingText = "現在リード中・3連勝",
+        interactionLabel = "タップして詳細を見る",
     )
 }
 

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,7 +46,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
@@ -273,7 +277,7 @@ fun PrimaryActionButton(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp),
+            .heightIn(min = 56.dp),
         enabled = enabled,
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.buttonColors(
@@ -303,8 +307,16 @@ fun MatchCard(
     expandedText: String? = null,
     expanded: Boolean = false,
     onClick: () -> Unit = {},
+    interactionLabel: String,
 ) {
-    GlassSurface(modifier.clickable(onClick = onClick)) {
+    GlassSurface(
+        modifier
+            .semantics {
+                role = Role.Button
+                stateDescription = interactionLabel
+            }
+            .clickable(onClick = onClick),
+    ) {
         SectionHeader(title)
         Spacer(Modifier.height(StepArenaSpacing.md))
         Text(opponent, style = MaterialTheme.typography.titleLarge)
@@ -326,6 +338,12 @@ fun MatchCard(
                 color = StepArenaColors.CyanSoft,
             )
         }
+        Spacer(Modifier.height(StepArenaSpacing.sm))
+        Text(
+            text = interactionLabel,
+            style = MaterialTheme.typography.labelLarge,
+            color = StepArenaColors.CyanSoft,
+        )
     }
 }
 

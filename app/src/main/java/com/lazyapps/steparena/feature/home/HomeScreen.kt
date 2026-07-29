@@ -73,6 +73,7 @@ object HomeTestTags {
     const val CONTENT = "home_content"
     const val START_BUTTON = "start_session_button"
     const val TRACKING_STATUS = "tracking_status"
+    const val MATCH_CARD = "match_card"
     const val BOTTOM_REACH_MARKER = "home_bottom_marker"
 }
 
@@ -152,16 +153,19 @@ private fun HomeReadyContent(
             TrackingPanel(snapshot, locale, uiState.motionLevel)
         }
         item {
-            AnimatedVisibility(
-                visible = cardsVisible,
-                enter = fadeIn(tween(entranceDuration)) +
-                    slideInVertically(tween(entranceDuration)) { it / 8 },
-            ) {
-                RankPanel(snapshot, uiState.motionLevel)
-            }
+            StepsPanel(snapshot, goalProgress, numberFormat, uiState.motionLevel)
         }
         item {
-            StepsPanel(snapshot, goalProgress, numberFormat, uiState.motionLevel)
+            PrimaryActionButton(
+                text = if (uiState.sessionState == SessionState.STARTED) {
+                    stringResource(R.string.session_started)
+                } else {
+                    stringResource(R.string.start_walking)
+                },
+                onClick = { onAction(HomeAction.StartSession) },
+                enabled = uiState.sessionState == SessionState.IDLE,
+                modifier = Modifier.testTag(HomeTestTags.START_BUTTON),
+            )
         }
         item {
             SectionHeader(
@@ -170,38 +174,53 @@ private fun HomeReadyContent(
             )
         }
         item {
-            AnimatedMetricCard(
-                labelRes = R.string.metric_distance,
-                value = snapshot.metrics.distanceMeters,
-                formatter = { ActivityFormatter.distance(it, DistanceUnit.KILOMETER, locale) },
-                motionLevel = uiState.motionLevel,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm)) {
+                AnimatedMetricCard(
+                    labelRes = R.string.metric_distance,
+                    value = snapshot.metrics.distanceMeters,
+                    formatter = {
+                        ActivityFormatter.distance(it, DistanceUnit.KILOMETER, locale)
+                    },
+                    motionLevel = uiState.motionLevel,
+                    modifier = Modifier.weight(1f),
+                )
+                AnimatedMetricCard(
+                    labelRes = R.string.metric_duration,
+                    value = snapshot.metrics.durationSeconds.toDouble(),
+                    formatter = { ActivityFormatter.duration(it.toLong()) },
+                    motionLevel = uiState.motionLevel,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         item {
-            AnimatedMetricCard(
-                labelRes = R.string.metric_duration,
-                value = snapshot.metrics.durationSeconds.toDouble(),
-                formatter = { ActivityFormatter.duration(it.toLong()) },
-                motionLevel = uiState.motionLevel,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm)) {
+                AnimatedMetricCard(
+                    labelRes = R.string.metric_calories,
+                    value = snapshot.metrics.caloriesKcal,
+                    formatter = { ActivityFormatter.calories(it, locale) },
+                    motionLevel = uiState.motionLevel,
+                    modifier = Modifier.weight(1f),
+                )
+                AnimatedMetricCard(
+                    labelRes = R.string.metric_speed,
+                    value = snapshot.metrics.averageSpeedMetersPerSecond,
+                    formatter = {
+                        ActivityFormatter.speed(it, SpeedUnit.KILOMETERS_PER_HOUR, locale)
+                    },
+                    motionLevel = uiState.motionLevel,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         item {
-            AnimatedMetricCard(
-                labelRes = R.string.metric_calories,
-                value = snapshot.metrics.caloriesKcal,
-                formatter = { ActivityFormatter.calories(it, locale) },
-                motionLevel = uiState.motionLevel,
-            )
-        }
-        item {
-            AnimatedMetricCard(
-                labelRes = R.string.metric_speed,
-                value = snapshot.metrics.averageSpeedMetersPerSecond,
-                formatter = {
-                    ActivityFormatter.speed(it, SpeedUnit.KILOMETERS_PER_HOUR, locale)
-                },
-                motionLevel = uiState.motionLevel,
-            )
+            AnimatedVisibility(
+                visible = cardsVisible,
+                enter = fadeIn(tween(entranceDuration)) +
+                    slideInVertically(tween(entranceDuration)) { it / 8 },
+            ) {
+                RankPanel(snapshot, uiState.motionLevel)
+            }
         }
         item {
             MatchCard(
@@ -216,28 +235,15 @@ private fun HomeReadyContent(
                 expandedText = stringResource(R.string.match_expanded_detail),
                 expanded = matchExpanded,
                 onClick = { matchExpanded = !matchExpanded },
-                modifier = Modifier.fillMaxWidth(),
+                interactionLabel = if (matchExpanded) {
+                    stringResource(R.string.match_collapse)
+                } else {
+                    stringResource(R.string.match_expand)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(HomeTestTags.MATCH_CARD),
             )
-        }
-        item {
-            Column {
-                PrimaryActionButton(
-                    text = if (uiState.sessionState == SessionState.STARTED) {
-                        stringResource(R.string.session_started)
-                    } else {
-                        stringResource(R.string.start_walking)
-                    },
-                    onClick = { onAction(HomeAction.StartSession) },
-                    enabled = uiState.sessionState == SessionState.IDLE,
-                    modifier = Modifier.testTag(HomeTestTags.START_BUTTON),
-                )
-                Text(
-                    stringResource(R.string.session_demo_notice),
-                    modifier = Modifier.padding(top = StepArenaSpacing.xs),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = StepArenaColors.TextSecondary,
-                )
-            }
         }
         item {
             LeagueSummaryCard(
@@ -386,7 +392,7 @@ private fun StepsPanel(
                     )
                     Text(
                         stringResource(
-                            R.string.goal_progress,
+                            R.string.goal_progress_compact,
                             numberFormat.format(snapshot.metrics.goalSteps),
                             (goalProgress * 100).toInt(),
                         ),
@@ -402,7 +408,9 @@ private fun StepsPanel(
         ) {
             Text(
                 stringResource(R.string.goal_achieved),
-                modifier = Modifier.align(Alignment.CenterHorizontally),
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = StepArenaSpacing.sm),
                 color = StepArenaColors.Emerald,
                 style = MaterialTheme.typography.titleMedium,
             )
@@ -416,6 +424,7 @@ private fun AnimatedMetricCard(
     value: Double,
     formatter: (Double) -> String,
     motionLevel: MotionLevel,
+    modifier: Modifier = Modifier,
 ) {
     val animated by animateFloatAsState(
         targetValue = value.coerceAtLeast(0.0).toFloat(),
@@ -428,7 +437,7 @@ private fun AnimatedMetricCard(
     MetricCard(
         label = stringResource(labelRes),
         value = formatter(animated.toDouble()),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     )
 }
 

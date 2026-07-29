@@ -71,7 +71,7 @@ class HomeScreenTest {
         composeRule.onNodeWithTag(HomeTestTags.CONTENT)
             .performScrollToNode(hasTestTag(HomeTestTags.START_BUTTON))
         composeRule.onNodeWithTag(HomeTestTags.START_BUTTON).performClick()
-        composeRule.onNodeWithText("歩行セッションを開始しました").assertExists()
+        composeRule.onNodeWithText("歩行セッション計測中").assertExists()
     }
 
     @Test
