@@ -76,12 +76,14 @@ class HomeScreenTest {
         composeRule.onNodeWithText("歩数計測を停止").assertIsDisplayed()
     }
 
-    @Test fun bottomNavigation_opensSafePlaceholder() {
+    @Test fun bottomNavigation_opensLocalMatch() {
         composeRule.setContent {
             StepArenaTheme { StepArenaApp(readyState, {}) }
         }
         composeRule.onNodeWithText("マッチ").performClick()
-        composeRule.onNodeWithText("この機能は次の開発フェーズで実装予定です。").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "現在の対戦相手は、あなたの活動量に合わせて生成されるローカル対戦データです。",
+        ).assertIsDisplayed()
     }
 
     @Test fun largeFont_canReachBottomContent() {

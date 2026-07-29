@@ -34,3 +34,6 @@ rewritten by later profile changes.
 `tracking_gap_records` は欠測区間、理由、状態、回復歩数、品質、origin、監査時刻を保存する。
 `processed_external_step_records` は外部 record ID と fingerprint、適用歩数を保存し冪等性を担保する。
 Migration 2→3 は既存の時間別、日次、セッション、processing state を変更せず新規表だけを作る。
+# Schema version 4 (Phase 5)
+
+`game_player_profile`、`daily_matches`、`weekly_leagues`、`game_seasons`、`achievement_unlocks`を追加した。Migration 3→4は追加CREATE TABLE/INDEXのみで、既存の計測、履歴、補完、セッションテーブルを変更しない。プロフィール、現在シーズン、当日試合はmigration SQLではなく初回Repository保守処理で冪等に作成する。

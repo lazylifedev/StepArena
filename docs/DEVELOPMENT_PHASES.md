@@ -50,3 +50,6 @@ migration test. Physical walking validation remains an explicit pre-release gate
 任意の Health Connect Steps 読取、欠測 gap の永続化、外部 record の冪等管理、
 Heartbeat の段階判定、一意 Periodic Work、停止通知、設定・診断・補完履歴を追加する。
 Health Connect 書込み、距離・ExerciseSession 統合、自動 Service 再起動は対象外とする。
+# Phase 5
+
+ローカルNPCデイリー対戦、ランク、週間リーグ、月間シーズン、実績、Room v4、ゲーム画面を実装する。オンライン対戦、アカウント、課金、物理歩行の公開前ゲートは対象外または継続課題。

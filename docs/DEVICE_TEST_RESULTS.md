@@ -202,3 +202,15 @@ Fake source の 100 歩補完と二重実行防止、Migration 2→3、DAO、Com
 実 Provider がないため、権限拒否・許可、実 StepsRecord 読取、実 DataOrigin は公開前ゲートとして残る。
 Provider がない場合も通常の Step Counter 計測を継続する。
 物理歩行試験も引き続き未完了である。
+# Phase 5
+
+SOV41 Fake Counterおよび物理歩行の検証結果は、実行日時・APK・commitとともに追記する。物理歩行試験は公開前ゲートとして未完了のまま扱う。
+
+## 2026-07-29 SOV41
+
+- Device: SOV41 / Android 11 / `QV7209CF25`
+- `connectedDebugAndroidTest`: 19/19 成功
+- Migration 3→4、既存DB維持、DAO、既存Home/Compose UI、WorkManager関連テストを含む
+- Debug APKのインストールとMainActivity起動を確認
+- Fake Counterによる5,000歩、勝敗3種、昇格、週間順位、シーズン、実績、補完率、UNKNOWN、再起動、日付変更の一連の手動シナリオは未実施
+- 物理歩行試験は公開前ゲートとして未実施
