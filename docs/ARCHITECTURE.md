@@ -29,3 +29,10 @@ heartbeat and persistence timing. `StepCounter` is a pure state transition
 component. `TrackingStateRepository` owns DataStore encoding. Compose consumes
 repository state through `HomeViewModel`; navigation and ranking logic do not
 run in the service.
+# Phase 3 activity history
+
+Room is the durable history store behind `ActivityRepository`; UI and the tracking
+service do not call DAOs directly. DataStore remains responsible for lightweight
+tracking state, sensor baseline, heartbeat, onboarding, and local profile settings.
+`ActivityRepository` serializes writes with a mutex and uses one Room transaction for
+hourly, daily, session and last-processed sensor state updates.

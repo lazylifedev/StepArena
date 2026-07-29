@@ -1,0 +1,524 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "0ef4d065fde757ce1162bf637eb348fa",
+    "entities": [
+      {
+        "tableName": "hourly_activity_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `localDate` TEXT NOT NULL, `hourOfDay` INTEGER NOT NULL, `zoneId` TEXT NOT NULL, `utcOffsetSeconds` INTEGER NOT NULL, `periodStartEpochMillis` INTEGER NOT NULL, `periodEndEpochMillis` INTEGER NOT NULL, `steps` INTEGER NOT NULL, `distanceMeters` REAL, `walkingDurationSeconds` INTEGER, `estimatedCaloriesKcal` REAL, `averageWalkingSpeedKmh` REAL, `stepsQuality` TEXT NOT NULL, `distanceQuality` TEXT NOT NULL, `durationQuality` TEXT NOT NULL, `caloriesQuality` TEXT NOT NULL, `speedQuality` TEXT NOT NULL, `firstActivityAtEpochMillis` INTEGER, `lastActivityAtEpochMillis` INTEGER, `sensorEventCount` INTEGER NOT NULL, `recoveredSteps` INTEGER NOT NULL, `estimatedSteps` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localDate",
+            "columnName": "localDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hourOfDay",
+            "columnName": "hourOfDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zoneId",
+            "columnName": "zoneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "utcOffsetSeconds",
+            "columnName": "utcOffsetSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "periodStartEpochMillis",
+            "columnName": "periodStartEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "periodEndEpochMillis",
+            "columnName": "periodEndEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "steps",
+            "columnName": "steps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceMeters",
+            "columnName": "distanceMeters",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "walkingDurationSeconds",
+            "columnName": "walkingDurationSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "estimatedCaloriesKcal",
+            "columnName": "estimatedCaloriesKcal",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "averageWalkingSpeedKmh",
+            "columnName": "averageWalkingSpeedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "stepsQuality",
+            "columnName": "stepsQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceQuality",
+            "columnName": "distanceQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationQuality",
+            "columnName": "durationQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caloriesQuality",
+            "columnName": "caloriesQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speedQuality",
+            "columnName": "speedQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstActivityAtEpochMillis",
+            "columnName": "firstActivityAtEpochMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastActivityAtEpochMillis",
+            "columnName": "lastActivityAtEpochMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sensorEventCount",
+            "columnName": "sensorEventCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recoveredSteps",
+            "columnName": "recoveredSteps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "estimatedSteps",
+            "columnName": "estimatedSteps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_hourly_activity_records_localDate_hourOfDay_zoneId_utcOffsetSeconds",
+            "unique": true,
+            "columnNames": [
+              "localDate",
+              "hourOfDay",
+              "zoneId",
+              "utcOffsetSeconds"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_hourly_activity_records_localDate_hourOfDay_zoneId_utcOffsetSeconds` ON `${TABLE_NAME}` (`localDate`, `hourOfDay`, `zoneId`, `utcOffsetSeconds`)"
+          }
+        ]
+      },
+      {
+        "tableName": "daily_activity_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `localDate` TEXT NOT NULL, `zoneId` TEXT NOT NULL, `steps` INTEGER NOT NULL, `unclassifiedSteps` INTEGER NOT NULL, `distanceMeters` REAL, `walkingDurationSeconds` INTEGER, `estimatedCaloriesKcal` REAL, `averageWalkingSpeedKmh` REAL, `stepsQuality` TEXT NOT NULL, `distanceQuality` TEXT NOT NULL, `durationQuality` TEXT NOT NULL, `caloriesQuality` TEXT NOT NULL, `speedQuality` TEXT NOT NULL, `activeHourCount` INTEGER NOT NULL, `walkingSessionCount` INTEGER NOT NULL, `finalized` INTEGER NOT NULL, `finalizedAtEpochMillis` INTEGER, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localDate",
+            "columnName": "localDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zoneId",
+            "columnName": "zoneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "steps",
+            "columnName": "steps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unclassifiedSteps",
+            "columnName": "unclassifiedSteps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceMeters",
+            "columnName": "distanceMeters",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "walkingDurationSeconds",
+            "columnName": "walkingDurationSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "estimatedCaloriesKcal",
+            "columnName": "estimatedCaloriesKcal",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "averageWalkingSpeedKmh",
+            "columnName": "averageWalkingSpeedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "stepsQuality",
+            "columnName": "stepsQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceQuality",
+            "columnName": "distanceQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationQuality",
+            "columnName": "durationQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caloriesQuality",
+            "columnName": "caloriesQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speedQuality",
+            "columnName": "speedQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeHourCount",
+            "columnName": "activeHourCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "walkingSessionCount",
+            "columnName": "walkingSessionCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finalized",
+            "columnName": "finalized",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finalizedAtEpochMillis",
+            "columnName": "finalizedAtEpochMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_daily_activity_records_localDate_zoneId",
+            "unique": true,
+            "columnNames": [
+              "localDate",
+              "zoneId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_daily_activity_records_localDate_zoneId` ON `${TABLE_NAME}` (`localDate`, `zoneId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "walking_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `localDate` TEXT NOT NULL, `zoneId` TEXT NOT NULL, `startedAtEpochMillis` INTEGER NOT NULL, `endedAtEpochMillis` INTEGER, `steps` INTEGER NOT NULL, `distanceMeters` REAL, `activeDurationSeconds` INTEGER NOT NULL, `elapsedDurationSeconds` INTEGER NOT NULL, `pausedDurationSeconds` INTEGER NOT NULL, `estimatedCaloriesKcal` REAL, `averageMovingSpeedKmh` REAL, `averageElapsedSpeedKmh` REAL, `sessionType` TEXT NOT NULL, `status` TEXT NOT NULL, `stepsQuality` TEXT NOT NULL, `distanceQuality` TEXT NOT NULL, `durationQuality` TEXT NOT NULL, `caloriesQuality` TEXT NOT NULL, `speedQuality` TEXT NOT NULL, `trackingServiceSessionId` TEXT, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localDate",
+            "columnName": "localDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "zoneId",
+            "columnName": "zoneId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtEpochMillis",
+            "columnName": "startedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endedAtEpochMillis",
+            "columnName": "endedAtEpochMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "steps",
+            "columnName": "steps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceMeters",
+            "columnName": "distanceMeters",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "activeDurationSeconds",
+            "columnName": "activeDurationSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "elapsedDurationSeconds",
+            "columnName": "elapsedDurationSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pausedDurationSeconds",
+            "columnName": "pausedDurationSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "estimatedCaloriesKcal",
+            "columnName": "estimatedCaloriesKcal",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "averageMovingSpeedKmh",
+            "columnName": "averageMovingSpeedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "averageElapsedSpeedKmh",
+            "columnName": "averageElapsedSpeedKmh",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "sessionType",
+            "columnName": "sessionType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stepsQuality",
+            "columnName": "stepsQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceQuality",
+            "columnName": "distanceQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationQuality",
+            "columnName": "durationQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caloriesQuality",
+            "columnName": "caloriesQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "speedQuality",
+            "columnName": "speedQuality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackingServiceSessionId",
+            "columnName": "trackingServiceSessionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_walking_sessions_startedAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "startedAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_walking_sessions_startedAtEpochMillis` ON `${TABLE_NAME}` (`startedAtEpochMillis`)"
+          },
+          {
+            "name": "index_walking_sessions_localDate",
+            "unique": false,
+            "columnNames": [
+              "localDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_walking_sessions_localDate` ON `${TABLE_NAME}` (`localDate`)"
+          }
+        ]
+      },
+      {
+        "tableName": "activity_processing_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `lastCounterValue` INTEGER, `lastEventEpochMillis` INTEGER, `lastZoneId` TEXT, `lastBootSessionId` TEXT, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastCounterValue",
+            "columnName": "lastCounterValue",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastEventEpochMillis",
+            "columnName": "lastEventEpochMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastZoneId",
+            "columnName": "lastZoneId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastBootSessionId",
+            "columnName": "lastBootSessionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0ef4d065fde757ce1162bf637eb348fa')"
+    ]
+  }
+}

@@ -35,6 +35,8 @@ import com.lazyapps.steparena.feature.home.HomeUiState
 import com.lazyapps.steparena.feature.placeholder.PlaceholderScreen
 import com.lazyapps.steparena.feature.diagnostics.TrackingDiagnosticsScreen
 import com.lazyapps.steparena.tracking.StepTrackingState
+import com.lazyapps.steparena.feature.records.RecordsScreen
+import com.lazyapps.steparena.feature.settings.ProfileSettingsScreen
 
 enum class AppDestination(val route: String, val labelRes: Int) {
     HOME("home", R.string.nav_home),
@@ -92,8 +94,9 @@ fun StepArenaApp(
                     HomeScreen(uiState = homeUiState, onAction = onHomeAction)
                 }
                 placeholderDestinations()
+                composable(AppDestination.RECORDS.route) { RecordsScreen() }
                 composable(AppDestination.SETTINGS.route) {
-                    TrackingDiagnosticsScreen(trackingState)
+                    ProfileSettingsScreen()
                 }
             }
         }
@@ -101,7 +104,9 @@ fun StepArenaApp(
 }
 
 private fun NavGraphBuilder.placeholderDestinations() {
-    AppDestination.entries.drop(1).filter { it != AppDestination.SETTINGS }.forEach { destination ->
+    AppDestination.entries.drop(1).filter {
+        it != AppDestination.SETTINGS && it != AppDestination.RECORDS
+    }.forEach { destination ->
         composable(destination.route) {
             PlaceholderScreen(title = stringResource(destination.labelRes))
         }

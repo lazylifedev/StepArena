@@ -159,3 +159,20 @@ date-change equivalent, timezone-change equivalent, stop, stale stop, and
 onboarding preparation. Exact values also cover duplicate, lower, large,
 NaN, positive infinity, and negative infinity. Every command emits a
 `DEBUG ONLY` warning; selecting Fake mode unregisters the real listener.
+# Phase 3 non-walking validation (2026-07-29)
+
+Device: SOV41 (`QV7209CF25`), Android 11.
+
+- Connected instrumentation and Compose tests: 8/8 passed.
+- Fake Step Counter baseline 10,000 followed by +120 steps created
+  `step_arena.db`, updated the home to 120 steps, 0.08 km and 3 kcal, retained
+  unknown walking time/speed as `―`, and displayed the estimated-data notice.
+- The records destination displayed the 24-hour graph, five metric selectors,
+  and the persisted activity after navigating away from Home.
+- Evidence: `screenshots/phase3_home.xml` and
+  `screenshots/phase3_records.xml`.
+
+This is non-walking simulation evidence only. Physical-walking acceptance remains
+open for hourly placement, duration, distance/calorie/speed plausibility, automatic
+session boundaries, screen-off operation, Activity termination, stop/restart, and
+battery-optimization comparison.

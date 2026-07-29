@@ -34,3 +34,8 @@ cumulative increase is excluded and only post-restart differences are added.
 
 Release builds neither log detailed diagnostic entries nor declare the Debug
 receiver/action in their merged manifest.
+# Phase 3 metric quality
+
+Activity metrics retain `MEASURED`, `ESTIMATED`, `RECOVERED`, `MIXED`, or `UNKNOWN`
+quality. Unknown values are not converted to zero. Step Counter remains authoritative;
+Step Detector only improves timing, walking-duration, and session-boundary estimates.

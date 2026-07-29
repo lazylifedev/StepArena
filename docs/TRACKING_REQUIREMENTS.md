@@ -20,3 +20,8 @@
   the real sensor first.
 - Unverified physical-device scenarios remain pending and are never promoted
   to a pass based only on Fake Sensor or automated tests.
+# Phase 3 detector integration
+
+The foreground service registers Step Counter and, when available, Step Detector once.
+Stopping the service unregisters both. Debug fake-counter mode unregisters real sensors,
+so synthetic and physical inputs cannot be mixed.

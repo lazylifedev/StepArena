@@ -28,3 +28,9 @@ collection, a health foreground service, persistent recovery state, daily
 rollover boundary, heartbeat, ongoing notification, home binding, and debug
 fault states. Hourly Room history, distance, duration, calories, speed, Health
 Connect, WorkManager monitoring and real competition remain later phases.
+# Phase 3
+
+Phase 3 adds Room-backed hourly/daily activity, walking sessions, five home metrics,
+records/profile UI, quality metadata, and deterministic estimation strategies. GPS,
+Health Connect, online ranking, and physical-walking acceptance remain later/publication
+gates.
