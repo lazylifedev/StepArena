@@ -2,6 +2,7 @@ package com.lazyapps.steparena.feature.home
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -148,7 +149,7 @@ private fun HomeReadyContent(
             }
         }
         item {
-            TrackingPanel(snapshot, locale)
+            TrackingPanel(snapshot, locale, uiState.motionLevel)
         }
         item {
             AnimatedVisibility(
@@ -211,6 +212,7 @@ private fun HomeReadyContent(
                 selfProgress = snapshot.match.selfProgress,
                 opponentProgress = snapshot.match.opponentProgress,
                 supportingText = matchSupportingText(snapshot, numberFormat),
+                motionLevel = uiState.motionLevel,
                 expandedText = stringResource(R.string.match_expanded_detail),
                 expanded = matchExpanded,
                 onClick = { matchExpanded = !matchExpanded },
@@ -267,11 +269,16 @@ private fun HomeReadyContent(
 }
 
 @Composable
-private fun TrackingPanel(snapshot: HomeSnapshot, locale: Locale) {
+private fun TrackingPanel(
+    snapshot: HomeSnapshot,
+    locale: Locale,
+    motionLevel: MotionLevel,
+) {
     GlassSurface(Modifier.fillMaxWidth().testTag(HomeTestTags.TRACKING_STATUS)) {
         TrackingStatusChip(
             text = trackingText(snapshot.trackingStatus),
             isHealthy = snapshot.trackingStatus == TrackingStatus.ACTIVE,
+            motionLevel = motionLevel,
         )
         snapshot.lastHealthyAt?.let {
             Spacer(Modifier.height(StepArenaSpacing.xs))
@@ -388,7 +395,11 @@ private fun StepsPanel(
                 }
             }
         }
-        if (goalProgress >= 1f) {
+        AnimatedVisibility(
+            visible = goalProgress >= 1f,
+            enter = fadeIn(tween(motionDuration(motionLevel))),
+            exit = fadeOut(tween(motionDuration(motionLevel))),
+        ) {
             Text(
                 stringResource(R.string.goal_achieved),
                 modifier = Modifier.align(Alignment.CenterHorizontally),
