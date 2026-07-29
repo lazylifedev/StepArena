@@ -13,3 +13,15 @@
 - UI は SensorManager や Service に直接アクセスせず Repository を購読する。
 
 Phase 0・1 の開始ボタンは UI 操作確認のみであり、センサーやサービスを起動しない。
+# Phase 2 implementation
+
+`TYPE_STEP_COUNTER` is the authoritative Phase 2 source. Its boot-cumulative
+value is baselined on first observation and only subsequent non-negative deltas
+are counted. Invalid floats are ignored; decreases and boot-session changes
+rebaseline without subtracting or double adding. Unusually large deltas are
+retained and marked for later review.
+
+Tracking runs in a user-started health foreground service. State, last sensor
+value, heartbeat, session and onboarding progress are stored in Preferences
+DataStore. Writes are batched by step/time boundaries and forced at lifecycle
+boundaries.

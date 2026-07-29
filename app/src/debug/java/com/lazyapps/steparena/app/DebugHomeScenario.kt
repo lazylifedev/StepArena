@@ -29,6 +29,15 @@ enum class DebugHomeScenario(val label: String) {
     MATCH_WON("対戦勝利"),
     MATCH_LOST("対戦敗北"),
     NEAR_PROMOTION("昇格直前"),
+    SENSOR_UNSUPPORTED("センサー非対応"),
+    NOTIFICATION_DENIED("通知未許可"),
+    SERVICE_START_FAILURE("Service開始失敗"),
+    HEARTBEAT_STALE("Heartbeat stale"),
+    SENSOR_RESET("センサー値リセット"),
+    DEVICE_REBOOT("端末再起動相当"),
+    DATE_CHANGED("日付変更相当"),
+    UNUSUAL_STEP_INCREASE("異常歩数増加"),
+    PROCESS_RESTORED("プロセス復元相当"),
     ;
 
     fun uiState(motionLevel: MotionLevel): HomeUiState {
@@ -77,6 +86,18 @@ enum class DebugHomeScenario(val label: String) {
                     rank = base.rank.copy(pointsToNextRank = 25),
                     league = base.league.copy(position = 4, pointsToPromotion = 15),
                 )
+                SENSOR_UNSUPPORTED -> base.copy(trackingStatus = TrackingStatus.NOT_STARTED)
+                NOTIFICATION_DENIED -> base.copy(trackingStatus = TrackingStatus.PERMISSION_REQUIRED)
+                SERVICE_START_FAILURE -> base.copy(trackingStatus = TrackingStatus.MAY_BE_STOPPED)
+                HEARTBEAT_STALE -> base.copy(trackingStatus = TrackingStatus.MAY_BE_STOPPED)
+                SENSOR_RESET -> base.copy(reliability = DataReliability.PARTLY_RECOVERED)
+                DEVICE_REBOOT -> base.copy(reliability = DataReliability.PARTLY_RECOVERED)
+                DATE_CHANGED -> base.copy(metrics = base.metrics.copy(steps = 0))
+                UNUSUAL_STEP_INCREASE -> base.copy(
+                    metrics = base.metrics.copy(steps = 52_000),
+                    reliability = DataReliability.PARTLY_ESTIMATED,
+                )
+                PROCESS_RESTORED -> base.copy(reliability = DataReliability.PARTLY_RECOVERED)
                 NO_DATA -> base
             }
         }

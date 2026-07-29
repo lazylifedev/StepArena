@@ -22,3 +22,10 @@ Compose は SensorManager、DAO、DataStore、Health Connect、ネットワー�
 ## 将来パッケージ
 
 必要になった時点で `core/database`、`datastore`、`health`、`sensor`、`network`、`notification`、`service/tracking` を追加する。未使用の空パッケージは作らない。DI は依存が増え、手動構築が保守上の負担になったフェーズで Hilt を導入する。
+# Phase 2 tracking boundary
+
+`StepTrackingService` owns foreground notification, sensor registration,
+heartbeat and persistence timing. `StepCounter` is a pure state transition
+component. `TrackingStateRepository` owns DataStore encoding. Compose consumes
+repository state through `HomeViewModel`; navigation and ranking logic do not
+run in the service.

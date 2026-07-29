@@ -21,3 +21,10 @@ Health Connect 統合、重複排除、記録画面、歩行セッション。
 認証、バックエンド、実マッチング、週間リーグ、月間シーズン。不正対策とプライバシー評価をリリース条件に含める。
 
 各フェーズは前フェーズのテスト、lint、実機検証を通過してから開始する。
+# Phase 2
+
+Introduces onboarding, permission/battery/sensor diagnostics, real step-counter
+collection, a health foreground service, persistent recovery state, daily
+rollover boundary, heartbeat, ongoing notification, home binding, and debug
+fault states. Hourly Room history, distance, duration, calories, speed, Health
+Connect, WorkManager monitoring and real competition remain later phases.
