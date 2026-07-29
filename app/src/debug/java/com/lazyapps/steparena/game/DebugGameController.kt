@@ -78,10 +78,11 @@ class DebugGameController(private val application: DebugStepArenaApplication) {
             DebugGameScenario.RERUN_WORK_MANAGER,
             DebugGameScenario.SAME_DAY_REPROCESS -> repository.runMaintenance()
             DebugGameScenario.RESET_DEBUG_DATA -> {
-                database.dailyMatches().deleteForZone(zone.id)
+                database.dailyMatches().deleteDebugMatches()
                 database.gameNotificationEvents().deleteDebugEvents()
                 database.daily().deleteDebugRecords()
                 database.achievementUnlocks().deleteDebug()
+                clock.reset()
             }
         }
     }

@@ -17,7 +17,7 @@ class PersistentDebugClock(private val application: DebugStepArenaApplication) :
     }
 
     override fun getZone(): ZoneId =
-        ZoneId.of(preferences.getString("zone", DEBUG_ZONE) ?: DEBUG_ZONE)
+        ZoneId.of(preferences.getString("zone", defaultZone) ?: defaultZone)
 
     override fun withZone(zone: ZoneId): Clock = apply {
         preferences.edit().putString("zone", zone.id).apply()
@@ -40,9 +40,17 @@ class PersistentDebugClock(private val application: DebugStepArenaApplication) :
     }
 
     fun changeZone() {
-        val next = if (zone.id == DEBUG_ZONE) "UTC" else DEBUG_ZONE
+        val next = if (zone.id == defaultZone) "UTC" else defaultZone
         preferences.edit().putString("zone", next).apply()
     }
 
-    companion object { const val DEBUG_ZONE = "Etc/GMT-9" }
+    fun reset() {
+        preferences.edit()
+            .putLong("epoch", System.currentTimeMillis())
+            .putString("zone", defaultZone)
+            .apply()
+    }
+
+    private val defaultZone: String
+        get() = ZoneId.systemDefault().id
 }
