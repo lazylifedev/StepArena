@@ -1,3 +1,75 @@
 <resources>
     <string name="app_name">StepArena</string>
+
+    <string name="nav_home">ホーム</string>
+    <string name="nav_match">マッチ</string>
+    <string name="nav_records">記録</string>
+    <string name="nav_achievements">称号</string>
+    <string name="nav_settings">設定</string>
+    <string name="coming_soon_message">この機能は次の開発フェーズで実装予定です。</string>
+
+    <string name="home_title">TODAY\'S ARENA</string>
+    <string name="home_subtitle">今日の一歩を、勝負のエネルギーへ。</string>
+    <string name="tracking_active">正常に計測中</string>
+    <string name="tracking_not_started">計測開始前</string>
+    <string name="tracking_may_be_stopped">計測が停止している可能性があります</string>
+    <string name="tracking_permission_required">歩数の権限が必要です</string>
+    <string name="tracking_battery_required">バッテリー設定を確認してください</string>
+    <string name="last_healthy_time">最終正常確認 %1$s</string>
+    <string name="offline_label">オフライン</string>
+    <string name="estimated_data_label">一部は推定値です</string>
+    <string name="recovered_data_label">一部は補完データです</string>
+
+    <string name="rank_section">現在ランク</string>
+    <string name="rank_bronze">ブロンズ</string>
+    <string name="rank_silver">シルバー</string>
+    <string name="rank_gold">ゴールド</string>
+    <string name="rank_platinum">プラチナ</string>
+    <string name="rank_diamond">ダイヤモンド</string>
+    <string name="rank_division">ディビジョン %1$d</string>
+    <string name="rank_points">%1$d RP</string>
+    <string name="rank_progress_description">ランク進捗 %1$d パーセント</string>
+    <string name="points_to_next_rank">次ランクまで %1$d ポイント</string>
+
+    <string name="today_steps">今日の歩数</string>
+    <string name="steps_value">%1$s 歩</string>
+    <string name="steps_accessibility">%1$s 歩</string>
+    <string name="goal_progress">目標 %1$s 歩・達成率 %2$d パーセント</string>
+    <string name="goal_achieved">今日の目標を達成しました</string>
+    <string name="activity_metrics">今日のアクティビティ</string>
+    <string name="metric_distance">歩行距離</string>
+    <string name="metric_duration">歩行時間</string>
+    <string name="metric_calories">消費カロリー</string>
+    <string name="metric_speed">平均歩行時速</string>
+
+    <string name="match_title">今日のマッチ</string>
+    <string name="match_opponent">対戦相手 %1$s</string>
+    <string name="match_you">あなた</string>
+    <string name="match_rival">相手</string>
+    <string name="match_leading">現在リード中・%1$d 連勝</string>
+    <string name="match_steps_to_lead">逆転まであと %1$s 歩・現在 %2$d 連勝</string>
+    <string name="match_won">勝利確定・%1$d 連勝</string>
+    <string name="match_lost">今日は敗北・明日の再戦へ</string>
+    <string name="match_expanded_detail">毎日の達成率を競う非同期のダミーマッチです。実マッチングや通信はまだ行いません。</string>
+
+    <string name="start_walking">歩行セッションを開始</string>
+    <string name="session_started">歩行セッションを開始しました</string>
+    <string name="session_demo_notice">このフェーズでは画面上のダミー操作です。実際の歩数計測は開始しません。</string>
+
+    <string name="league_title">週間リーグ</string>
+    <string name="league_position">%1$d位 / %2$d人</string>
+    <string name="league_promotion_gap">昇格圏まであと %1$d ポイント</string>
+
+    <string name="motion_preview_title">モーション確認</string>
+    <string name="motion_full">Full</string>
+    <string name="motion_reduced">Reduced</string>
+    <string name="motion_off">Off</string>
+    <string name="motion_preview_notice">この切り替えはプレビュー用で、アプリ再起動後には保持されません。</string>
+
+    <string name="loading_description">ホーム画面を読み込み中</string>
+    <string name="empty_title">まだデータがありません</string>
+    <string name="empty_message">計測の準備が整うと、今日のアリーナ情報がここに表示されます。</string>
+    <string name="error_title">読み込めませんでした</string>
+    <string name="error_message">時間をおいて、もう一度お試しください。</string>
+    <string name="retry">再試行</string>
 </resources>
