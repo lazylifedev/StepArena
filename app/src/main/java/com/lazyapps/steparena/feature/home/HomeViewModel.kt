@@ -32,6 +32,8 @@ class HomeViewModel(
     private val trackingRepository = TrackingStateRepository(application)
     private val activityRepository = (application as StepArenaApplication).activityRepository
     private val gameRepository = (application as StepArenaApplication).gameRepository
+    private val appClock = (application as StepArenaApplication).clock
+    private val isolatedScenario = (application as StepArenaApplication).isolatedScenario
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -66,8 +68,8 @@ class HomeViewModel(
                 HomeSources(tracking, manual, profile, match, league)
             }.flatMapLatest { sources ->
                 activityRepository.observeToday(
-                    sources.tracking.currentLocalDate,
-                    java.time.ZoneId.of(sources.tracking.currentZoneId),
+                    java.time.LocalDate.now(appClock),
+                    appClock.zone,
                 ).map { daily ->
                     sources to daily
                 }
@@ -132,6 +134,7 @@ class HomeViewModel(
     }
 
     fun startTracking() {
+        if (isolatedScenario) return
         viewModelScope.launch {
             trackingRepository.update {
                 it.copy(
@@ -152,6 +155,7 @@ class HomeViewModel(
     }
 
     fun stopTracking() {
+        if (isolatedScenario) return
         getApplication<Application>().startService(
             Intent(getApplication(), StepTrackingService::class.java)
                 .setAction(StepTrackingService.ACTION_STOP),
@@ -159,6 +163,7 @@ class HomeViewModel(
     }
 
     fun startManualWalk() {
+        if (isolatedScenario) return
         val tracking = _uiState.value.sessionState != SessionState.TRACKING_STOPPED
         viewModelScope.launch {
             if (!tracking) {
@@ -182,6 +187,7 @@ class HomeViewModel(
     }
 
     fun endManualWalk(sessionId: String) {
+        if (isolatedScenario) return
         getApplication<Application>().startService(
             Intent(getApplication(), StepTrackingService::class.java)
                 .setAction(StepTrackingService.ACTION_END_MANUAL_WALK)

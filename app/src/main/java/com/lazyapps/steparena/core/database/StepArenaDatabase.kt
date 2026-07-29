@@ -57,14 +57,16 @@ abstract class StepArenaDatabase : RoomDatabase() {
     abstract fun gameNotificationEvents(): GameNotificationEventDao
 
     companion object {
+        const val PRODUCTION_DATABASE_NAME = "step_arena.db"
         @Volatile private var instance: StepArenaDatabase? = null
         fun get(context: Context): StepArenaDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(
-                context.applicationContext,
-                StepArenaDatabase::class.java,
-                "step_arena.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            instance ?: build(context, PRODUCTION_DATABASE_NAME).also { instance = it }
         }
+
+        fun build(context: Context, name: String): StepArenaDatabase =
+            Room.databaseBuilder(context.applicationContext, StepArenaDatabase::class.java, name)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .build()
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {

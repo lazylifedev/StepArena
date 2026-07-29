@@ -9,3 +9,6 @@ Phase 5 の対戦相手は実在ユーザーではなく、端末内で決定論
 - `NO_CONTEST` はrating、勝敗、連勝実績を更新しない。
 - 対戦有効歩数は品質別係数を適用し、1日30,000歩を上限とする。総歩数は削除しない。
 - ランク変動は1試合につき隣接する1階級までとする。
+- Debugシナリオの歩数、試合、rating、リーグ、シーズン、実績は隔離DBだけを変更する。
+- Debug installationIdは`step-arena-debug-scenario`で固定し、同じ日付・Zone・rankなら
+  初期化後も同じNPCを生成する。production installationIdは読み書きしない。

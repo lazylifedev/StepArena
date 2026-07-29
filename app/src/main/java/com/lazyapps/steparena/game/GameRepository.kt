@@ -37,13 +37,17 @@ class LocalGameRepository(
     private val stepCalculator: CompetitiveStepCalculator = CompetitiveStepCalculator(),
     private val opponentGenerator: LocalOpponentGenerator = LocalOpponentGenerator(),
     private val ratingCalculator: RatingCalculator = DefaultRatingCalculator(),
+    private val installationIdOverride: String? = null,
+    private val notificationConfig: GameNotificationConfig = GameNotificationConfig(),
 ) : GameRepository {
     private val zone: ZoneId get() = clock.zone
     private val today: LocalDate get() = LocalDate.now(clock)
     private val installationId: String by lazy {
-        val preferences = context.getSharedPreferences("local_game", Context.MODE_PRIVATE)
-        preferences.getString("installation_id", null) ?: UUID.randomUUID().toString().also {
-            preferences.edit().putString("installation_id", it).apply()
+        installationIdOverride ?: run {
+            val preferences = context.getSharedPreferences("local_game", Context.MODE_PRIVATE)
+            preferences.getString("installation_id", null) ?: UUID.randomUUID().toString().also {
+                preferences.edit().putString("installation_id", it).apply()
+            }
         }
     }
 
@@ -64,7 +68,7 @@ class LocalGameRepository(
         ensureTodayMatch()
         rebuildCurrentLeague()
         evaluateAchievements()
-        GameNotificationDispatcher(context, database, clock).dispatchPending()
+        GameNotificationDispatcher(context, database, clock, notificationConfig).dispatchPending()
     }
 
     override suspend fun ensureTodayMatch() = database.withTransaction {

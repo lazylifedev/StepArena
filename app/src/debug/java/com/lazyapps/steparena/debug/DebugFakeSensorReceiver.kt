@@ -13,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import com.lazyapps.steparena.app.DebugStepArenaApplication
 
 /**
  * Debug-only ADB bridge. It is intentionally absent from release source and manifest.
@@ -35,6 +36,11 @@ class DebugFakeSensorReceiver : BroadcastReceiver() {
     private suspend fun execute(context: Context, intent: Intent) {
         val command = intent.getStringExtra(EXTRA_COMMAND) ?: COMMAND_VALUE
         Log.w(TAG, "DEBUG ONLY fake sensor command=$command")
+        val app = context as DebugStepArenaApplication
+        if (app.isIsolatedScenario && command != COMMAND_COMPLETE_ONBOARDING) {
+            Log.w(TAG, "Foreground-service fake sensor ignored in isolated scenario mode")
+            return
+        }
         when (command) {
             COMMAND_START -> {
                 TrackingStateRepository(context).update {

@@ -3,6 +3,7 @@ package com.lazyapps.steparena.feature.settings
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.lazyapps.steparena.feature.diagnostics.RecoveryHistoryScreen
 import org.junit.Rule
@@ -17,7 +18,7 @@ class RecoverySettingsScreenTest {
         compose.setContent { RecoverySettingsScreen() }
         compose.onNodeWithText("Health Connect と計測復旧").assertIsDisplayed()
         compose.onNodeWithText("Health Connect補完を使用").assertIsDisplayed()
-        compose.onNodeWithText("計測停止警告").assertIsDisplayed()
+        compose.onNodeWithText("計測停止警告").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun emptyRecoveryHistoryIsVisible() {

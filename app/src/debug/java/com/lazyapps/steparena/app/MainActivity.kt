@@ -41,6 +41,10 @@ import com.lazyapps.steparena.game.DebugGameController
 import com.lazyapps.steparena.game.DebugGameScenario
 import com.lazyapps.steparena.game.DebugGameScreen
 import com.lazyapps.steparena.game.GameNotificationDispatcher
+import com.lazyapps.steparena.game.DebugGameMaintenanceWorker
+import com.lazyapps.steparena.game.GameMaintenanceWorker
+import com.lazyapps.steparena.recovery.TrackingHealthWorker
+import androidx.work.WorkManager
 import com.lazyapps.steparena.service.tracking.StepTrackingService
 import com.lazyapps.steparena.tracking.DiagnosticLogEntry
 import com.lazyapps.steparena.tracking.DiagnosticLogRepository
@@ -131,12 +135,18 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         initialRoute = initialGameRoute,
+                        environmentBanner = if (
+                            (application as DebugStepArenaApplication).isIsolatedScenario
+                        ) "隔離テストデータ" else null,
                     )
                 }
                 if (debugGameVisible) {
                     DebugGameScreen(
+                        isolated = (application as DebugStepArenaApplication).isIsolatedScenario,
                         onClose = { debugGameVisible = false },
                         onRun = ::runDebugGameScenario,
+                        onStartIsolated = { changeDebugMode(DebugDataMode.ISOLATED_SCENARIO) },
+                        onReturnNormal = { changeDebugMode(DebugDataMode.NORMAL_DATA) },
                     )
                 } else if (debugMenuVisible) {
                     DebugTrackingSheet(
@@ -200,6 +210,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun notificationRoute(intent: Intent): String {
+        val area = intent.getStringExtra(GameNotificationDispatcher.EXTRA_DATA_AREA)
+        if (area == "debug_scenario" &&
+            !(application as DebugStepArenaApplication).isIsolatedScenario
+        ) {
+            debugGameVisible = true
+            return "home"
+        }
         val route = intent.getStringExtra(GameNotificationDispatcher.EXTRA_DESTINATION)
         return route?.takeIf { it in setOf("match", "rank", "achievements", "league", "season") } ?: "home"
     }
@@ -207,6 +224,25 @@ class MainActivity : ComponentActivity() {
     private fun runDebugGameScenario(scenario: DebugGameScenario) {
         lifecycleScope.launch {
             DebugGameController(application as DebugStepArenaApplication).run(scenario)
+        }
+    }
+
+    private fun changeDebugMode(mode: DebugDataMode) {
+        lifecycleScope.launch {
+            val app = application as DebugStepArenaApplication
+            app.debugStateStore.setMode(mode)
+            if (mode == DebugDataMode.ISOLATED_SCENARIO) {
+                WorkManager.getInstance(this@MainActivity)
+                    .cancelUniqueWork(GameMaintenanceWorker.UNIQUE_WORK)
+                WorkManager.getInstance(this@MainActivity)
+                    .cancelUniqueWork(TrackingHealthWorker.UNIQUE_NAME)
+                DebugGameMaintenanceWorker.schedule(this@MainActivity)
+            } else {
+                DebugGameMaintenanceWorker.cancel(this@MainActivity)
+                GameMaintenanceWorker.schedule(this@MainActivity)
+                TrackingHealthWorker.schedule(this@MainActivity)
+            }
+            recreate()
         }
     }
 }

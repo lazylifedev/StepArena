@@ -57,3 +57,7 @@ Health Connect 書込み、距離・ExerciseSession 統合、自動 Service 再�
 
 Debug実機検証UI、ゲーム通知、週間リーグ/月間シーズン確定、初期実績、
 公開前の冪等性と表示整合性を対象とする。物理歩行試験は未完了のまま次の実機作業へ残す。
+
+Debug実機シナリオはproductionデータから完全隔離する。独立DB/DataStore、graph切替、
+Worker/通知/Fake Counter/reset分離とproduction不変Instrumentation TestをシナリオAの
+再開条件とする。Aが合格するまでB〜Eは開始しない。

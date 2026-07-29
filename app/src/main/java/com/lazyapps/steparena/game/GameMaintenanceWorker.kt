@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 class GameMaintenanceWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = runCatching {
-        val repository = (applicationContext as StepArenaApplication).gameRepository
+        val repository = (applicationContext as StepArenaApplication).productionGameRepository
         repository.runMaintenance()
     }.fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
 

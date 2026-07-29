@@ -42,3 +42,10 @@ Migration 2→3 は既存の時間別、日次、セッション、processing st
 `game_notification_events` を追加した。`deduplicationKey` は一意で、
 未配信検索、配信済み時刻、画面確認済みフラグを保持する。
 Migration 4→5は既存ゲームデータを変更しない。
+
+## DebugシナリオDB
+
+Debugビルドの隔離シナリオは同じRoom schema v5を
+`step_arena_debug_game.db`として開く。productionの`step_arena.db`とはファイル、
+接続、全テーブルが別であり、schema versionやproduction EntityへDebug列は追加しない。
+Debug resetは隔離DBだけをclearし、production DBへDELETEを発行しない。

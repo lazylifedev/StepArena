@@ -1,6 +1,7 @@
 package com.lazyapps.steparena.game
 
 import com.lazyapps.steparena.app.DebugStepArenaApplication
+import com.lazyapps.steparena.app.DebugDataMode
 import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
 import com.lazyapps.steparena.core.database.model.DataQuality
 import java.time.LocalDate
@@ -9,13 +10,16 @@ import java.time.LocalDate
  * Debug-only mutations. Generated opponents use a debug prefix, which makes cleanup selective.
  */
 class DebugGameController(private val application: DebugStepArenaApplication) {
-    private val database = application.database
+    private val database = application.debugDatabase
     private val repository = application.gameRepository
     private val clock get() = application.debugClock
     private val zone get() = clock.zone
     private val today get() = LocalDate.now(clock).toString()
 
     suspend fun run(scenario: DebugGameScenario) {
+        check(application.dataMode == DebugDataMode.ISOLATED_SCENARIO) {
+            "Debug scenario mutations require ISOLATED_SCENARIO mode"
+        }
         when (scenario) {
             DebugGameScenario.SET_MEASURED_STEPS -> setSteps(5_000, DataQuality.MEASURED)
             DebugGameScenario.COUNTER_100 -> addSteps(100, DataQuality.MEASURED)
@@ -78,11 +82,7 @@ class DebugGameController(private val application: DebugStepArenaApplication) {
             DebugGameScenario.RERUN_WORK_MANAGER,
             DebugGameScenario.SAME_DAY_REPROCESS -> repository.runMaintenance()
             DebugGameScenario.RESET_DEBUG_DATA -> {
-                database.dailyMatches().deleteDebugMatches()
-                database.gameNotificationEvents().deleteDebugEvents()
-                database.daily().deleteDebugRecords()
-                database.achievementUnlocks().deleteDebug()
-                clock.reset()
+                RoomDebugScenarioResetter(application).resetAllScenarioData()
             }
         }
     }

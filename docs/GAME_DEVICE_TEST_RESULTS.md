@@ -66,3 +66,31 @@ The following initial manual-test blocker was fixed separately in `baea337`:
 - Final SOV41 instrumentation/DAO/migration/Compose UI gate
 - Final clean/build/release/lint/non-contamination gates
 - Main merge and push
+
+## Debug-data isolation implementation (2026-07-29)
+
+過去の不合格および阻害記録は上記のとおり保持する。修正ではDebug source set専用の
+`step_arena_debug_game.db`と`step_arena_debug_scenario.preferences_pb`を採用した。
+明示的に「隔離シナリオを開始」し確認後にだけ切り替わり、通常画面にも
+「隔離テストデータ」バナーを常時表示する。通常データへ戻る際はDebugデータを削除しない。
+
+分離対象:
+
+- Room全テーブル（活動、ゲーム、通知）
+- Clock/Zone、installationId、scenario state DataStore
+- production/debug Game Maintenance Workerと一意Work名
+- 通知channel/group/ID/requestCode/設定/遷移data area
+- Fake Counter経路（通常Foreground Serviceを隔離モードでは起動しない）
+- Debug reset（Debug DB/DataStore/Clockだけ）
+
+自動化したproduction不変テストは、別DBへrating 1,234、勝数7、歩数321、
+DailyMatch/通知/実績各1件を配置し、Debug側rating 1,025・歩数5,000の変更と全reset後も
+production識別値が同一であることを検証する。
+
+SOV41 (`QV7209CF25`, Android 11) では全Instrumentation 25件中、新規production
+不変テストを含む24件が成功するところまで確認した。新規隔離テストとDebug Compose
+5件の単独再実行は5/5成功した。その後の全件再試行は端末package installerが
+`DELETE_FAILED_INTERNAL_ERROR`とshell timeoutになり、APK再installも応答しなかったため、
+最終25/25とシナリオAの手動再試験は未完了である。
+
+したがってAは合格扱いにせず、B〜Eと物理歩行も未実施のままとする。

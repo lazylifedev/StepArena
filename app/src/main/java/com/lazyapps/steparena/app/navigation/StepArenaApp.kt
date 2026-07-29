@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -60,6 +61,7 @@ fun StepArenaApp(
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
     initialRoute: String = AppDestination.HOME.route,
+    environmentBanner: String? = null,
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selectedRoute = backStackEntry?.destination?.route ?: AppDestination.HOME.route
@@ -74,6 +76,15 @@ fun StepArenaApp(
         Scaffold(
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
             contentColor = StepArenaColors.White,
+            topBar = {
+                if (environmentBanner != null) {
+                    Text(
+                        environmentBanner,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
                     AppDestination.entries.forEach { destination ->

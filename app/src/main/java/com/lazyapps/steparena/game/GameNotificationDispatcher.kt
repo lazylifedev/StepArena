@@ -18,13 +18,24 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalTime
 
+data class GameNotificationConfig(
+    val preferences: String = "game_notifications",
+    val channelId: String = "game_results",
+    val channelName: String = "ゲーム結果",
+    val group: String? = null,
+    val titlePrefix: String = "",
+    val requestCodeSalt: Int = 0,
+    val dataArea: String = "production",
+)
+
 class GameNotificationDispatcher(
     private val context: Context,
     private val database: StepArenaDatabase,
     private val clock: Clock = Clock.systemDefaultZone(),
+    private val config: GameNotificationConfig = GameNotificationConfig(),
 ) {
     suspend fun dispatchPending(): Int {
-        val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        val preferences = context.getSharedPreferences(config.preferences, Context.MODE_PRIVATE)
         if (!preferences.getBoolean(KEY_ENABLED, false)) return 0
         if (QuietHours.isQuiet(LocalTime.now(clock))) return 0
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -36,7 +47,8 @@ class GameNotificationDispatcher(
         database.gameNotificationEvents().pending(clock.millis()).forEach { event ->
             val claimed = database.gameNotificationEvents().markDelivered(event.id, clock.millis())
             if (claimed == 1) {
-                NotificationManagerCompat.from(context).notify(event.id.hashCode(), notification(event))
+                NotificationManagerCompat.from(context)
+                    .notify(event.id.hashCode() xor config.requestCodeSalt, notification(event))
                 delivered++
             }
         }
@@ -44,30 +56,32 @@ class GameNotificationDispatcher(
     }
 
     private fun notification(event: GameNotificationEventEntity) =
-        NotificationCompat.Builder(context, CHANNEL_ID)
+        NotificationCompat.Builder(context, config.channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(event.title)
+            .setContentTitle(config.titlePrefix + event.title)
             .setContentText(event.message)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(
                 PendingIntent.getActivity(
                     context,
-                    event.id.hashCode(),
+                    event.id.hashCode() xor config.requestCodeSalt,
                     Intent(context, MainActivity::class.java)
                         .putExtra(EXTRA_DESTINATION, event.destinationRoute)
                         .putExtra(EXTRA_EVENT_ID, event.id)
+                        .putExtra(EXTRA_DATA_AREA, config.dataArea)
                         .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
+            .setGroup(config.group)
             .build()
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                "ゲーム結果",
+                config.channelId,
+                config.channelName,
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description = "対戦結果、昇格、実績、リーグ、シーズンのお知らせ"
@@ -83,6 +97,7 @@ class GameNotificationDispatcher(
         const val CHANNEL_ID = "game_results"
         const val EXTRA_DESTINATION = "game_destination"
         const val EXTRA_EVENT_ID = "game_notification_event_id"
+        const val EXTRA_DATA_AREA = "game_data_area"
 
         fun nextAllowedEpochMillis(clock: Clock): Long {
             val now = Instant.now(clock).atZone(clock.zone)

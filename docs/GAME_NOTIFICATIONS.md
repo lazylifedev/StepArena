@@ -10,3 +10,8 @@ WorkManager、アプリ起動、再処理が重なっても一件だけ配信す
 22:00〜8:00は静かな時間帯とし、候補の `notBeforeEpochMillis` を翌朝8時へ送る。
 通知タップは対象画面へ遷移し、対象データが消えていても各画面の空状態を表示する。
 PendingIntentのrequest codeは通知イベントIDから生成する。
+
+Debug隔離シナリオはイベントテーブルに加え、設定、channel、通知ID、
+PendingIntent request code、group (`step_arena_debug_game`)、タイトル接頭辞、遷移先の
+data areaを分離する。通常モードでDebug通知をタップした場合は通常DailyMatchとして
+検索せず、安全なDebugシナリオ画面を開く。

@@ -27,12 +27,22 @@ import androidx.compose.ui.unit.dp
 object DebugGameTestTags {
     const val SCREEN = "debug_game_screen"
     const val WARNING = "debug_game_warning"
+    const val MODE_BANNER = "debug_game_mode_banner"
+    const val START_ISOLATED = "debug_game_start_isolated"
+    const val RETURN_NORMAL = "debug_game_return_normal"
     fun action(action: DebugGameScenario) = "debug_game_${action.name.lowercase()}"
 }
 
 @Composable
-fun DebugGameScreen(onClose: () -> Unit, onRun: (DebugGameScenario) -> Unit) {
+fun DebugGameScreen(
+    onClose: () -> Unit,
+    onRun: (DebugGameScenario) -> Unit,
+    isolated: Boolean = true,
+    onStartIsolated: () -> Unit = {},
+    onReturnNormal: () -> Unit = {},
+) {
     var pending by remember { mutableStateOf<DebugGameScenario?>(null) }
+    var pendingModeChange by remember { mutableStateOf<Boolean?>(null) }
     LazyColumn(
         Modifier.fillMaxSize().testTag(DebugGameTestTags.SCREEN),
         contentPadding = PaddingValues(16.dp),
@@ -41,13 +51,32 @@ fun DebugGameScreen(onClose: () -> Unit, onRun: (DebugGameScenario) -> Unit) {
         item {
             Text("開発用ゲームシナリオ", style = MaterialTheme.typography.headlineMedium)
             Text(
-                "この画面の操作は端末内データを書き換えます。",
-                color = MaterialTheme.colorScheme.error,
+                if (isolated) "隔離テストデータ" else "通常データ（シナリオ操作は禁止）",
+                color = if (isolated) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag(DebugGameTestTags.MODE_BANNER),
+            )
+            Text(
+                if (isolated) {
+                    "操作対象はDebug専用DBだけです。"
+                } else {
+                    "シナリオを実行するには隔離モードを開始してください。"
+                },
                 modifier = Modifier.testTag(DebugGameTestTags.WARNING),
             )
+            if (isolated) {
+                OutlinedButton(
+                    onClick = { pendingModeChange = false },
+                    modifier = Modifier.testTag(DebugGameTestTags.RETURN_NORMAL),
+                ) { Text("通常データへ戻る") }
+            } else {
+                Button(
+                    onClick = { pendingModeChange = true },
+                    modifier = Modifier.testTag(DebugGameTestTags.START_ISOLATED),
+                ) { Text("隔離シナリオを開始") }
+            }
             Button(onClick = onClose) { Text("閉じる") }
         }
-        debugCategories.forEach { (title, actions) ->
+        if (isolated) debugCategories.forEach { (title, actions) ->
             item { Text(title, style = MaterialTheme.typography.titleLarge) }
             items(actions) { (action, label) ->
                 Card(Modifier.fillMaxWidth()) {
@@ -60,6 +89,30 @@ fun DebugGameScreen(onClose: () -> Unit, onRun: (DebugGameScenario) -> Unit) {
                 }
             }
         }
+    }
+    pendingModeChange?.let { enterIsolated ->
+        AlertDialog(
+            onDismissRequest = { pendingModeChange = null },
+            title = { Text(if (enterIsolated) "隔離シナリオを開始" else "通常データへ戻る") },
+            text = {
+                Text(
+                    if (enterIsolated) {
+                        "通常データには触れず、Debug専用DBと設定へ切り替えます。"
+                    } else {
+                        "Debugデータを残したまま通常DBへ戻ります。"
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingModeChange = null
+                    if (enterIsolated) onStartIsolated() else onReturnNormal()
+                }) { Text("切り替える") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingModeChange = null }) { Text("キャンセル") }
+            },
+        )
     }
     pending?.let { action ->
         AlertDialog(
