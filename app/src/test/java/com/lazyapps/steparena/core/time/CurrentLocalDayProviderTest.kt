@@ -75,6 +75,34 @@ class CurrentLocalDayProviderTest {
     }
 
     @Test
+    fun timezoneChangeUpdatesFlowWithoutRecreationForPreviousAndNextDay() = runBlocking {
+        val clock = MutableClock(Instant.parse("2026-07-30T15:30:00Z"))
+        var zone = ZoneId.of("UTC")
+        val changes = MutableSharedFlow<Unit>()
+        val seen = Channel<Unit>(Channel.UNLIMITED)
+        val collected = async(start = CoroutineStart.UNDISPATCHED) {
+            currentLocalDayFlow(
+                clock = clock,
+                zoneId = { zone },
+                changes = changes,
+            ).onEach { seen.send(Unit) }.take(3).toList()
+        }
+        withTimeout(2_000) { seen.receive() }
+        zone = ZoneId.of("Asia/Tokyo")
+        changes.emit(Unit)
+        withTimeout(2_000) { seen.receive() }
+        zone = ZoneId.of("America/Los_Angeles")
+        changes.emit(Unit)
+        withTimeout(2_000) { seen.receive() }
+
+        val days = withTimeout(2_000) { collected.await() }
+        assertEquals("2026-07-30", days[0].date.toString())
+        assertEquals("2026-07-31", days[1].date.toString())
+        assertEquals("2026-07-30", days[2].date.toString())
+        assertEquals(ZoneId.of("America/Los_Angeles"), days[2].zoneId)
+    }
+
+    @Test
     fun dstBoundariesHavePositiveFiniteDelay() {
         val zone = ZoneId.of("America/Los_Angeles")
         val spring = millisUntilNextLocalDay(

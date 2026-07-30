@@ -152,6 +152,8 @@ class HomeViewModel(
                         },
                         trackingUiStatus = tracking.trackingStatus,
                         sensorSupported = tracking.trackingStatus != PersistentTrackingStatus.SENSOR_UNSUPPORTED,
+                        localDate = day.date,
+                        zoneId = day.zoneId,
                     )
                 }
             }

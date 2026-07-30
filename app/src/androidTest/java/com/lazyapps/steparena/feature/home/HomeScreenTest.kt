@@ -4,7 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -22,7 +25,15 @@ import com.lazyapps.steparena.test.awaitResumedHost
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
+import android.content.res.Configuration
+import android.os.LocaleList
 
 class HomeScreenTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
@@ -47,6 +58,11 @@ class HomeScreenTest {
 
     @Test fun homeUsesOneDateLineInsteadOfPersistentMarketingCopy() {
         setHome()
+        composeRule.onNodeWithText(
+            DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL)
+                .withLocale(Locale.JAPAN)
+                .format(homeDate),
+        ).assertIsDisplayed()
         composeRule.onNodeWithText("TODAY'S STEPS").assertDoesNotExist()
         composeRule.onNodeWithText("今日の一歩を、楽しい習慣へ。").assertDoesNotExist()
         composeRule.onNodeWithText("TODAY'S ARENA").assertDoesNotExist()
@@ -61,7 +77,10 @@ class HomeScreenTest {
                 recoveredSteps = 10,
             ),
         )
-        composeRule.onNodeWithTag(HomeTestTags.HEALTH_BREAKDOWN).assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag(HomeTestTags.HEALTH_BREAKDOWN)
+            .assertContentDescriptionEquals("Health Connectから10歩追加。内訳を表示")
+            .assertIsDisplayed()
+            .performClick()
         composeRule.onNodeWithText("端末で計測").assertIsDisplayed()
         composeRule.onNodeWithText("Health Connect").assertIsDisplayed()
         composeRule.onNodeWithText("合計").assertIsDisplayed()
@@ -79,6 +98,90 @@ class HomeScreenTest {
         composeRule.onNodeWithText(explanation).assertDoesNotExist()
         composeRule.onNodeWithTag(HomeTestTags.WALKING_INFO).performClick()
         composeRule.onNodeWithText(explanation).assertIsDisplayed()
+    }
+
+    @Test fun walkingInformationClickOnlyOpensSheetWithoutStartingManualWalk() {
+        val actions = mutableListOf<HomeAction>()
+        setState(readyState.copy(sessionState = SessionState.TRACKING), actions::add)
+
+        composeRule.onNodeWithTag(HomeTestTags.WALKING_INFO).performClick()
+
+        composeRule.onNodeWithTag(HomeTestTags.WALKING_INFO_SHEET).assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "これから歩く区間を、1回のウォーキングとして記録します。通常の歩数計測は常に行われています。",
+        ).assertIsDisplayed()
+        composeRule.runOnIdle {
+            assertEquals(0, actions.count { it == HomeAction.StartManualWalk })
+        }
+    }
+
+    @Test fun walkingInformationClickWhileRecordingDoesNotEndManualWalk() {
+        val actions = mutableListOf<HomeAction>()
+        val state = readyState.copy(
+            sessionState = SessionState.MANUAL_WALK,
+            manualSession = ManualSessionUi("manual-uuid", 1_775_000_000_000, 842, 589.4, 480),
+        )
+        setState(state, actions::add)
+
+        composeRule.onNodeWithTag(HomeTestTags.WALKING_INFO).performClick()
+
+        composeRule.onNodeWithTag(HomeTestTags.WALKING_INFO_SHEET).assertIsDisplayed()
+        composeRule.runOnIdle {
+            assertEquals(0, actions.count { it is HomeAction.EndManualWalk })
+        }
+    }
+
+    @Test fun walkingCardClickStartsOrEndsExactlyOnce() {
+        var state by mutableStateOf(readyState.copy(sessionState = SessionState.TRACKING))
+        val actions = mutableListOf<HomeAction>()
+        composeRule.setContent {
+            StepArenaTheme { HomeScreen(state, actions::add) }
+        }
+        composeRule.onNodeWithTag(HomeTestTags.START_BUTTON).performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, actions.count { it == HomeAction.StartManualWalk })
+            actions.clear()
+            state = readyState.copy(
+                sessionState = SessionState.MANUAL_WALK,
+                manualSession = ManualSessionUi(
+                    "manual-uuid",
+                    1_775_000_000_000,
+                    842,
+                    589.4,
+                    480,
+                ),
+            )
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(HomeTestTags.START_BUTTON).performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, actions.count { it == HomeAction.EndManualWalk("manual-uuid") })
+        }
+    }
+
+    @Test fun dateUsesProvidedValueAndReformatsWhenLocaleChanges() {
+        var locale by mutableStateOf(Locale.US)
+        val state = readyState
+        composeRule.setContent {
+            val configuration = Configuration().apply {
+                setLocales(LocaleList(locale))
+            }
+            CompositionLocalProvider(LocalConfiguration provides configuration) {
+                StepArenaTheme { HomeScreen(state, {}) }
+            }
+        }
+        val usDate = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL)
+            .withLocale(Locale.US)
+            .format(homeDate)
+        composeRule.onNodeWithText(usDate).assertIsDisplayed()
+
+        composeRule.runOnIdle { locale = Locale.JAPAN }
+
+        val japaneseDate = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL)
+            .withLocale(Locale.JAPAN)
+            .format(homeDate)
+        composeRule.onNodeWithText(japaneseDate).assertIsDisplayed()
+        composeRule.onNodeWithText(usDate).assertDoesNotExist()
     }
 
     @Test fun startButton_isOperable() {
@@ -144,16 +247,22 @@ class HomeScreenTest {
     private fun setHome(value: HomeSnapshot = snapshot) {
         composeRule.setContent {
             StepArenaTheme {
-                HomeScreen(HomeUiState(HomeContent.Ready(value), MotionLevel.OFF), {})
+                HomeScreen(readyState.copy(content = HomeContent.Ready(value)), {})
             }
         }
     }
 
-    private fun setState(state: HomeUiState) {
-        composeRule.setContent { StepArenaTheme { HomeScreen(state, {}) } }
+    private fun setState(state: HomeUiState, onAction: (HomeAction) -> Unit = {}) {
+        composeRule.setContent { StepArenaTheme { HomeScreen(state, onAction) } }
     }
 
-    private val readyState get() = HomeUiState(HomeContent.Ready(snapshot), MotionLevel.OFF)
+    private val homeDate = LocalDate.of(2026, 7, 30)
+    private val readyState get() = HomeUiState(
+        content = HomeContent.Ready(snapshot),
+        motionLevel = MotionLevel.OFF,
+        localDate = homeDate,
+        zoneId = ZoneId.of("Asia/Tokyo"),
+    )
     private val snapshot = HomeSnapshot(
         RankStatus(RankTier.GOLD, 2, 1_840, 660),
         ActivityMetrics(7_420, 10_000, 5_630.0, 4_980, 286.0, 1.13),

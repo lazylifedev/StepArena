@@ -18,8 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 
@@ -33,21 +32,24 @@ fun millisUntilNextLocalDay(instant: Instant, zoneId: ZoneId): Long {
     return Duration.between(instant, nextStart).toMillis().coerceAtLeast(1)
 }
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 fun currentLocalDayFlow(
     clock: Clock,
     zoneId: () -> ZoneId = ZoneId::systemDefault,
     changes: Flow<Unit>,
     waitForNextBoundary: suspend (Long) -> Unit = { delay(it) },
 ): Flow<LocalDay> {
-    val boundaries = flow {
-        while (true) {
-            emit(Unit)
-            val zone = zoneId()
-            waitForNextBoundary(millisUntilNextLocalDay(clock.instant(), zone) + 1)
+    return changes
+        .onStart { emit(Unit) }
+        .flatMapLatest {
+            flow {
+                while (true) {
+                    emit(localDayAt(clock.instant(), zoneId()))
+                    val zone = zoneId()
+                    waitForNextBoundary(millisUntilNextLocalDay(clock.instant(), zone) + 1)
+                }
+            }
         }
-    }
-    return merge(changes.onStart { emit(Unit) }, boundaries)
-        .map { localDayAt(clock.instant(), zoneId()) }
         .distinctUntilChanged()
 }
 

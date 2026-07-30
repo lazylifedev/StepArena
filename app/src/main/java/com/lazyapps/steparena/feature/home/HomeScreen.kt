@@ -89,7 +89,6 @@ import com.lazyapps.steparena.core.units.ActivityFormatter
 import com.lazyapps.steparena.core.units.DistanceUnit
 import com.lazyapps.steparena.core.units.SpeedUnit
 import java.text.NumberFormat
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
@@ -103,6 +102,7 @@ object HomeTestTags {
     const val HEALTH_BREAKDOWN = "health_breakdown"
     const val HEALTH_SHEET = "health_sheet"
     const val WALKING_INFO = "walking_info"
+    const val WALKING_INFO_SHEET = "walking_info_sheet"
     const val MATCH_CARD = "match_card"
     const val BOTTOM_REACH_MARKER = "home_bottom_marker"
 }
@@ -172,11 +172,10 @@ private fun HomeReadyContent(
         item {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    remember(locale) {
+                    remember(locale, uiState.zoneId) {
                         DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL)
                             .withLocale(locale)
-                            .withZone(ZoneId.systemDefault())
-                    }.format(java.time.Instant.now()),
+                    }.format(uiState.localDate),
                     modifier = Modifier.semantics { heading() },
                     style = MaterialTheme.typography.labelLarge,
                     color = StepArenaColors.TextSecondary,
@@ -368,7 +367,7 @@ private fun HomeReadyContent(
         InformationSheet(
             title = stringResource(R.string.home_walking_record_title),
             body = stringResource(R.string.home_walking_record_explanation),
-            tag = HomeTestTags.WALKING_INFO,
+            tag = HomeTestTags.WALKING_INFO_SHEET,
             onDismiss = { showWalkingInfo = false },
         )
     }
@@ -462,6 +461,10 @@ private fun StepsPanel(
     motionLevel: MotionLevel,
     onHealthClick: () -> Unit,
 ) {
+    val healthBreakdownAccessibility = stringResource(
+        R.string.home_health_breakdown_accessibility,
+        numberFormat.format(snapshot.recoveredSteps),
+    )
     GlassSurface(Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.today_steps), color = StepArenaColors.TextSecondary)
         Spacer(Modifier.height(StepArenaSpacing.sm))
@@ -519,9 +522,7 @@ private fun StepsPanel(
                                     .clickable(onClick = onHealthClick)
                                     .semantics {
                                         role = Role.Button
-                                        contentDescription = "Health Connect ${
-                                            numberFormat.format(snapshot.recoveredSteps)
-                                        }歩追加。内訳を表示"
+                                        contentDescription = healthBreakdownAccessibility
                                     },
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {

@@ -2,6 +2,8 @@ package com.lazyapps.steparena.feature.home
 
 import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
 import com.lazyapps.steparena.core.model.HomeSnapshot
+import java.time.LocalDate
+import java.time.ZoneId
 
 sealed interface HomeContent {
     data object Loading : HomeContent
@@ -18,6 +20,8 @@ data class HomeUiState(
         com.lazyapps.steparena.tracking.TrackingStatus.INITIALIZING,
     val sensorSupported: Boolean = true,
     val manualSession: ManualSessionUi? = null,
+    val localDate: LocalDate = LocalDate.ofEpochDay(0),
+    val zoneId: ZoneId = ZoneId.of("UTC"),
 )
 
 data class ManualSessionUi(
