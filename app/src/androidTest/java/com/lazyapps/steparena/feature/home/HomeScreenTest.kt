@@ -40,19 +40,20 @@ class HomeScreenTest {
     @Test fun stoppedTrackingState_isDisplayed() {
         setHome(snapshot.copy(trackingStatus = TrackingStatus.MAY_BE_STOPPED))
         composeRule.onNodeWithTag(HomeTestTags.CONTENT)
-            .performScrollToNode(hasText("計測が停止している可能性があります"))
-        composeRule.onNodeWithText("計測が停止している可能性があります").assertIsDisplayed()
+            .performScrollToNode(hasText("計測を確認"))
+        composeRule.onNodeWithText("計測を確認").assertIsDisplayed()
+        composeRule.onNodeWithText("タップして原因と対処を確認").assertIsDisplayed()
     }
 
-    @Test fun headingAndSubtitleDescribeAFriendlyStepCounter() {
+    @Test fun homeUsesOneDateLineInsteadOfPersistentMarketingCopy() {
         setHome()
-        composeRule.onNodeWithText("TODAY'S STEPS").assertIsDisplayed()
-        composeRule.onNodeWithText("今日の一歩を、楽しい習慣へ。").assertIsDisplayed()
+        composeRule.onNodeWithText("TODAY'S STEPS").assertDoesNotExist()
+        composeRule.onNodeWithText("今日の一歩を、楽しい習慣へ。").assertDoesNotExist()
         composeRule.onNodeWithText("TODAY'S ARENA").assertDoesNotExist()
         composeRule.onNodeWithText("勝負の力へ", substring = true).assertDoesNotExist()
     }
 
-    @Test fun healthConnectAddedStepsShowTotalAndBreakdown() {
+    @Test fun healthConnectAddedStepsOpenBreakdownSheet() {
         setHome(
             snapshot.copy(
                 metrics = snapshot.metrics.copy(steps = 5_874),
@@ -60,8 +61,24 @@ class HomeScreenTest {
                 recoveredSteps = 10,
             ),
         )
-        composeRule.onNodeWithText("端末で計測 5,864歩").assertIsDisplayed()
-        composeRule.onNodeWithText("Health Connectから追加 10歩").assertIsDisplayed()
+        composeRule.onNodeWithTag(HomeTestTags.HEALTH_BREAKDOWN).assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("端末で計測").assertIsDisplayed()
+        composeRule.onNodeWithText("Health Connect").assertIsDisplayed()
+        composeRule.onNodeWithText("合計").assertIsDisplayed()
+    }
+
+    @Test fun healthConnectZeroHidesBreakdownEntry() {
+        setHome(snapshot.copy(recoveredSteps = 0, measuredSteps = snapshot.metrics.steps.toLong()))
+        composeRule.onNodeWithTag(HomeTestTags.HEALTH_BREAKDOWN).assertDoesNotExist()
+    }
+
+    @Test fun walkingExplanationOnlyAppearsFromInformationButton() {
+        setState(readyState.copy(sessionState = SessionState.TRACKING))
+        val explanation =
+            "これから歩く区間を、1回のウォーキングとして記録します。通常の歩数計測は常に行われています。"
+        composeRule.onNodeWithText(explanation).assertDoesNotExist()
+        composeRule.onNodeWithTag(HomeTestTags.WALKING_INFO).performClick()
+        composeRule.onNodeWithText(explanation).assertIsDisplayed()
     }
 
     @Test fun startButton_isOperable() {
@@ -84,8 +101,8 @@ class HomeScreenTest {
     @Test fun primaryAction_distinguishesTrackingAndManualWalk() {
         setState(readyState.copy(sessionState = SessionState.TRACKING))
         composeRule.onNodeWithTag(HomeTestTags.CONTENT)
-            .performScrollToNode(hasText("ウォーキング記録を開始"))
-        composeRule.onNodeWithText("ウォーキング記録を開始").assertIsDisplayed()
+            .performScrollToNode(hasText("ウォーキング記録"))
+        composeRule.onNodeWithText("ウォーキング記録").assertIsDisplayed()
         composeRule.onNodeWithText("歩数計測を停止").assertIsDisplayed()
     }
 
@@ -97,9 +114,8 @@ class HomeScreenTest {
             ),
         )
         composeRule.onNodeWithTag(HomeTestTags.CONTENT)
-            .performScrollToNode(hasTestTag(HomeTestTags.MANUAL_SESSION))
+            .performScrollToNode(hasText("ウォーキング記録 842歩"))
         composeRule.onNodeWithText("ウォーキング記録 842歩").assertIsDisplayed()
-        composeRule.onNodeWithText("ウォーキング記録を終了").assertIsDisplayed()
         composeRule.onNodeWithText("歩数計測を停止").assertIsDisplayed()
     }
 
@@ -117,7 +133,7 @@ class HomeScreenTest {
         composeRule.setContent {
             val density = LocalDensity.current
             androidx.compose.runtime.CompositionLocalProvider(
-                LocalDensity provides Density(density.density, 1.6f),
+                LocalDensity provides Density(density.density, 2f),
             ) { StepArenaTheme { HomeScreen(readyState, {}) } }
         }
         composeRule.onNodeWithTag(HomeTestTags.CONTENT)

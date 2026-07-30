@@ -31,6 +31,16 @@
     <string name="today_steps">今日の歩数</string>
     <string name="home_measured_steps">端末で計測 %1$s歩</string>
     <string name="home_health_connect_steps">Health Connectから追加 %1$s歩</string>
+    <string name="home_measured_label">端末で計測</string>
+    <string name="home_health_connect_label">Health Connect</string>
+    <string name="home_total_label">合計</string>
+    <string name="home_health_connect_detail">Health Connectで補った歩数を合計に加えています。</string>
+    <string name="home_tracking_detail">端末の歩数センサーから歩数を受け取り、今日の合計を更新しています。詳しい状態は設定の「計測診断」で確認できます。</string>
+    <string name="home_tracking_tap_for_details">タップして原因と対処を確認</string>
+    <string name="home_tracking_check">計測を確認</string>
+    <string name="home_show_information">説明を表示</string>
+    <string name="home_steps_accessibility">今日の合計 %1$s歩、目標進捗 %2$dパーセント</string>
+    <string name="home_steps_accessibility_with_health">今日の合計 %1$s歩、端末で計測 %2$s歩、Health Connectから %3$s歩追加、目標進捗 %4$dパーセント</string>
     <string name="steps_value">%1$s 歩</string>
     <string name="steps_accessibility">%1$s 歩</string>
     <string name="goal_progress">目標 %1$s 歩・達成率 %2$d パーセント</string>
