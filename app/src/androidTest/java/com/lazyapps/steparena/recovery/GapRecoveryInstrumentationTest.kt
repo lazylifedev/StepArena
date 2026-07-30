@@ -27,7 +27,10 @@ class GapRecoveryInstrumentationTest {
             .build()
     }
 
-    @After fun tearDown() = database.close()
+    @After fun tearDown() {
+        runBlocking { RecoverySettingsRepository(context).reset() }
+        database.close()
+    }
 
     @Test fun fakeSourceAppliesOneHundredStepsOnlyOnce() = runBlocking {
         val start = Instant.parse("2026-07-29T01:00:00Z")
@@ -47,11 +50,14 @@ class GapRecoveryInstrumentationTest {
             ),
         )
         val activity = ActivityRepository(database, UserProfileRepository(context))
+        val settings = RecoverySettingsRepository(context)
+        settings.update(RecoverySettings(healthConnectEnabled = true))
         val repository = GapRecoveryRepository(
             database,
             fake,
             context.packageName,
             activity,
+            settings,
         )
         val gap = repository.detectHeartbeatGap(
             start,
@@ -64,7 +70,8 @@ class GapRecoveryInstrumentationTest {
 
         assertEquals(100L, first.recoveredSteps)
         assertEquals(100L, second.recoveredSteps)
-        assertEquals(100L, database.daily().get("2026-07-29", "UTC")?.steps)
+        assertEquals(0L, database.daily().get("2026-07-29", "UTC")?.steps)
+        assertEquals(100L, database.daily().get("2026-07-29", "UTC")?.unclassifiedSteps)
     }
 
     @Test fun realAvailabilityCheckNeverCrashes() = runBlocking {

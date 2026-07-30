@@ -57,6 +57,9 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
     val zone = ZoneId.systemDefault()
     val daily by app.activityRepository.observeToday(today, zone).collectAsState(initial = null)
     val hours by app.activityRepository.observeHours(today, zone).collectAsState(initial = emptyList())
+    val recoverySettings by app.recoverySettingsRepository.settings.collectAsState(
+        initial = com.lazyapps.steparena.recovery.RecoverySettings(),
+    )
     val healthConnectAvailability by produceState(
         initialValue = com.lazyapps.steparena.recovery.HealthConnectAvailability.UNKNOWN,
     ) { value = app.externalActivityDataSource.availability() }
@@ -70,6 +73,7 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         TrackingHealthStatus.STALE,
         TrackingHealthStatus.STOPPED,
     )
+    val unset = stringResource(R.string.state_unset)
     var diagnosticExportText by remember { mutableStateOf("") }
     val exportDiagnostics = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
@@ -104,8 +108,51 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         DiagnosticRow(R.string.diagnostics_current_raw, state.lastSensorValue?.toString() ?: stringResource(R.string.state_not_received))
         DiagnosticRow(R.string.diagnostics_previous_raw, state.previousSensorValue?.toString() ?: stringResource(R.string.state_not_received))
         DiagnosticRow(R.string.diagnostics_today_steps, state.accumulatedTodaySteps.toString())
+        DiagnosticRow(
+            R.string.diagnostics_recovered_steps,
+            if (recoverySettings.healthConnectEnabled) {
+                (daily?.unclassifiedSteps ?: 0).toString()
+            } else "0",
+        )
+        DiagnosticRow(
+            R.string.diagnostics_estimated_steps,
+            hours.sumOf { it.estimatedSteps }.toString(),
+        )
+        DiagnosticRow(
+            R.string.diagnostics_today_total,
+            (state.accumulatedTodaySteps +
+                if (recoverySettings.healthConnectEnabled) daily?.unclassifiedSteps ?: 0 else 0)
+                .toString(),
+        )
+        DiagnosticRow(R.string.diagnostics_notification_value, state.accumulatedTodaySteps.toString())
+        DiagnosticRow(R.string.diagnostics_home_value, state.accumulatedTodaySteps.toString())
         DiagnosticRow(R.string.diagnostics_hourly_total, hours.sumOf { it.steps }.toString())
         DiagnosticRow(R.string.diagnostics_daily_total, (daily?.steps ?: 0).toString())
+        DiagnosticRow(
+            R.string.diagnostics_last_daily_update,
+            daily?.updatedAtEpochMillis?.let { Instant.ofEpochMilli(it).toString() } ?: unset,
+        )
+        DiagnosticRow(
+            R.string.diagnostics_recovery_enabled,
+            stringResource(
+                if (recoverySettings.healthConnectEnabled) R.string.state_enabled
+                else R.string.state_disabled,
+            ),
+        )
+        DiagnosticRow(
+            R.string.diagnostics_scenario_mode,
+            stringResource(if (app.isolatedScenario) R.string.state_enabled else R.string.state_disabled),
+        )
+        val synchronized = state.accumulatedTodaySteps == hours.sumOf { it.steps } &&
+            state.accumulatedTodaySteps == (daily?.steps ?: state.accumulatedTodaySteps)
+        Text(
+            stringResource(
+                if (synchronized) R.string.diagnostics_steps_synchronized
+                else R.string.diagnostics_steps_mismatch,
+            ),
+            color = if (synchronized) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.error,
+        )
         DiagnosticRow(R.string.diagnostics_foreground_service, stringResource(if (state.serviceRunning) R.string.state_running else R.string.state_stopped))
         if (BuildConfig.DEBUG) {
             DiagnosticRow(R.string.diagnostics_fake_sensor, "OFF")
@@ -122,7 +169,6 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
                 runCatching { context.startActivity(direct) }.onFailure { context.startActivity(fallback) }
             },
         )
-        val unset = stringResource(R.string.state_unset)
         DiagnosticRow(R.string.diagnostics_session_id, state.sessionId ?: unset)
         DiagnosticRow(R.string.diagnostics_sensor_baseline, state.sensorBaseline?.toString() ?: unset)
         DiagnosticRow(R.string.diagnostics_last_sensor_value, state.lastSensorValue?.toString() ?: unset)

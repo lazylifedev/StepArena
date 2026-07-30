@@ -75,6 +75,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private var sensorConsumerJob: Job? = null
     private val sensorEventClock = RealtimeSensorEventClock()
     private var sessionTimeoutJob: Job? = null
+    private var pendingNotificationJob: Job? = null
     private var manualStartRequested = false
 
     override fun onCreate() {
@@ -332,15 +333,10 @@ class StepTrackingService : Service(), SensorEventListener {
             is StepEventResult.Reset -> Log.w(TAG, "event=sensor_value_decreased")
             is StepEventResult.Ignored -> Unit
         }
-        if (
-            state.accumulatedTodaySteps - lastPersistedSteps >= 10 ||
-            Duration.between(lastPersistedAt, now).seconds >= 5 ||
-            result !is StepEventResult.Added
-        ) {
-            state = repository.update { state }
-            lastPersistedSteps = state.accumulatedTodaySteps
-            lastPersistedAt = now
-        }
+        // Publish after the Room transaction so Home and Records follow the same sample.
+        state = repository.update { state }
+        lastPersistedSteps = state.accumulatedTodaySteps
+        lastPersistedAt = now
         updateNotificationIfNeeded(now)
         logEvent(
             "sensor",
@@ -360,6 +356,7 @@ class StepTrackingService : Service(), SensorEventListener {
         fakeSensorMode = false
         heartbeatJob?.cancel()
         sessionTimeoutJob?.cancel()
+        pendingNotificationJob?.cancel()
         scope.launch {
             val now = Instant.now()
             activityRepository.finishAllActiveSessions(now)
@@ -419,6 +416,16 @@ class StepTrackingService : Service(), SensorEventListener {
             scope.launch {
                 state = repository.update { it.copy(lastNotificationAt = now) }
                 logEvent("notification_update")
+            }
+            pendingNotificationJob?.cancel()
+            pendingNotificationJob = null
+        } else if (state.accumulatedTodaySteps != lastNotifiedSteps && pendingNotificationJob == null) {
+            val remaining = (1_000L - Duration.between(lastNotifiedAt, now).toMillis())
+                .coerceAtLeast(1L)
+            pendingNotificationJob = scope.launch {
+                delay(remaining)
+                pendingNotificationJob = null
+                updateNotificationIfNeeded(Instant.now())
             }
         }
     }

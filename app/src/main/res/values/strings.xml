@@ -29,6 +29,7 @@
     <string name="rank_progress_description">ランク進捗 %1$d パーセント</string>
     <string name="points_to_next_rank">次ランクまで %1$d ポイント</string>
     <string name="today_steps">今日の歩数</string>
+    <string name="home_step_breakdown">実測%1$s歩・補完%2$s歩・合計%3$s歩</string>
     <string name="steps_value">%1$s 歩</string>
     <string name="steps_accessibility">%1$s 歩</string>
     <string name="goal_progress">目標 %1$s 歩・達成率 %2$d パーセント</string>
@@ -299,6 +300,16 @@
     <string name="diagnostics_sensor_baseline">sensor baseline</string>
     <string name="diagnostics_last_sensor_value">last sensor value</string>
     <string name="diagnostics_today_steps">当日歩数</string>
+    <string name="diagnostics_recovered_steps">補完歩数</string>
+    <string name="diagnostics_estimated_steps">推定歩数</string>
+    <string name="diagnostics_today_total">今日の合計</string>
+    <string name="diagnostics_notification_value">通知表示値</string>
+    <string name="diagnostics_home_value">Home表示値</string>
+    <string name="diagnostics_last_daily_update">最終日次更新時刻</string>
+    <string name="diagnostics_recovery_enabled">Health Connect補完</string>
+    <string name="diagnostics_scenario_mode">Scenario mode</string>
+    <string name="diagnostics_steps_synchronized">歩数データを同期済みです</string>
+    <string name="diagnostics_steps_mismatch">歩数集計に不一致があります</string>
     <string name="diagnostics_last_heartbeat">最終Heartbeat</string>
     <string name="diagnostics_last_sensor_update">最終センサー更新</string>
     <string name="diagnostics_last_notification">最終通知更新</string>

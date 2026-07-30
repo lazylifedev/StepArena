@@ -22,6 +22,8 @@ interface HourlyActivityDao {
     fun observeDate(date: String, zone: String): Flow<List<HourlyActivityRecordEntity>>
     @Query("SELECT COUNT(*) FROM hourly_activity_records") suspend fun count(): Int
     @Query("SELECT * FROM hourly_activity_records ORDER BY periodStartEpochMillis") suspend fun all(): List<HourlyActivityRecordEntity>
+    @Query("SELECT * FROM hourly_activity_records WHERE periodStartEpochMillis < :end AND periodEndEpochMillis > :start")
+    suspend fun overlapping(start: Long, end: Long): List<HourlyActivityRecordEntity>
 }
 
 @Dao

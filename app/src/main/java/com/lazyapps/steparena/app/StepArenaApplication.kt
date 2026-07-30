@@ -44,6 +44,7 @@ open class StepArenaApplication : Application(), AppGraph {
             externalActivityDataSource,
             packageName,
             activityRepository,
+            recoverySettingsRepository,
         )
     }
     override val clock: Clock by lazy { Clock.systemDefaultZone() }

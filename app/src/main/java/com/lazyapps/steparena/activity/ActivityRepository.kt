@@ -328,7 +328,9 @@ class ActivityRepository(
             listOfNotNull(old?.unclassifiedStepsQuality, addedQuality)
                 .filterNot { it == DataQuality.UNKNOWN },
         )
-        val steps = hours.sumOf { it.steps } + unclassified
+        // Daily steps are the sensor-derived source of truth. Recovery remains separate so
+        // it can be explained and can never silently inflate measured activity.
+        val steps = hours.sumOf { it.steps }
         val distance = hours.mapNotNull { it.distanceMeters }.takeIf { it.isNotEmpty() }?.sum()
         val duration = hours.mapNotNull { it.walkingDurationSeconds }.takeIf { it.isNotEmpty() }?.sum()
         val calories = calorieEstimator.estimate(profile.weightKg, distance, duration, null)?.kcal

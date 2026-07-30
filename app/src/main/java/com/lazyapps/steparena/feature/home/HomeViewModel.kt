@@ -32,6 +32,8 @@ class HomeViewModel(
     private val trackingRepository = TrackingStateRepository(application)
     private val activityRepository = (application as StepArenaApplication).activityRepository
     private val gameRepository = (application as StepArenaApplication).gameRepository
+    private val recoverySettingsRepository =
+        (application as StepArenaApplication).recoverySettingsRepository
     private val appClock = (application as StepArenaApplication).clock
     private val isolatedScenario = (application as StepArenaApplication).isolatedScenario
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -58,14 +60,25 @@ class HomeViewModel(
 
     private fun observeTracking() {
         viewModelScope.launch {
-            combine(
+            val trackingAndRecovery = combine(
                 trackingRepository.state,
+                recoverySettingsRepository.settings,
+            ) { tracking, recovery -> tracking to recovery }
+            combine(
+                trackingAndRecovery,
                 activityRepository.observeActiveManualSession(),
                 gameRepository.observePlayerProfile(),
                 gameRepository.observeTodayMatch(),
                 gameRepository.observeCurrentLeague(),
-            ) { tracking, manual, profile, match, league ->
-                HomeSources(tracking, manual, profile, match, league)
+            ) { trackingRecovery, manual, profile, match, league ->
+                HomeSources(
+                    trackingRecovery.first,
+                    manual,
+                    profile,
+                    match,
+                    league,
+                    trackingRecovery.second.healthConnectEnabled,
+                )
             }.flatMapLatest { sources ->
                 activityRepository.observeToday(
                     java.time.LocalDate.now(appClock),
@@ -92,23 +105,30 @@ class HomeViewModel(
                     it.copy(
                         content = HomeContent.Ready(
                             realSnapshot(
-                                steps = daily?.steps ?: tracking.accumulatedTodaySteps,
+                                steps = tracking.accumulatedTodaySteps,
                                 status = status,
                                 lastHealthyAt = tracking.lastSensorEventAt,
                                 distanceMeters = daily?.distanceMeters,
                                 durationSeconds = daily?.walkingDurationSeconds,
                                 calories = daily?.estimatedCaloriesKcal,
                                 speedKmh = daily?.averageWalkingSpeedKmh,
-                                reliability = when (daily?.stepsQuality) {
+                                reliability = when {
+                                    !sources.recoveryEnabled &&
+                                        tracking.accumulatedTodaySteps > 0 -> DataReliability.COMPLETE
+                                    else -> when (daily?.stepsQuality) {
                                     DataQuality.RECOVERED, DataQuality.MIXED ->
                                         DataReliability.PARTLY_RECOVERED
                                     DataQuality.ESTIMATED -> DataReliability.PARTLY_ESTIMATED
                                     DataQuality.MEASURED -> DataReliability.COMPLETE
                                     else -> DataReliability.NO_DATA
+                                    }
                                 },
                                 profile = sources.profile,
                                 gameMatch = sources.match,
                                 gameLeague = sources.league,
+                                recoveredSteps = if (sources.recoveryEnabled) {
+                                    daily?.unclassifiedSteps ?: 0
+                                } else 0,
                             ),
                         ),
                         motionLevel = motionRepository.read(),
@@ -210,6 +230,7 @@ class HomeViewModel(
         profile: com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity,
         gameMatch: com.lazyapps.steparena.core.database.entity.DailyMatchEntity?,
         gameLeague: com.lazyapps.steparena.core.database.entity.WeeklyLeagueEntity?,
+        recoveredSteps: Long,
     ) = HomeSnapshot(
         rank = RankStatus(
             when (profile.rankTier) {
@@ -256,6 +277,7 @@ class HomeViewModel(
         reliability = reliability,
         isOffline = false,
         metricsAvailable = reliability != DataReliability.NO_DATA,
+        recoveredSteps = recoveredSteps,
     )
 
     private data class HomeSources(
@@ -264,5 +286,6 @@ class HomeViewModel(
         val profile: com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity,
         val match: com.lazyapps.steparena.core.database.entity.DailyMatchEntity?,
         val league: com.lazyapps.steparena.core.database.entity.WeeklyLeagueEntity?,
+        val recoveryEnabled: Boolean,
     )
 }

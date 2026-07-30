@@ -473,6 +473,18 @@ private fun StepsPanel(
                         stringResource(R.string.steps_value, ""),
                         color = StepArenaColors.TextSecondary,
                     )
+                    if (snapshot.recoveredSteps > 0) {
+                        Text(
+                            stringResource(
+                                R.string.home_step_breakdown,
+                                numberFormat.format(snapshot.metrics.steps),
+                                numberFormat.format(snapshot.recoveredSteps),
+                                numberFormat.format(snapshot.metrics.steps + snapshot.recoveredSteps),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = StepArenaColors.TextSecondary,
+                        )
+                    }
                     Text(
                         stringResource(
                             R.string.goal_progress_compact,
