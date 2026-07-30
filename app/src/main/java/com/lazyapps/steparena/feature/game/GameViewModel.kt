@@ -19,11 +19,22 @@ data class GameUiState(
     val achievements: List<AchievementUnlockEntity> = emptyList(),
     val notificationEvents: List<GameNotificationEventEntity> = emptyList(),
     val currentMeasuredSteps: Long = 0,
+    val currentHealthConnectAddedSteps: Long = 0,
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = (application as StepArenaApplication).gameRepository
+    private val app = application as StepArenaApplication
+    private val repository = app.gameRepository
     private val trackingRepository = TrackingStateRepository(application)
+    private val activityRepository = app.activityRepository
+    private val recoverySettingsRepository = app.recoverySettingsRepository
+    private val clock = app.clock
+    private val healthConnectAddedSteps = combine(
+        recoverySettingsRepository.settings,
+        activityRepository.observeToday(java.time.LocalDate.now(clock), clock.zone),
+    ) { settings, daily ->
+        if (settings.healthConnectEnabled) daily?.unclassifiedSteps ?: 0 else 0
+    }
     val state: StateFlow<GameUiState> = combine(
         repository.observePlayerProfile(),
         repository.observeTodayMatch(),
@@ -33,6 +44,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         repository.observeAchievements(),
         repository.observeNotificationEvents(),
         trackingRepository.state,
+        healthConnectAddedSteps,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         GameUiState(
@@ -44,6 +56,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             values[5] as List<AchievementUnlockEntity>,
             values[6] as List<GameNotificationEventEntity>,
             (values[7] as com.lazyapps.steparena.tracking.StepTrackingState).accumulatedTodaySteps,
+            values[8] as Long,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GameUiState())
 

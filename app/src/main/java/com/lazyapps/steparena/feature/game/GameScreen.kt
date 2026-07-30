@@ -159,6 +159,18 @@ private fun MatchPage(state: GameUiState) = LazyColumn(
                         formatNumber(currentSteps.eligibleSteps),
                     ),
                 )
+                if (!currentSteps.isFinalized && state.currentHealthConnectAddedSteps > 0) {
+                    Text(
+                        stringResource(
+                            R.string.game_health_connect_steps,
+                            formatNumber(state.currentHealthConnectAddedSteps),
+                            formatNumber(
+                                (currentSteps.eligibleSteps - state.currentMeasuredSteps)
+                                    .coerceAtLeast(0),
+                            ),
+                        ),
+                    )
+                }
                 if (currentSteps.displayedUserSteps > 30_000) {
                     Text(
                         stringResource(R.string.game_health_cap),

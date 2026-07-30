@@ -349,6 +349,7 @@
     <string name="game_steps_remaining">あと%1$s歩</string>
     <string name="game_eligible_steps">チャレンジ対象歩数 %1$s歩</string>
     <string name="game_finalized_eligible_steps">確定時の対象歩数 %1$s歩</string>
+    <string name="game_health_connect_steps">Health Connectから追加された%1$s歩のうち、チャレンジには%2$s歩が反映されています。</string>
     <string name="game_health_cap">健康への配慮から、チャレンジに使える歩数は1日30,000歩が上限です。</string>
     <string name="game_today_loading">今日のチャレンジを準備しています。</string>
     <string name="game_past_title">過去のチャレンジ</string>
