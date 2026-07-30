@@ -185,24 +185,35 @@ private fun HomeReadyContent(
             }
         }
         item {
-            PrimaryActionButton(
-                text = when (uiState.sessionState) {
-                    SessionState.TRACKING_STOPPED -> stringResource(R.string.home_start_tracking)
-                    SessionState.TRACKING -> stringResource(R.string.home_start_walk)
-                    SessionState.MANUAL_WALK -> stringResource(R.string.home_end_walk)
-                },
-                onClick = {
-                    when (uiState.sessionState) {
-                        SessionState.TRACKING_STOPPED -> onAction(HomeAction.StartSession)
-                        SessionState.TRACKING -> onAction(HomeAction.StartManualWalk)
-                        SessionState.MANUAL_WALK -> uiState.manualSession?.let {
-                            onAction(HomeAction.EndManualWalk(it.id))
+            GlassSurface(Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(R.string.home_walking_record_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    stringResource(R.string.home_walking_record_explanation),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = StepArenaColors.TextSecondary,
+                )
+                PrimaryActionButton(
+                    text = when (uiState.sessionState) {
+                        SessionState.TRACKING_STOPPED -> stringResource(R.string.home_start_tracking)
+                        SessionState.TRACKING -> stringResource(R.string.home_start_walk)
+                        SessionState.MANUAL_WALK -> stringResource(R.string.home_end_walk)
+                    },
+                    onClick = {
+                        when (uiState.sessionState) {
+                            SessionState.TRACKING_STOPPED -> onAction(HomeAction.StartSession)
+                            SessionState.TRACKING -> onAction(HomeAction.StartManualWalk)
+                            SessionState.MANUAL_WALK -> uiState.manualSession?.let {
+                                onAction(HomeAction.EndManualWalk(it.id))
+                            }
                         }
-                    }
-                },
-                enabled = uiState.sensorSupported,
-                modifier = Modifier.testTag(HomeTestTags.START_BUTTON),
-            )
+                    },
+                    enabled = uiState.sensorSupported,
+                    modifier = Modifier.testTag(HomeTestTags.START_BUTTON),
+                )
+            }
         }
         if (uiState.sessionState != SessionState.TRACKING_STOPPED) {
             item {
@@ -474,16 +485,24 @@ private fun StepsPanel(
                         color = StepArenaColors.TextSecondary,
                     )
                     if (snapshot.recoveredSteps > 0) {
-                        Text(
-                            stringResource(
-                                R.string.home_step_breakdown,
-                                numberFormat.format(snapshot.metrics.steps),
-                                numberFormat.format(snapshot.recoveredSteps),
-                                numberFormat.format(snapshot.metrics.steps + snapshot.recoveredSteps),
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = StepArenaColors.TextSecondary,
-                        )
+                        Column {
+                            Text(
+                                stringResource(
+                                    R.string.home_measured_steps,
+                                    numberFormat.format(snapshot.measuredSteps),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = StepArenaColors.TextSecondary,
+                            )
+                            Text(
+                                stringResource(
+                                    R.string.home_health_connect_steps,
+                                    numberFormat.format(snapshot.recoveredSteps),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = StepArenaColors.TextSecondary,
+                            )
+                        }
                     }
                     Text(
                         stringResource(

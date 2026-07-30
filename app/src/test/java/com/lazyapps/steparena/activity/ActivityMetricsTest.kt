@@ -10,6 +10,13 @@ import org.junit.Test
 
 class ActivityMetricsTest {
     private val stepLength = DefaultStepLengthEstimator()
+
+    @Test
+    fun `173 cm automatic stride uses the displayed formula value`() {
+        val result = stepLength.estimate(UserBodyProfile(heightCm = 173.0))
+        assertEquals(0.71795, result.meters, 0.000001)
+        assertEquals("height", result.source)
+    }
     private val calories = DistanceCalorieEstimator()
 
     @Test fun manualStepLengthWins() {

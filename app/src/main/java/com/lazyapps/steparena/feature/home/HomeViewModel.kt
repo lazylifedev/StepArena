@@ -248,7 +248,7 @@ class HomeViewModel(
                 ) + 1)?.minimumRating?.minus(profile.rating)?.coerceAtLeast(0) ?: 0,
         ),
         metrics = ActivityMetrics(
-            steps.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            (steps + recoveredSteps).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             10_000,
             distanceMeters ?: 0.0,
             durationSeconds ?: 0,
@@ -278,6 +278,7 @@ class HomeViewModel(
         isOffline = false,
         metricsAvailable = reliability != DataReliability.NO_DATA,
         recoveredSteps = recoveredSteps,
+        measuredSteps = steps,
     )
 
     private data class HomeSources(

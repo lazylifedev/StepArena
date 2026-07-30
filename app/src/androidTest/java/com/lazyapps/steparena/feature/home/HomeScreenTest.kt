@@ -64,8 +64,8 @@ class HomeScreenTest {
     @Test fun primaryAction_distinguishesTrackingAndManualWalk() {
         setState(readyState.copy(sessionState = SessionState.TRACKING))
         composeRule.onNodeWithTag(HomeTestTags.CONTENT)
-            .performScrollToNode(hasText("散歩を開始"))
-        composeRule.onNodeWithText("散歩を開始").assertIsDisplayed()
+            .performScrollToNode(hasText("ウォーキング記録を開始"))
+        composeRule.onNodeWithText("ウォーキング記録を開始").assertIsDisplayed()
         composeRule.onNodeWithText("歩数計測を停止").assertIsDisplayed()
     }
 
@@ -78,8 +78,8 @@ class HomeScreenTest {
         )
         composeRule.onNodeWithTag(HomeTestTags.CONTENT)
             .performScrollToNode(hasTestTag(HomeTestTags.MANUAL_SESSION))
-        composeRule.onNodeWithText("セッション 842歩").assertIsDisplayed()
-        composeRule.onNodeWithText("散歩を終了").assertIsDisplayed()
+        composeRule.onNodeWithText("ウォーキング記録 842歩").assertIsDisplayed()
+        composeRule.onNodeWithText("ウォーキング記録を終了").assertIsDisplayed()
         composeRule.onNodeWithText("歩数計測を停止").assertIsDisplayed()
     }
 

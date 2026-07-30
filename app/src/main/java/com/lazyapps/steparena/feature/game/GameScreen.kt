@@ -121,13 +121,14 @@ private fun MatchPage(state: GameUiState) = LazyColumn(
     }
     state.todayMatch?.let { match ->
         item {
+            val currentSteps = currentChallengeSteps(match, state.currentMeasuredSteps)
             GameCard(stringResource(R.string.game_today_progress)) {
                 StepProgressRing(
-                    progress = (match.eligibleUserSteps.toFloat() /
+                    progress = (currentSteps.eligibleSteps.toFloat() /
                         match.opponentTargetSteps.coerceAtLeast(1)).coerceIn(0f, 1f),
                     description = stringResource(
                         R.string.game_progress_description,
-                        formatNumber(match.eligibleUserSteps),
+                        formatNumber(currentSteps.eligibleSteps),
                         formatNumber(match.opponentTargetSteps),
                     ),
                     modifier = Modifier.size(152.dp),
@@ -135,27 +136,30 @@ private fun MatchPage(state: GameUiState) = LazyColumn(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.game_you), style = MaterialTheme.typography.labelLarge)
                         Text(
-                            stringResource(R.string.records_value_steps, formatNumber(match.eligibleUserSteps)),
+                            stringResource(R.string.records_value_steps, formatNumber(currentSteps.displayedUserSteps)),
                             style = MaterialTheme.typography.titleLarge,
                         )
                     }
                 }
                 Text(stringResource(R.string.game_partner_target, formatNumber(match.opponentTargetSteps)))
                 Text(
-                    if (match.eligibleUserSteps >= match.opponentTargetSteps) {
+                    if (currentSteps.eligibleSteps >= match.opponentTargetSteps) {
                         stringResource(R.string.game_goal_achieved)
                     } else {
                         stringResource(
                             R.string.game_steps_remaining,
-                            formatNumber(match.opponentTargetSteps - match.eligibleUserSteps),
+                            formatNumber(match.opponentTargetSteps - currentSteps.eligibleSteps),
                         )
                     },
                 )
-                Text(stringResource(R.string.game_eligible_steps, formatNumber(match.eligibleUserSteps)))
-                if (match.restrictedUserSteps + match.excludedUserSteps > 0) {
-                    Text(stringResource(R.string.game_restricted_steps))
-                }
-                if (match.totalUserSteps > 30_000) {
+                Text(
+                    stringResource(
+                        if (currentSteps.isFinalized) R.string.game_finalized_eligible_steps
+                        else R.string.game_eligible_steps,
+                        formatNumber(currentSteps.eligibleSteps),
+                    ),
+                )
+                if (currentSteps.displayedUserSteps > 30_000) {
                     Text(
                         stringResource(R.string.game_health_cap),
                         modifier = Modifier.testTag(GameTestTags.HEALTH_CAP),
