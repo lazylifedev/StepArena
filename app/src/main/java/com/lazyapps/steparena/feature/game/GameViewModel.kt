@@ -22,22 +22,25 @@ data class GameUiState(
     val currentHealthConnectAddedSteps: Long = 0,
 )
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as StepArenaApplication
     private val repository = app.gameRepository
     private val trackingRepository = TrackingStateRepository(application)
     private val activityRepository = app.activityRepository
     private val recoverySettingsRepository = app.recoverySettingsRepository
-    private val clock = app.clock
+    private val currentLocalDay = app.currentLocalDayProvider.current
     private val healthConnectAddedSteps = combine(
         recoverySettingsRepository.settings,
-        activityRepository.observeToday(java.time.LocalDate.now(clock), clock.zone),
+        currentLocalDay.flatMapLatest {
+            activityRepository.observeToday(it.date, it.zoneId)
+        },
     ) { settings, daily ->
         if (settings.healthConnectEnabled) daily?.unclassifiedSteps ?: 0 else 0
     }
     val state: StateFlow<GameUiState> = combine(
         repository.observePlayerProfile(),
-        repository.observeTodayMatch(),
+        currentLocalDay.flatMapLatest { repository.observeMatch(it.date, it.zoneId) },
         repository.observeRecentMatches(30),
         repository.observeCurrentLeague(),
         repository.observeCurrentSeason(),
@@ -45,6 +48,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         repository.observeNotificationEvents(),
         trackingRepository.state,
         healthConnectAddedSteps,
+        currentLocalDay,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         GameUiState(
@@ -55,7 +59,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             values[4] as GameSeasonEntity?,
             values[5] as List<AchievementUnlockEntity>,
             values[6] as List<GameNotificationEventEntity>,
-            (values[7] as com.lazyapps.steparena.tracking.StepTrackingState).accumulatedTodaySteps,
+            (values[7] as com.lazyapps.steparena.tracking.StepTrackingState).let { tracking ->
+                (values[9] as com.lazyapps.steparena.core.time.LocalDay).let { day ->
+                    tracking.accumulatedTodaySteps.takeIf {
+                        tracking.currentLocalDate == day.date &&
+                            tracking.currentZoneId == day.zoneId.id
+                    } ?: 0
+                }
+            },
             values[8] as Long,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GameUiState())
@@ -63,8 +74,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             repository.finalizePendingMatches()
-            repository.ensureTodayMatch()
             repository.evaluateAchievements()
+        }
+        viewModelScope.launch {
+            currentLocalDay.collect { day ->
+                repository.ensureMatch(day.date, day.zoneId)
+            }
         }
     }
 

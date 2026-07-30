@@ -44,6 +44,26 @@ class HomeScreenTest {
         composeRule.onNodeWithText("計測が停止している可能性があります").assertIsDisplayed()
     }
 
+    @Test fun headingAndSubtitleDescribeAFriendlyStepCounter() {
+        setHome()
+        composeRule.onNodeWithText("TODAY'S STEPS").assertIsDisplayed()
+        composeRule.onNodeWithText("今日の一歩を、楽しい習慣へ。").assertIsDisplayed()
+        composeRule.onNodeWithText("TODAY'S ARENA").assertDoesNotExist()
+        composeRule.onNodeWithText("勝負の力へ", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun healthConnectAddedStepsShowTotalAndBreakdown() {
+        setHome(
+            snapshot.copy(
+                metrics = snapshot.metrics.copy(steps = 5_874),
+                measuredSteps = 5_864,
+                recoveredSteps = 10,
+            ),
+        )
+        composeRule.onNodeWithText("端末で計測 5,864歩").assertIsDisplayed()
+        composeRule.onNodeWithText("Health Connectから追加 10歩").assertIsDisplayed()
+    }
+
     @Test fun startButton_isOperable() {
         var state by mutableStateOf(readyState)
         composeRule.setContent {

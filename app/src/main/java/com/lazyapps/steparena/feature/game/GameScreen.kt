@@ -106,7 +106,7 @@ fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewM
 }
 
 @Composable
-private fun MatchPage(state: GameUiState) = LazyColumn(
+internal fun MatchPage(state: GameUiState) = LazyColumn(
     Modifier.fillMaxSize(),
     contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -134,9 +134,26 @@ private fun MatchPage(state: GameUiState) = LazyColumn(
                     modifier = Modifier.size(152.dp),
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(stringResource(R.string.game_you), style = MaterialTheme.typography.labelLarge)
                         Text(
-                            stringResource(R.string.records_value_steps, formatNumber(currentSteps.displayedUserSteps)),
+                            stringResource(
+                                if (!currentSteps.isFinalized &&
+                                    state.currentHealthConnectAddedSteps > 0
+                                ) R.string.game_today_total else R.string.game_you,
+                            ),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text(
+                            stringResource(
+                                R.string.records_value_steps,
+                                formatNumber(
+                                    if (!currentSteps.isFinalized) {
+                                        currentSteps.displayedUserSteps +
+                                            state.currentHealthConnectAddedSteps
+                                    } else {
+                                        currentSteps.displayedUserSteps
+                                    },
+                                ),
+                            ),
                             style = MaterialTheme.typography.titleLarge,
                         )
                     }
@@ -164,12 +181,9 @@ private fun MatchPage(state: GameUiState) = LazyColumn(
                         stringResource(
                             R.string.game_health_connect_steps,
                             formatNumber(state.currentHealthConnectAddedSteps),
-                            formatNumber(
-                                (currentSteps.eligibleSteps - state.currentMeasuredSteps)
-                                    .coerceAtLeast(0),
-                            ),
                         ),
                     )
+                    Text(stringResource(R.string.game_health_connect_reason))
                 }
                 if (currentSteps.displayedUserSteps > 30_000) {
                     Text(

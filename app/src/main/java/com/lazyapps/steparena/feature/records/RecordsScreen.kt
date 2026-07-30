@@ -65,11 +65,10 @@ enum class RecordMetric { STEPS, DISTANCE, DURATION, CALORIES, SPEED }
 @Composable
 fun RecordsScreen(modifier: Modifier = Modifier) {
     val app = LocalContext.current.applicationContext as StepArenaApplication
-    val zoneId = remember { app.clock.zone }
-    val date = remember(zoneId) { LocalDate.now(app.clock) }
-    val daily by remember(date, zoneId) { app.activityRepository.observeToday(date, zoneId) }
+    val day by app.currentLocalDayProvider.current.collectAsState()
+    val daily by remember(day) { app.activityRepository.observeToday(day.date, day.zoneId) }
         .collectAsState(initial = null)
-    val hours by remember(date, zoneId) { app.activityRepository.observeHours(date, zoneId) }
+    val hours by remember(day) { app.activityRepository.observeHours(day.date, day.zoneId) }
         .collectAsState(initial = emptyList())
     val sessions by remember { app.activityRepository.observeSessions() }
         .collectAsState(initial = emptyList())

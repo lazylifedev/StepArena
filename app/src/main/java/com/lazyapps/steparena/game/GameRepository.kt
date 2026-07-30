@@ -54,6 +54,8 @@ class LocalGameRepository(
 
     override fun observePlayerProfile() = database.gamePlayerProfile().observe().filterNotNull()
     override fun observeTodayMatch() = database.dailyMatches().observe(today.toString(), zone.id)
+    fun observeMatch(date: LocalDate, zoneId: ZoneId) =
+        database.dailyMatches().observe(date.toString(), zoneId.id)
     override fun observeRecentMatches(limit: Int) = database.dailyMatches().recent(limit)
     override fun observeCurrentLeague() = database.weeklyLeagues().observeCurrent()
     override fun observeCurrentSeason() = database.gameSeasons().observeCurrent()
@@ -72,14 +74,16 @@ class LocalGameRepository(
         GameNotificationDispatcher(context, database, clock, notificationConfig).dispatchPending()
     }
 
-    override suspend fun ensureTodayMatch() = database.withTransaction {
+    override suspend fun ensureTodayMatch() = ensureMatch(today, zone)
+
+    suspend fun ensureMatch(targetDate: LocalDate, targetZone: ZoneId) = database.withTransaction {
         val now = clock.millis()
         val profileDao = database.gamePlayerProfile()
         val profile = profileDao.get() ?: GamePlayerProfileEntity(
             createdAtEpochMillis = now, updatedAtEpochMillis = now,
         ).also { profileDao.upsert(it) }
         ensureSeason(now, profile)
-        val date = today.toString()
+        val date = targetDate.toString()
         val rank = RankSystem.definition(profile.rating)
         val recent = database.daily().recentNow(28)
         val median = recent.map { it.steps }.sorted().let { values ->
@@ -87,14 +91,14 @@ class LocalGameRepository(
         }
         val opponent = opponentGenerator.generate(
             OpponentGenerationInput(
-                installationId, seasonId(today), today, rank, median,
+                installationId, seasonId(targetDate), targetDate, rank, median,
                 profile.currentLossStreak, profile.beginnerMatchesRemaining > 0,
             ),
         )
         database.dailyMatches().insert(
             DailyMatchEntity(
-                id = "daily-${seasonId(today)}-$date-${zone.id.hashCode()}",
-                localDate = date, zoneId = zone.id, seasonId = seasonId(today),
+                id = "daily-${seasonId(targetDate)}-$date-${targetZone.id.hashCode()}",
+                localDate = date, zoneId = targetZone.id, seasonId = seasonId(targetDate),
                 matchType = MatchType.DAILY, status = MatchStatus.ACTIVE, outcome = null,
                 opponentId = opponent.id, opponentName = opponent.displayName,
                 opponentAvatarKey = opponent.avatarKey, opponentRankTier = opponent.rankTier,
@@ -108,9 +112,9 @@ class LocalGameRepository(
                 createdAtEpochMillis = now, updatedAtEpochMillis = now,
             ),
         )
-        database.dailyMatches().getForDate(date, zone.id)?.let { active ->
+        database.dailyMatches().getForDate(date, targetZone.id)?.let { active ->
             if (active.status == MatchStatus.ACTIVE) {
-                val summary = competitiveSummary(database.daily().get(date, zone.id))
+                val summary = competitiveSummary(database.daily().get(date, targetZone.id))
                 database.dailyMatches().update(
                     active.copy(
                         totalUserSteps = summary.totalSteps,

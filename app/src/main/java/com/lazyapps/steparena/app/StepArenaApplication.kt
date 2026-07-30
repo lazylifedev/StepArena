@@ -16,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Clock
 import com.lazyapps.steparena.release.DataManagementRepository
+import com.lazyapps.steparena.core.time.CurrentLocalDayProvider
 
 interface AppGraph {
     val database: StepArenaDatabase
@@ -48,6 +49,9 @@ open class StepArenaApplication : Application(), AppGraph {
         )
     }
     override val clock: Clock by lazy { Clock.systemDefaultZone() }
+    val currentLocalDayProvider by lazy {
+        CurrentLocalDayProvider(this, clock, applicationScope)
+    }
     override val installationId: String? = null
     override val isolatedScenario: Boolean = false
     override val gameRepository by lazy {
@@ -61,6 +65,11 @@ open class StepArenaApplication : Application(), AppGraph {
         applicationScope.launch {
             DataManagementRepository(this@StepArenaApplication).completeInterruptedDeletionIfNeeded()
             gameRepository.runMaintenance()
+        }
+        applicationScope.launch {
+            currentLocalDayProvider.current.collect { day ->
+                gameRepository.ensureMatch(day.date, day.zoneId)
+            }
         }
     }
 

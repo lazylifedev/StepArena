@@ -6,8 +6,8 @@
     <string name="nav_achievements">達成</string>
     <string name="nav_settings">設定</string>
     <string name="coming_soon_message">この機能は次の開発フェーズで実装予定です。</string>
-    <string name="home_title">TODAY\'S ARENA</string>
-    <string name="home_subtitle">今日の一歩を、勝負の力へ。</string>
+    <string name="home_title">TODAY\'S STEPS</string>
+    <string name="home_subtitle">今日の一歩を、楽しい習慣へ。</string>
     <string name="tracking_active">正常に計測中</string>
     <string name="tracking_not_started">計測開始前</string>
     <string name="tracking_may_be_stopped">計測が停止している可能性があります</string>
@@ -349,7 +349,9 @@
     <string name="game_steps_remaining">あと%1$s歩</string>
     <string name="game_eligible_steps">チャレンジ対象歩数 %1$s歩</string>
     <string name="game_finalized_eligible_steps">確定時の対象歩数 %1$s歩</string>
-    <string name="game_health_connect_steps">Health Connectから追加された%1$s歩のうち、チャレンジには%2$s歩が反映されています。</string>
+    <string name="game_health_connect_steps">Health Connectから追加された%1$s歩は、チャレンジには使用されません。</string>
+    <string name="game_health_connect_reason">チャレンジは、端末で直接計測した歩数だけを使用します。</string>
+    <string name="game_today_total">今日の合計</string>
     <string name="game_health_cap">健康への配慮から、チャレンジに使える歩数は1日30,000歩が上限です。</string>
     <string name="game_today_loading">今日のチャレンジを準備しています。</string>
     <string name="game_past_title">過去のチャレンジ</string>

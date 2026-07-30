@@ -34,7 +34,7 @@ class HomeViewModel(
     private val gameRepository = (application as StepArenaApplication).gameRepository
     private val recoverySettingsRepository =
         (application as StepArenaApplication).recoverySettingsRepository
-    private val appClock = (application as StepArenaApplication).clock
+    private val currentLocalDay = (application as StepArenaApplication).currentLocalDayProvider.current
     private val isolatedScenario = (application as StepArenaApplication).isolatedScenario
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -68,7 +68,9 @@ class HomeViewModel(
                 trackingAndRecovery,
                 activityRepository.observeActiveManualSession(),
                 gameRepository.observePlayerProfile(),
-                gameRepository.observeTodayMatch(),
+                currentLocalDay.flatMapLatest {
+                    gameRepository.observeMatch(it.date, it.zoneId)
+                },
                 gameRepository.observeCurrentLeague(),
             ) { trackingRecovery, manual, profile, match, league ->
                 HomeSources(
@@ -79,16 +81,18 @@ class HomeViewModel(
                     league,
                     trackingRecovery.second.healthConnectEnabled,
                 )
-            }.flatMapLatest { sources ->
-                activityRepository.observeToday(
-                    java.time.LocalDate.now(appClock),
-                    appClock.zone,
-                ).map { daily ->
-                    sources to daily
+            }.combine(currentLocalDay) { sources, day -> sources to day }
+                .flatMapLatest { (sources, day) ->
+                activityRepository.observeToday(day.date, day.zoneId).map { daily ->
+                    Triple(sources, day, daily)
                 }
-            }.collect { (sources, daily) ->
+            }.collect { (sources, day, daily) ->
                 val tracking = sources.tracking
                 val manual = sources.manual
+                val measuredToday = tracking.accumulatedTodaySteps.takeIf {
+                    tracking.currentLocalDate == day.date &&
+                        tracking.currentZoneId == day.zoneId.id
+                } ?: 0
                 val status = when (tracking.trackingStatus) {
                     PersistentTrackingStatus.TRACKING, PersistentTrackingStatus.RESTARTED ->
                         TrackingStatus.ACTIVE
@@ -105,7 +109,7 @@ class HomeViewModel(
                     it.copy(
                         content = HomeContent.Ready(
                             realSnapshot(
-                                steps = tracking.accumulatedTodaySteps,
+                                steps = measuredToday,
                                 status = status,
                                 lastHealthyAt = tracking.lastSensorEventAt,
                                 distanceMeters = daily?.distanceMeters,
@@ -114,7 +118,7 @@ class HomeViewModel(
                                 speedKmh = daily?.averageWalkingSpeedKmh,
                                 reliability = when {
                                     !sources.recoveryEnabled &&
-                                        tracking.accumulatedTodaySteps > 0 -> DataReliability.COMPLETE
+                                        measuredToday > 0 -> DataReliability.COMPLETE
                                     else -> when (daily?.stepsQuality) {
                                     DataQuality.RECOVERED, DataQuality.MIXED ->
                                         DataReliability.PARTLY_RECOVERED
