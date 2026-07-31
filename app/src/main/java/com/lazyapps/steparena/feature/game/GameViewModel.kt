@@ -41,6 +41,7 @@ internal fun GameUiState.weeklyGroupUiState() = WeeklyGroupUiState(league, leagu
 internal fun GameUiState.monthlyRecordUiState() = MonthlyRecordUiState(
     season = season,
     currentRating = profile?.rating ?: 0,
+    daily = recentDailyActivity,
 )
 
 internal fun GameUiState.achievementUiState() = AchievementUiState(

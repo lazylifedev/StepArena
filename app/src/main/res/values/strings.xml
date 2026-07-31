@@ -399,6 +399,16 @@
     <string name="game_beginner_support">初心者サポート 残り%1$d回</string>
     <string name="game_league_title">週間グループ</string>
     <string name="game_league_explanation">自動生成された10人分の歩数スコアと比べて、今週の位置を確認できます。実在するユーザーの記録ではありません。</string>
+    <string name="game_league_info_action">週間グループの説明</string>
+    <string name="game_league_info_title">週間グループについて</string>
+    <string name="game_league_rules_detail">参加者は端末内で生成されます。チャレンジ結果のポイント、対象歩数、参加者IDの順で順位を決めます。</string>
+    <string name="game_league_lines_compact">1～3位 昇格 / 4～7位 維持 / 8位以下 降格</string>
+    <string name="game_rank_position">%1$d位</string>
+    <string name="game_rank_details_action">ランク詳細</string>
+    <string name="game_rank_details_title">勝敗と連勝</string>
+    <string name="game_monthly_steps">月間歩数 %1$s歩</string>
+    <string name="game_monthly_average">1日平均 %1$s歩</string>
+    <string name="game_monthly_best">最高日 %1$s歩</string>
     <string name="game_date_range">%1$s〜%2$s</string>
     <string name="game_league_rank">あなたの週間順位 %1$s位 / %2$d人</string>
     <string name="game_weekly_points">週間ポイント %1$s</string>
