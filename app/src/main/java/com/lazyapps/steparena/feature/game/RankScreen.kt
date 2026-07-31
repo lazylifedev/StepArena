@@ -16,8 +16,12 @@ import com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity
 import com.lazyapps.steparena.core.designsystem.component.RankBadge
 import com.lazyapps.steparena.core.designsystem.component.RankProgressBar
 import com.lazyapps.steparena.game.RankSystem
+import com.lazyapps.steparena.game.publicDisplayName
 
-data class RankUiState(val profile: GamePlayerProfileEntity? = null)
+data class RankUiState(
+    val profile: GamePlayerProfileEntity? = null,
+    val displayName: String? = null,
+)
 
 @Composable
 fun RankScreen(state: RankUiState) = LazyColumn(
@@ -28,6 +32,7 @@ fun RankScreen(state: RankUiState) = LazyColumn(
     item { Text(stringResource(R.string.game_rank_title), style = MaterialTheme.typography.headlineMedium) }
     state.profile?.let { profile ->
         item {
+            Text(publicDisplayName(state.displayName, stringResource(R.string.game_you)))
             val rank = RankSystem.definition(profile.rating)
             GameCard(rank.displayName) {
                 RankBadge(rank.displayName)

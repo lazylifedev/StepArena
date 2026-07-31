@@ -66,10 +66,12 @@ import com.lazyapps.steparena.core.designsystem.theme.StepArenaMotion
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 import com.lazyapps.steparena.game.MatchOutcome
 import com.lazyapps.steparena.game.MatchStatus
+import com.lazyapps.steparena.game.publicDisplayName
 import com.lazyapps.steparena.core.database.entity.DailyMatchEntity
 import kotlinx.coroutines.delay
 
 object ChallengeTestTags {
+    const val CONTENT = "challenge_content"
     const val COMPARISON = "challenge_comparison"
     const val INFO = "challenge_info"
     const val INFO_SHEET = "challenge_info_sheet"
@@ -86,6 +88,7 @@ data class ChallengeUiState(
     val currentMeasuredSteps: Long = 0,
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
+    val displayName: String? = null,
 )
 
 @Composable
@@ -129,7 +132,7 @@ fun ChallengeScreen(
     }
 
     LazyColumn(
-        Modifier.fillMaxSize(),
+        Modifier.fillMaxSize().testTag(ChallengeTestTags.CONTENT),
         contentPadding = PaddingValues(StepArenaSpacing.md),
         verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.md),
     ) {
@@ -161,6 +164,7 @@ fun ChallengeScreen(
             item {
                 ChallengeComparisonCard(
                     comparison = comparison,
+                    displayName = state.displayName,
                     celebration = state.challengeCelebration?.takeIf { it.matchId == match.id },
                     motionLevel = motionLevel,
                     onInformation = { showInformation = true },
@@ -231,7 +235,7 @@ internal fun MatchPage(
     onChallengeObserved: (String, Long, Long) -> Unit = { _, _, _ -> },
     onCelebrationConsumed: (String) -> Unit = {},
 ) = ChallengeScreen(
-    state = state.challengeUiState(),
+                state = state.challengeUiState(),
     motionLevel = motionLevel,
     onChallengeObserved = onChallengeObserved,
     onCelebrationConsumed = onCelebrationConsumed,
@@ -240,6 +244,7 @@ internal fun MatchPage(
 @Composable
 private fun ChallengeComparisonCard(
     comparison: ChallengeComparison,
+    displayName: String?,
     celebration: ChallengeCelebration?,
     motionLevel: MotionLevel,
     onInformation: () -> Unit,
@@ -247,7 +252,8 @@ private fun ChallengeComparisonCard(
     val userSteps = formatNumber(comparison.eligibleSteps)
     val partnerSteps = formatNumber(comparison.partnerTargetSteps)
     val remainingSteps = formatNumber(comparison.remainingSteps)
-    val accessibility = if (comparison.goalAchieved) {
+    val playerName = publicDisplayName(displayName, stringResource(R.string.game_you))
+    val comparisonAccessibility = if (comparison.goalAchieved) {
         stringResource(R.string.game_challenge_accessibility_achieved, userSteps, partnerSteps)
     } else {
         stringResource(
@@ -257,6 +263,11 @@ private fun ChallengeComparisonCard(
             remainingSteps,
         )
     }
+    val accessibility = stringResource(
+        R.string.game_challenge_accessibility_named,
+        playerName,
+        comparisonAccessibility,
+    )
     val celebrationActive = celebration != null && motionLevel != MotionLevel.OFF
     val glow by animateFloatAsState(
         targetValue = if (celebrationActive) 1f else 0f,
@@ -297,7 +308,7 @@ private fun ChallengeComparisonCard(
             horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm),
         ) {
             ParticipantProgress(
-                label = stringResource(R.string.game_you),
+                label = playerName,
                 steps = userSteps,
                 progress = comparison.eligibleSteps.toFloat()
                     .div(comparison.partnerTargetSteps)

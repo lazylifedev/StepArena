@@ -34,11 +34,12 @@ import com.lazyapps.steparena.core.database.dao.*
         GamePlayerProfileEntity::class,
         DailyMatchEntity::class,
         WeeklyLeagueEntity::class,
+        WeeklyLeagueParticipantEntity::class,
         GameSeasonEntity::class,
         AchievementUnlockEntity::class,
         GameNotificationEventEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -52,6 +53,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
     abstract fun gamePlayerProfile(): GamePlayerProfileDao
     abstract fun dailyMatches(): DailyMatchDao
     abstract fun weeklyLeagues(): WeeklyLeagueDao
+    abstract fun weeklyLeagueParticipants(): WeeklyLeagueParticipantDao
     abstract fun gameSeasons(): GameSeasonDao
     abstract fun achievementUnlocks(): AchievementUnlockDao
     abstract fun gameNotificationEvents(): GameNotificationEventDao
@@ -65,7 +67,14 @@ abstract class StepArenaDatabase : RoomDatabase() {
 
         fun build(context: Context, name: String): StepArenaDatabase =
             Room.databaseBuilder(context.applicationContext, StepArenaDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                )
                 .build()
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -153,6 +162,67 @@ abstract class StepArenaDatabase : RoomDatabase() {
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE activity_processing_state ADD COLUMN activityRepairVersion INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE game_player_profile ADD COLUMN displayName TEXT")
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `weekly_league_participants` (
+                        `leagueId` TEXT NOT NULL, `participantId` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL, `avatarKey` TEXT NOT NULL,
+                        `points` INTEGER NOT NULL, `eligibleSteps` INTEGER NOT NULL,
+                        `rank` INTEGER NOT NULL, `isLocalPlayer` INTEGER NOT NULL,
+                        `generatedLocally` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`leagueId`, `participantId`))""",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_weekly_league_participants_leagueId` " +
+                        "ON `weekly_league_participants` (`leagueId`)",
+                )
+                migrateLegacyLeagueParticipants(db)
+            }
+        }
+
+        private fun migrateLegacyLeagueParticipants(db: SupportSQLiteDatabase) {
+            db.query(
+                "SELECT id, participantsJson, createdAtEpochMillis, updatedAtEpochMillis FROM weekly_leagues",
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val leagueId = cursor.getString(0)
+                    val createdAt = cursor.getLong(2)
+                    val updatedAt = cursor.getLong(3)
+                    val participants = runCatching { org.json.JSONArray(cursor.getString(1)) }
+                        .getOrNull() ?: continue
+                    for (index in 0 until participants.length()) {
+                        val participant = participants.optJSONObject(index) ?: continue
+                        val participantId = participant.optString("id").takeIf { it.isNotBlank() } ?: continue
+                        val local = participantId == "player"
+                        val storedName = participant.optString("name").ifBlank { "参加者" }
+                        val displayName = if (local && storedName == "You") "あなた" else storedName
+                        db.execSQL(
+                            """INSERT OR REPLACE INTO weekly_league_participants
+                                (leagueId,participantId,displayName,avatarKey,points,eligibleSteps,rank,
+                                isLocalPlayer,generatedLocally,createdAtEpochMillis,updatedAtEpochMillis)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                            arrayOf(
+                                leagueId,
+                                participantId,
+                                displayName,
+                                participant.optString("avatarKey", participantId),
+                                participant.optInt("points", 0),
+                                participant.optLong("steps", 0L),
+                                index + 1,
+                                if (local) 1 else 0,
+                                1,
+                                createdAt,
+                                updatedAt,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }

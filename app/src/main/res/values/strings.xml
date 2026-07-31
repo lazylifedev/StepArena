@@ -99,6 +99,9 @@
     <string name="settings_profile">プロフィール・計算設定</string>
     <string name="settings_diagnostics">計測状態と権限</string>
     <string name="profile_height">身長（cm）</string>
+    <string name="profile_display_name">表示名</string>
+    <string name="profile_display_name_support">未設定の場合は「あなた」・%1$d文字まで</string>
+    <string name="profile_display_name_invalid">表示名は1～20文字で、制御文字を含めず入力してください。</string>
     <string name="profile_weight">体重（kg）</string>
     <string name="profile_step_length">歩幅（cm）</string>
     <string name="profile_auto_step">身長から歩幅を自動推定</string>
@@ -358,8 +361,9 @@
     <string name="game_information_title">チャレンジについて</string>
     <string name="game_today_progress">今日の進捗</string>
     <string name="game_progress_description">今日のチャレンジ進捗。あなた%1$s歩、パートナー目標%2$s歩</string>
-    <string name="game_challenge_accessibility_remaining">今日のチャレンジ。あなた%1$s歩、パートナー%2$s歩、あと%3$s歩</string>
-    <string name="game_challenge_accessibility_achieved">今日のチャレンジ。あなた%1$s歩、パートナー%2$s歩、達成</string>
+    <string name="game_challenge_accessibility_remaining">今日のチャレンジ。%1$s歩、パートナー%2$s歩、あと%3$s歩</string>
+    <string name="game_challenge_accessibility_achieved">今日のチャレンジ。%1$s歩、パートナー%2$s歩、達成</string>
+    <string name="game_challenge_accessibility_named">%1$s。%2$s</string>
     <string name="game_you">あなた</string>
     <string name="game_partner">パートナー</string>
     <string name="game_partner_target">パートナー目標 %1$s歩</string>

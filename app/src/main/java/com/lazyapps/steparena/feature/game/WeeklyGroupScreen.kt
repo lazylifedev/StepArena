@@ -15,9 +15,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.database.entity.WeeklyLeagueEntity
+import com.lazyapps.steparena.core.database.entity.WeeklyLeagueParticipantEntity
 import com.lazyapps.steparena.game.LeagueStatus
 
-data class WeeklyGroupUiState(val league: WeeklyLeagueEntity? = null)
+data class WeeklyGroupUiState(
+    val league: WeeklyLeagueEntity? = null,
+    val participants: List<WeeklyLeagueParticipantEntity> = emptyList(),
+)
 
 @Composable
 fun WeeklyGroupScreen(state: WeeklyGroupUiState) = LazyColumn(
@@ -35,15 +39,18 @@ fun WeeklyGroupScreen(state: WeeklyGroupUiState) = LazyColumn(
             Text(stringResource(R.string.game_weekly_points, formatNumber(league.userPoints)))
             if (league.status == LeagueStatus.FINALIZED) Text(stringResource(R.string.game_league_finalized))
         }
-        items(participantRows(league.participantsJson)) { (name, points) ->
+        items(state.participants, key = { it.participantId }) { participant ->
             ListItem(
                 headlineContent = {
                     Text(
-                        stringResource(participantDisplayNameRes(name)),
-                        fontWeight = if (name == "You") FontWeight.Bold else null,
+                        participant.displayName,
+                        fontWeight = if (participant.isLocalPlayer) FontWeight.Bold else null,
                     )
                 },
-                trailingContent = { Text(stringResource(R.string.game_points_value, formatNumber(points))) },
+                overlineContent = { Text(participant.rank.toString()) },
+                trailingContent = {
+                    Text(stringResource(R.string.game_points_value, formatNumber(participant.points)))
+                },
             )
         }
     } ?: item {

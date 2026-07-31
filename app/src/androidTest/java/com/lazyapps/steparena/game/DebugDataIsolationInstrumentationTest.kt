@@ -62,8 +62,11 @@ class DebugDataIsolationInstrumentationTest {
     private fun insertSentinels(database: StepArenaDatabase, rating: Int, wins: Int, steps: Int) {
         val sql = database.openHelper.writableDatabase
         sql.execSQL(
-            """INSERT INTO game_player_profile VALUES
-                ('local_player',$rating,'BRONZE',3,7,$wins,0,0,0,1,1,0,0,'WIN',1,1)""",
+            """INSERT INTO game_player_profile
+                (id,displayName,rating,rankTier,rankDivision,totalMatches,wins,losses,draws,
+                noContests,currentWinStreak,bestWinStreak,currentLossStreak,
+                beginnerMatchesRemaining,lastOutcome,createdAtEpochMillis,updatedAtEpochMillis)
+                VALUES ('local_player',NULL,$rating,'BRONZE',3,7,$wins,0,0,0,1,1,0,0,'WIN',1,1)""",
         )
         sql.execSQL(
             """INSERT INTO daily_activity_records VALUES

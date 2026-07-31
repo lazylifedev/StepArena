@@ -15,6 +15,7 @@ data class GameUiState(
     val todayMatch: DailyMatchEntity? = null,
     val recentMatches: List<DailyMatchEntity> = emptyList(),
     val league: WeeklyLeagueEntity? = null,
+    val leagueParticipants: List<WeeklyLeagueParticipantEntity> = emptyList(),
     val season: GameSeasonEntity? = null,
     val achievements: List<AchievementUnlockEntity> = emptyList(),
     val notificationEvents: List<GameNotificationEventEntity> = emptyList(),
@@ -29,11 +30,12 @@ internal fun GameUiState.challengeUiState() = ChallengeUiState(
     currentMeasuredSteps = currentMeasuredSteps,
     currentHealthConnectAddedSteps = currentHealthConnectAddedSteps,
     challengeCelebration = challengeCelebration,
+    displayName = profile?.displayName,
 )
 
-internal fun GameUiState.rankUiState() = RankUiState(profile)
+internal fun GameUiState.rankUiState() = RankUiState(profile, profile?.displayName)
 
-internal fun GameUiState.weeklyGroupUiState() = WeeklyGroupUiState(league)
+internal fun GameUiState.weeklyGroupUiState() = WeeklyGroupUiState(league, leagueParticipants)
 
 internal fun GameUiState.monthlyRecordUiState() = MonthlyRecordUiState(
     season = season,
@@ -67,6 +69,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         currentLocalDay.flatMapLatest { repository.observeMatch(it.date, it.zoneId) },
         repository.observeRecentMatches(30),
         repository.observeCurrentLeague(),
+        repository.observeCurrentLeagueParticipants(),
         repository.observeCurrentSeason(),
         repository.observeAchievements(),
         repository.observeNotificationEvents(),
@@ -76,22 +79,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         GameUiState(
-            values[0] as GamePlayerProfileEntity,
-            values[1] as DailyMatchEntity?,
-            values[2] as List<DailyMatchEntity>,
-            values[3] as WeeklyLeagueEntity?,
-            values[4] as GameSeasonEntity?,
-            values[5] as List<AchievementUnlockEntity>,
-            values[6] as List<GameNotificationEventEntity>,
-            (values[7] as com.lazyapps.steparena.tracking.StepTrackingState).let { tracking ->
-                (values[9] as com.lazyapps.steparena.core.time.LocalDay).let { day ->
+            profile = values[0] as GamePlayerProfileEntity,
+            todayMatch = values[1] as DailyMatchEntity?,
+            recentMatches = values[2] as List<DailyMatchEntity>,
+            league = values[3] as WeeklyLeagueEntity?,
+            leagueParticipants = values[4] as List<WeeklyLeagueParticipantEntity>,
+            season = values[5] as GameSeasonEntity?,
+            achievements = values[6] as List<AchievementUnlockEntity>,
+            notificationEvents = values[7] as List<GameNotificationEventEntity>,
+            currentMeasuredSteps = (values[8] as com.lazyapps.steparena.tracking.StepTrackingState).let { tracking ->
+                (values[10] as com.lazyapps.steparena.core.time.LocalDay).let { day ->
                     tracking.accumulatedTodaySteps.takeIf {
                         tracking.currentLocalDate == day.date &&
                             tracking.currentZoneId == day.zoneId.id
                     } ?: 0
                 }
             },
-            values[8] as Long,
+            currentHealthConnectAddedSteps = values[9] as Long,
         )
     }
     val state: StateFlow<GameUiState> = combine(

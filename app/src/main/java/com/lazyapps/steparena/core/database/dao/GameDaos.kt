@@ -45,6 +45,18 @@ interface DailyMatchDao {
     @Query("SELECT COUNT(*) FROM weekly_leagues") suspend fun count(): Int
     @Query("DELETE FROM weekly_leagues") suspend fun deleteAll()
 }
+@Dao interface WeeklyLeagueParticipantDao {
+    @Upsert suspend fun upsertAll(values: List<WeeklyLeagueParticipantEntity>)
+    @Query("SELECT * FROM weekly_league_participants WHERE leagueId = :leagueId ORDER BY rank")
+    fun observeForLeague(leagueId: String): Flow<List<WeeklyLeagueParticipantEntity>>
+    @Query("SELECT * FROM weekly_league_participants WHERE leagueId = :leagueId ORDER BY rank")
+    suspend fun getForLeague(leagueId: String): List<WeeklyLeagueParticipantEntity>
+    @Query("DELETE FROM weekly_league_participants WHERE leagueId = :leagueId")
+    suspend fun deleteForLeague(leagueId: String)
+    @Query("UPDATE weekly_league_participants SET displayName = :displayName, updatedAtEpochMillis = :updatedAt WHERE isLocalPlayer = 1")
+    suspend fun updateLocalDisplayName(displayName: String, updatedAt: Long)
+    @Query("DELETE FROM weekly_league_participants") suspend fun deleteAll()
+}
 @Dao interface GameSeasonDao {
     @Upsert suspend fun upsert(value: GameSeasonEntity)
     @Query("SELECT * FROM game_seasons WHERE id = :id") suspend fun get(id: String): GameSeasonEntity?

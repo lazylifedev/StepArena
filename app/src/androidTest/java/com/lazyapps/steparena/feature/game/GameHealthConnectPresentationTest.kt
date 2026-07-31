@@ -52,7 +52,7 @@ class GameHealthConnectPresentationTest {
         compose.onNodeWithTag(ChallengeTestTags.COMPARISON)
             .assertIsDisplayed()
             .assertContentDescriptionEquals(
-                "今日のチャレンジ。あなた3,619歩、パートナー5,483歩、あと1,864歩",
+                "あなた。今日のチャレンジ。3,619歩、パートナー5,483歩、あと1,864歩",
             )
         compose.onNodeWithTag(
             ChallengeTestTags.USER_PROGRESS,

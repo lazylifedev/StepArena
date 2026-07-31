@@ -85,35 +85,6 @@ fun SeasonStatus.displayNameRes(): Int = when (this) {
     SeasonStatus.FINALIZED -> R.string.game_season_finalized
 }
 
-@StringRes
-fun participantDisplayNameRes(name: String): Int {
-    val fixed = mapOf(
-        "You" to R.string.game_you,
-        "Aoi" to R.string.partner_asahi,
-        "Ren" to R.string.partner_komorebi,
-        "Sora" to R.string.partner_soyokaze,
-        "Hina" to R.string.partner_hinata,
-        "Riku" to R.string.partner_michikusa,
-        "Yui" to R.string.partner_aozora,
-        "Kai" to R.string.partner_kawabe,
-        "Mio" to R.string.partner_tsukimi,
-    )
-    return fixed[name] ?: partnerNameResources[Math.floorMod(name.hashCode(), partnerNameResources.size)]
-}
-
-private val partnerNameResources = intArrayOf(
-    R.string.partner_asahi,
-    R.string.partner_komorebi,
-    R.string.partner_soyokaze,
-    R.string.partner_hinata,
-    R.string.partner_michikusa,
-    R.string.partner_aozora,
-    R.string.partner_kawabe,
-    R.string.partner_tsukimi,
-    R.string.partner_nagisa,
-    R.string.partner_wakaba,
-)
-
 data class NextRankProgress(val rank: RankDefinition, val remaining: Int, val progress: Float)
 
 fun nextRankProgress(rating: Int): NextRankProgress? {
@@ -142,7 +113,3 @@ internal fun formatMonth(value: String): String = runCatching {
 internal fun formatEpochDate(value: Long): String =
     Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate()
         .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
-
-internal fun participantRows(json: String): List<Pair<String, Int>> =
-    Regex(""""name":"([^"]+)","points":(\d+)""").findAll(json)
-        .map { it.groupValues[1] to it.groupValues[2].toInt() }.toList()

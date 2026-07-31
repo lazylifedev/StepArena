@@ -4,7 +4,6 @@ import com.lazyapps.steparena.game.MatchOutcome
 import com.lazyapps.steparena.game.SeasonStatus
 import com.lazyapps.steparena.R
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -19,13 +18,6 @@ class GamePresentationTest {
     @Test fun seasonStatusDoesNotExposeInternalEnum() {
         assertEquals(R.string.game_season_active, SeasonStatus.ACTIVE.displayNameRes())
         assertEquals(R.string.game_season_finalized, SeasonStatus.FINALIZED.displayNameRes())
-    }
-
-    @Test fun unknownPartnerNameIsDeterministicAndNeverLeaksInternalName() {
-        val first = participantDisplayNameRes("UnknownEnglishPartner")
-        assertEquals(first, participantDisplayNameRes("UnknownEnglishPartner"))
-        assertFalse(first == 0)
-        assertEquals(R.string.game_you, participantDisplayNameRes("You"))
     }
 
     @Test fun nextRankProgressAndHighestRankAreReported() {

@@ -30,6 +30,7 @@ import com.lazyapps.steparena.activity.DefaultStepLengthEstimator
 import androidx.compose.ui.res.stringResource
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.StepArenaApplication
+import com.lazyapps.steparena.game.PlayerDisplayNamePolicy
 import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 import kotlinx.coroutines.launch
@@ -41,17 +42,24 @@ import androidx.compose.ui.semantics.semantics
 fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val repository = (context.applicationContext as StepArenaApplication).profileRepository
+    val identityRepository = (context.applicationContext as StepArenaApplication).playerIdentityRepository
     val scope = rememberCoroutineScope()
     var height by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
     var weight by remember { mutableStateOf("") }
     var stepLengthCm by remember { mutableStateOf("") }
     var automatic by remember { mutableStateOf(true) }
     var messageRes by remember { mutableStateOf<Int?>(null) }
     var savedProfile by remember { mutableStateOf<UserBodyProfile?>(null) }
+    var savedDisplayName by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val savedMessage = stringResource(R.string.profile_saved)
     val validator = remember { DefaultUserBodyProfileValidator() }
     LaunchedEffect(Unit) {
+        identityRepository.current().let {
+            displayName = it.displayName.orEmpty()
+            savedDisplayName = it.displayName
+        }
         repository.current().let {
             height = it.heightCm?.toString().orEmpty()
             weight = it.weightKg?.toString().orEmpty()
@@ -61,6 +69,7 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
         }
     }
     val validation = validator.validate(height, weight, if (automatic) "" else stepLengthCm, automatic)
+    val displayNameValidation = PlayerDisplayNamePolicy.validate(displayName)
     val draft = validation.profile
     val estimatedCm = draft?.takeIf { automatic && it.heightCm != null }?.let {
         DefaultStepLengthEstimator().estimate(it).meters * 100
@@ -69,7 +78,9 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
     val normalizedSaved = savedProfile?.let {
         if (it.useAutomaticStepLength) it.copy(manualStepLengthMeters = null) else it
     }
-    val changed = draft != null && draft != normalizedSaved
+    val changed = draft != null && (
+        draft != normalizedSaved || displayNameValidation.normalized != savedDisplayName
+    )
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(StepArenaSpacing.md).testTag("profile_settings"),
@@ -77,6 +88,17 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
     ) {
         Text(stringResource(R.string.settings_profile), style = MaterialTheme.typography.headlineMedium)
         GlassSurface(Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = displayName,
+                onValueChange = { displayName = it },
+                label = { Text(stringResource(R.string.profile_display_name)) },
+                supportingText = {
+                    Text(stringResource(R.string.profile_display_name_support, PlayerDisplayNamePolicy.MAX_CODE_POINTS))
+                },
+                isError = !displayNameValidation.isValid,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("profile_display_name"),
+            )
             ProfileField(stringResource(R.string.profile_height), height) { height = it }
             ProfileField(stringResource(R.string.profile_weight), weight) { weight = it }
             ProfileField(
@@ -102,17 +124,25 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
                     if (automatic) "" else stepLengthCm,
                     automatic,
                 )
-                if (!result.isValid) messageRes = R.string.profile_invalid
+                if (!displayNameValidation.isValid) messageRes = R.string.profile_display_name_invalid
+                else if (!result.isValid) messageRes = R.string.profile_invalid
                 else scope.launch {
-                    runCatching { repository.save(requireNotNull(result.profile)) }
+                    runCatching {
+                        identityRepository.saveDisplayName(displayName)
+                        repository.save(requireNotNull(result.profile))
+                    }
                         .onSuccess {
                             savedProfile = result.profile
+                            savedDisplayName = displayNameValidation.normalized
+                            displayName = displayNameValidation.normalized.orEmpty()
                             messageRes = null
                             snackbar.showSnackbar(savedMessage)
                         }
                         .onFailure { messageRes = R.string.profile_invalid }
                 }
-            }, enabled = changed) { Text(stringResource(R.string.profile_save)) }
+            }, enabled = changed && displayNameValidation.isValid) {
+                Text(stringResource(R.string.profile_save))
+            }
             messageRes?.let { Text(stringResource(it)) }
         }
         Text(stringResource(R.string.profile_history_policy))

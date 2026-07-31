@@ -10,6 +10,7 @@ import com.lazyapps.steparena.recovery.HealthConnectActivityDataSource
 import com.lazyapps.steparena.recovery.RecoverySettingsRepository
 import com.lazyapps.steparena.recovery.TrackingHealthWorker
 import com.lazyapps.steparena.game.LocalGameRepository
+import com.lazyapps.steparena.game.PlayerIdentityRepository
 import com.lazyapps.steparena.game.GameMaintenanceWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +52,7 @@ open class StepArenaApplication : Application(), AppGraph {
         )
     }
     override val clock: Clock by lazy { Clock.systemDefaultZone() }
+    val playerIdentityRepository by lazy { PlayerIdentityRepository(this, database, clock) }
     val currentLocalDayProvider by lazy {
         CurrentLocalDayProvider(this, clock, applicationScope)
     }

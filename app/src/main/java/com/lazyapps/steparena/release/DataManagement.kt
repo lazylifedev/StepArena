@@ -13,6 +13,7 @@ import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.service.tracking.StepTrackingService
 import com.lazyapps.steparena.activity.UserProfileRepository
 import com.lazyapps.steparena.activity.DailyStepGoalRepository
+import com.lazyapps.steparena.game.PlayerIdentityRepository
 import com.lazyapps.steparena.recovery.RecoverySettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -75,6 +76,7 @@ class DataManagementRepository(
         database.gameNotificationEvents().deleteAll()
         database.achievementUnlocks().deleteAll()
         database.gameSeasons().deleteAll()
+        database.weeklyLeagueParticipants().deleteAll()
         database.weeklyLeagues().deleteAll()
         database.dailyMatches().deleteAll()
         database.gamePlayerProfile().deleteAll()
@@ -99,6 +101,7 @@ class DataManagementRepository(
 
     suspend fun resetSettings(keepOnboarding: Boolean) {
         UserProfileRepository(context).reset()
+        PlayerIdentityRepository(context, database).saveDisplayName("")
         DailyStepGoalRepository(context).reset()
         RecoverySettingsRepository(context).reset()
         context.getSharedPreferences("game_notifications", 0).edit().clear().commit()
@@ -186,7 +189,7 @@ class DataManagementRepository(
     }
 
     private fun metadata(at: Instant, u: DataUsage) =
-        """{"exportedAt":"$at","appVersion":"${BuildConfig.VERSION_NAME}","databaseVersion":5,"locale":"${java.util.Locale.getDefault()}","zoneId":"${ZoneId.systemDefault()}","recordCounts":{"hourly":${u.hourly},"daily":${u.daily},"sessions":${u.sessions},"gaps":${u.gaps},"matches":${u.matches}},"dateRange":{"oldest":${json(u.oldestDate)},"newest":${json(u.newestDate)}},"healthConnectEnabled":false,"accountUsed":false,"serverSyncUsed":false}"""
+        """{"exportedAt":"$at","appVersion":"${BuildConfig.VERSION_NAME}","databaseVersion":7,"locale":"${java.util.Locale.getDefault()}","zoneId":"${ZoneId.systemDefault()}","recordCounts":{"hourly":${u.hourly},"daily":${u.daily},"sessions":${u.sessions},"gaps":${u.gaps},"matches":${u.matches}},"dateRange":{"oldest":${json(u.oldestDate)},"newest":${json(u.newestDate)}},"healthConnectEnabled":false,"accountUsed":false,"serverSyncUsed":false}"""
 
     private fun json(value: String?) = value?.let { "\"${escapeJson(it)}\"" } ?: "null"
 

@@ -11,13 +11,16 @@ import java.time.*
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOf
 
 interface GameRepository {
     fun observePlayerProfile(): Flow<GamePlayerProfileEntity>
     fun observeTodayMatch(): Flow<DailyMatchEntity?>
     fun observeRecentMatches(limit: Int): Flow<List<DailyMatchEntity>>
     fun observeCurrentLeague(): Flow<WeeklyLeagueEntity?>
+    fun observeCurrentLeagueParticipants(): Flow<List<WeeklyLeagueParticipantEntity>>
     fun observeCurrentSeason(): Flow<GameSeasonEntity?>
     fun observeAchievements(): Flow<List<AchievementUnlockEntity>>
     fun observeNotificationEvents(): Flow<List<GameNotificationEventEntity>>
@@ -59,6 +62,11 @@ class LocalGameRepository(
         database.dailyMatches().observe(date.toString(), zoneId.id)
     override fun observeRecentMatches(limit: Int) = database.dailyMatches().recent(limit)
     override fun observeCurrentLeague() = database.weeklyLeagues().observeCurrent()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    override fun observeCurrentLeagueParticipants() = observeCurrentLeague().flatMapLatest { league ->
+        league?.let { database.weeklyLeagueParticipants().observeForLeague(it.id) }
+            ?: flowOf(emptyList())
+    }
     override fun observeCurrentSeason() = database.gameSeasons().observeCurrent()
     override fun observeAchievements() = database.achievementUnlocks().observeAll()
     override fun observeNotificationEvents() = database.gameNotificationEvents().observeAll()
@@ -232,26 +240,60 @@ class LocalGameRepository(
         }
         val existingId = "league-$start-${zone.id.hashCode()}"
         if (database.weeklyLeagues().get(existingId)?.status == LeagueStatus.FINALIZED) return
-        val names = listOf("You", "Aoi", "Ren", "Sora", "Hina", "Riku", "Yui", "Kai", "Mio", "Nao")
-        val ranked = LeagueRanking.rank(names.mapIndexed { index, name ->
+        val profile = database.gamePlayerProfile().get()
+        val participantSeeds = listOf(
+            Triple(
+                "player",
+                publicDisplayName(profile?.displayName, context.getString(R.string.game_you)),
+                "local_player",
+            ),
+            Triple("npc-1", context.getString(R.string.partner_asahi), "asahi"),
+            Triple("npc-2", context.getString(R.string.partner_komorebi), "komorebi"),
+            Triple("npc-3", context.getString(R.string.partner_soyokaze), "soyokaze"),
+            Triple("npc-4", context.getString(R.string.partner_hinata), "hinata"),
+            Triple("npc-5", context.getString(R.string.partner_michikusa), "michikusa"),
+            Triple("npc-6", context.getString(R.string.partner_aozora), "aozora"),
+            Triple("npc-7", context.getString(R.string.partner_kawabe), "kawabe"),
+            Triple("npc-8", context.getString(R.string.partner_tsukimi), "tsukimi"),
+            Triple("npc-9", context.getString(R.string.partner_nagisa), "nagisa"),
+        )
+        val ranked = LeagueRanking.rank(participantSeeds.mapIndexed { index, seed ->
             LeagueParticipant(
-                id = if (index == 0) "player" else "npc-$index",
-                name = name,
+                id = seed.first,
+                name = seed.second,
                 points = if (index == 0) points else (start.hashCode() + index * 7).mod(22),
                 eligibleSteps = if (index == 0) recent.sumOf { it.eligibleUserSteps }
                     else (start.hashCode().toLong() + index * 13L).mod(50_000L),
             )
         })
-        val participants = ranked.joinToString(prefix = "[", postfix = "]") {
-            """{"id":"${it.id}","name":"${it.name}","points":${it.points},"steps":${it.eligibleSteps}}"""
-        }
         val userRank = ranked.indexOfFirst { it.id == "player" } + 1
         database.weeklyLeagues().upsert(
             WeeklyLeagueEntity(
                 existingId, start.toString(), start.plusDays(6).toString(),
                 zone.id, LeagueStatus.ACTIVE, points, userRank,
-                participants, null, now, now,
+                "[]", null, now, now,
             ),
+        )
+        val participantDao = database.weeklyLeagueParticipants()
+        val existingParticipants = participantDao.getForLeague(existingId).associateBy { it.participantId }
+        participantDao.deleteForLeague(existingId)
+        participantDao.upsertAll(
+            ranked.mapIndexed { index, participant ->
+                val seed = participantSeeds.first { it.first == participant.id }
+                WeeklyLeagueParticipantEntity(
+                    leagueId = existingId,
+                    participantId = participant.id,
+                    displayName = participant.name,
+                    avatarKey = seed.third,
+                    points = participant.points,
+                    eligibleSteps = participant.eligibleSteps,
+                    rank = index + 1,
+                    isLocalPlayer = participant.id == "player",
+                    generatedLocally = true,
+                    createdAtEpochMillis = existingParticipants[participant.id]?.createdAtEpochMillis ?: now,
+                    updatedAtEpochMillis = now,
+                )
+            },
         )
     }
 
