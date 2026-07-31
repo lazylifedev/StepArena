@@ -1,6 +1,8 @@
 package com.lazyapps.steparena.game
 
 import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
+import com.lazyapps.steparena.core.database.entity.CompetitiveIntegritySegmentEntity
+import com.lazyapps.steparena.game.CompetitiveIntegrityAssessment
 import com.lazyapps.steparena.core.database.model.DataQuality
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +32,25 @@ class CompetitiveDailySummaryTest {
 
         assertEquals(3_619, beforeFinalization.eligibleSteps)
         assertEquals(beforeFinalization, afterFinalization)
+    }
+
+    @Test
+    fun `unclassified measured steps and integrity eligible steps share one summary`() {
+        val daily = daily(measuredSteps = 5_100, healthConnectAddedSteps = 0)
+            .copy(stepsQuality = DataQuality.MEASURED)
+        val segment = CompetitiveIntegritySegmentEntity(
+            id = "segment", localDate = daily.localDate, zoneId = daily.zoneId,
+            startedAtEpochMillis = 0, endedAtEpochMillis = 1,
+            totalSteps = 100, eligibleSteps = 80, restrictedSteps = 20, excludedSteps = 0,
+            assessment = CompetitiveIntegrityAssessment.LIMITED,
+            reasons = "", classifierVersion = 1, createdAtEpochMillis = 1,
+        )
+
+        val today = competitiveSummary(daily.copy(finalized = false), listOf(segment))
+        val finalized = competitiveSummary(daily.copy(finalized = true), listOf(segment))
+
+        assertEquals(5_080, today.eligibleSteps)
+        assertEquals(today, finalized)
     }
 
     private fun daily(

@@ -7,6 +7,7 @@ import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.core.database.entity.*
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.game.MatchStatus
+import com.lazyapps.steparena.game.competitiveSummary
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -73,6 +74,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         },
     ) { settings, daily ->
         TodayActivity(
+            daily = daily,
             measuredSteps = daily?.steps ?: 0,
             externalSteps = if (settings.healthConnectEnabled) daily?.externalRecoveredSteps ?: 0 else 0,
         )
@@ -106,11 +108,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             achievements = values[6] as List<AchievementUnlockEntity>,
             notificationEvents = values[7] as List<GameNotificationEventEntity>,
             currentMeasuredSteps = (values[9] as TodayActivity).measuredSteps,
-            currentEligibleSteps = (values[10] as List<CompetitiveIntegritySegmentEntity>)
-                .let { segments ->
-                    if (segments.isEmpty()) (values[9] as TodayActivity).measuredSteps
-                    else segments.sumOf { it.eligibleSteps }
-                }.coerceAtMost(30_000),
+            currentEligibleSteps = competitiveSummary(
+                (values[9] as TodayActivity).daily,
+                values[10] as List<CompetitiveIntegritySegmentEntity>,
+            ).eligibleSteps,
             currentHealthConnectAddedSteps = (values[9] as TodayActivity).externalSteps,
             recentDailyActivity = values[12] as List<DailyActivityRecordEntity>,
         )
@@ -199,4 +200,8 @@ fun currentChallengeSteps(
         CurrentChallengeSteps(current, eligibleSteps.coerceIn(0, minOf(current, 30_000)), false)
     }
 
-private data class TodayActivity(val measuredSteps: Long, val externalSteps: Long)
+private data class TodayActivity(
+    val daily: DailyActivityRecordEntity?,
+    val measuredSteps: Long,
+    val externalSteps: Long,
+)

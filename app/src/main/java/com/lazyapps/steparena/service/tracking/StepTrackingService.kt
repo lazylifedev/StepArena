@@ -81,6 +81,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private var sessionTimeoutJob: Job? = null
     private var pendingNotificationJob: Job? = null
     private var previewExpiryJob: Job? = null
+    private val previewExpiryLock = Any()
     private var manualStartRequested = false
     private var dailyStepGoal = DailyStepGoal.DEFAULT
 
@@ -332,17 +333,26 @@ class StepTrackingService : Service(), SensorEventListener {
         val dateChanged = notificationPreview.snapshot.localDate != localDate
         publishNotificationPreview(notificationPreview.onDetector(localDate, eventAt))
         updateNotificationIfNeeded(eventAt, force = dateChanged)
-        if (previewExpiryJob == null) {
+        ensurePreviewExpiryJob()
+        activityRepository.recordDetector(eventAt)
+        logEvent("step_detector")
+    }
+
+    private fun ensurePreviewExpiryJob() {
+        synchronized(previewExpiryLock) {
+            if (previewExpiryJob?.isActive == true) return
             previewExpiryJob = scope.launch {
                 while (notificationPreview.snapshot.pendingDetectorSteps > 0) {
                     delay(1_000)
                     updateNotificationIfNeeded(Instant.now())
                 }
-                previewExpiryJob = null
+                val restart = synchronized(previewExpiryLock) {
+                    previewExpiryJob = null
+                    notificationPreview.snapshot.pendingDetectorSteps > 0
+                }
+                if (restart) ensurePreviewExpiryJob()
             }
         }
-        activityRepository.recordDetector(eventAt)
-        logEvent("step_detector")
     }
 
     private suspend fun acceptSensorValue(raw: Float, eventAt: Instant = Instant.now()) {
@@ -418,6 +428,7 @@ class StepTrackingService : Service(), SensorEventListener {
         sessionTimeoutJob?.cancel()
         pendingNotificationJob?.cancel()
         previewExpiryJob?.cancel()
+        synchronized(previewExpiryLock) { previewExpiryJob = null }
         scope.launch {
             val now = Instant.now()
             activityRepository.finishAllActiveSessions(now)
@@ -449,6 +460,7 @@ class StepTrackingService : Service(), SensorEventListener {
         sessionTimeoutJob?.cancel()
         pendingNotificationJob?.cancel()
         previewExpiryJob?.cancel()
+        synchronized(previewExpiryLock) { previewExpiryJob = null }
         NotificationStepPreviewDiagnostics.clear()
         scope.cancel()
         super.onDestroy()
