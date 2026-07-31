@@ -126,6 +126,7 @@ data class ActivityProcessingStateEntity(
     val lastWalkingEventEpochMillis: Long?,
     val updatedAtEpochMillis: Long,
     val activityRepairVersion: Int = 0,
+    val legacyOriginRepairVersion: Int = 0,
 )
 
 @Entity(

@@ -40,7 +40,7 @@ import com.lazyapps.steparena.core.database.dao.*
         GameNotificationEventEntity::class,
         CompetitiveIntegritySegmentEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -78,6 +78,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
                     MIGRATION_6_7,
                     MIGRATION_7_8,
                     MIGRATION_8_9,
+                    MIGRATION_9_10,
                 )
                 .build()
 
@@ -217,6 +218,32 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE daily_activity_records ADD COLUMN externalRecoveredSteps INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE daily_activity_records ADD COLUMN unallocatedMeasuredSteps INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = unclassifiedSteps")
+            }
+        }
+
+        /** Reclassify only legacy steps that have an auditable external record. */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE activity_processing_state ADD COLUMN legacyOriginRepairVersion INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("""
+                    UPDATE daily_activity_records
+                    SET externalRecoveredSteps = MIN(
+                        MAX(unclassifiedSteps, 0),
+                        COALESCE((SELECT SUM(MAX(appliedSteps, 0))
+                            FROM processed_external_step_records p
+                            WHERE date(p.startedAtEpochMillis / 1000, 'unixepoch') = daily_activity_records.localDate
+                              AND p.gapId IS NOT NULL AND p.gapId != ''), 0)
+                    ),
+                    unallocatedMeasuredSteps = MAX(0, unclassifiedSteps - MIN(
+                        MAX(unclassifiedSteps, 0),
+                        COALESCE((SELECT SUM(MAX(appliedSteps, 0))
+                            FROM processed_external_step_records p
+                            WHERE date(p.startedAtEpochMillis / 1000, 'unixepoch') = daily_activity_records.localDate
+                              AND p.gapId IS NOT NULL AND p.gapId != ''), 0)
+                    ))
+                    WHERE unclassifiedSteps > 0
+                """.trimIndent())
+                db.execSQL("UPDATE activity_processing_state SET legacyOriginRepairVersion = 1 WHERE key = 'sensor'")
             }
         }
 
