@@ -30,6 +30,8 @@ import com.lazyapps.steparena.tracking.DailyStepSummary
 import com.lazyapps.steparena.tracking.DiagnosticLogEntry
 import com.lazyapps.steparena.tracking.DiagnosticLogRepository
 import com.lazyapps.steparena.tracking.NotificationUpdatePolicy
+import com.lazyapps.steparena.tracking.NotificationStepPreview
+import com.lazyapps.steparena.tracking.NotificationStepPreviewDiagnostics
 import com.lazyapps.steparena.tracking.StepCounter
 import com.lazyapps.steparena.tracking.StepEventResult
 import com.lazyapps.steparena.tracking.StepTrackingState
@@ -47,7 +49,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -63,6 +64,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private lateinit var activityRepository: ActivityRepository
     private val counter = StepCounter()
     private val notificationPolicy = NotificationUpdatePolicy()
+    private val notificationPreview = NotificationStepPreview()
     private val setupStarted = AtomicBoolean(false)
     private var state = StepTrackingState()
     private var lastPersistedSteps = 0L
@@ -83,6 +85,7 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
+        NotificationStepPreviewDiagnostics.clear()
         repository = TrackingStateRepository(applicationContext)
         diagnosticLog = DiagnosticLogRepository(applicationContext)
         activityRepository = (application as StepArenaApplication).activityRepository
@@ -106,7 +109,7 @@ class StepTrackingService : Service(), SensorEventListener {
                         acceptSensorValue(sample.raw, sample.at)
                         sample.completed?.complete(Unit)
                     }
-                    is SensorSample.Detector -> activityRepository.recordDetector(sample.at)
+                    is SensorSample.Detector -> acceptDetectorEvent(sample.at)
                 }
             }
         }
@@ -157,6 +160,9 @@ class StepTrackingService : Service(), SensorEventListener {
             scope.launch {
                 if (setupStarted.compareAndSet(false, true)) {
                     state = repository.current()
+                    publishNotificationPreview(
+                        notificationPreview.reset(state.accumulatedTodaySteps, state.currentLocalDate),
+                    )
                     if (state.trackingRequested) {
                         val now = Instant.now()
                         state = repository.update {
@@ -199,6 +205,9 @@ class StepTrackingService : Service(), SensorEventListener {
 
     private suspend fun restoreAndRegister() {
         state = repository.current()
+        publishNotificationPreview(
+            notificationPreview.reset(state.accumulatedTodaySteps, state.currentLocalDate),
+        )
         if (!state.trackingRequested) {
             stopSelf()
             return
@@ -311,6 +320,15 @@ class StepTrackingService : Service(), SensorEventListener {
         sensorSamples.trySend(SensorSample.Counter(raw, eventAt))
     }
 
+    private suspend fun acceptDetectorEvent(eventAt: Instant) {
+        val localDate = eventAt.atZone(ZoneId.systemDefault()).toLocalDate()
+        val dateChanged = notificationPreview.snapshot.localDate != localDate
+        publishNotificationPreview(notificationPreview.onDetector(localDate, eventAt))
+        updateNotificationIfNeeded(eventAt, force = dateChanged)
+        activityRepository.recordDetector(eventAt)
+        logEvent("step_detector")
+    }
+
     private suspend fun acceptSensorValue(raw: Float, eventAt: Instant = Instant.now()) {
         val now = eventAt
         val zone = ZoneId.systemDefault()
@@ -351,7 +369,11 @@ class StepTrackingService : Service(), SensorEventListener {
         state = repository.update { state }
         lastPersistedSteps = state.accumulatedTodaySteps
         lastPersistedAt = now
-        updateNotificationIfNeeded(now)
+        val previewDateChanged = notificationPreview.snapshot.localDate != state.currentLocalDate
+        publishNotificationPreview(
+            notificationPreview.onCounter(state.accumulatedTodaySteps, state.currentLocalDate, now),
+        )
+        updateNotificationIfNeeded(now, force = previewDateChanged)
         logEvent(
             "sensor",
             sensorValue = raw.takeIf(Float::isFinite)?.toLong(),
@@ -400,14 +422,17 @@ class StepTrackingService : Service(), SensorEventListener {
         sensorConsumerJob?.cancel()
         heartbeatJob?.cancel()
         sessionTimeoutJob?.cancel()
+        pendingNotificationJob?.cancel()
+        NotificationStepPreviewDiagnostics.clear()
         scope.cancel()
         super.onDestroy()
     }
 
     private suspend fun updateNotificationIfNeeded(now: Instant, force: Boolean = false) {
+        val preview = notificationPreview.snapshot
         if (
             notificationPolicy.shouldUpdate(
-                state.accumulatedTodaySteps,
+                preview.displayedSteps,
                 lastNotifiedSteps,
                 now,
                 lastNotifiedAt,
@@ -416,8 +441,8 @@ class StepTrackingService : Service(), SensorEventListener {
         ) {
             val manual = activityRepository.currentManualSession()
             val model = NotificationModel(
-                state.accumulatedTodaySteps,
-                state.lastSensorEventAt,
+                preview.displayedSteps,
+                maxOfInstant(preview.lastDetectorAt, preview.lastCounterAt) ?: state.lastSensorEventAt,
                 getString(
                     if (manual == null) R.string.notification_status_tracking
                     else R.string.notification_status_walking,
@@ -425,7 +450,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 manual,
             )
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(model))
-            lastNotifiedSteps = state.accumulatedTodaySteps
+            lastNotifiedSteps = preview.displayedSteps
             lastNotifiedAt = now
             scope.launch {
                 state = repository.update { it.copy(lastNotificationAt = now) }
@@ -433,15 +458,27 @@ class StepTrackingService : Service(), SensorEventListener {
             }
             pendingNotificationJob?.cancel()
             pendingNotificationJob = null
-        } else if (state.accumulatedTodaySteps != lastNotifiedSteps && pendingNotificationJob == null) {
-            val remaining = (1_000L - Duration.between(lastNotifiedAt, now).toMillis())
-                .coerceAtLeast(1L)
+        } else if (preview.displayedSteps != lastNotifiedSteps && pendingNotificationJob == null) {
+            val remaining = notificationPolicy.remainingDelayMillis(now, lastNotifiedAt)
             pendingNotificationJob = scope.launch {
                 delay(remaining)
                 pendingNotificationJob = null
                 updateNotificationIfNeeded(Instant.now())
             }
         }
+    }
+
+    private fun publishNotificationPreview(
+        snapshot: com.lazyapps.steparena.tracking.NotificationStepPreviewSnapshot,
+    ) {
+        NotificationStepPreviewDiagnostics.publish(snapshot)
+    }
+
+    private fun maxOfInstant(first: Instant?, second: Instant?): Instant? = when {
+        first == null -> second
+        second == null -> first
+        first >= second -> first
+        else -> second
     }
 
     private fun logEvent(

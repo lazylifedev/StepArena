@@ -10,12 +10,12 @@ class NotificationUpdatePolicyTest {
     private val policy = NotificationUpdatePolicy()
     private val now = Instant.parse("2026-07-29T10:00:20Z")
 
-    @Test fun singleStepBeforeInterval_isThrottled() {
-        assertFalse(policy.shouldUpdate(101, 100, now, now.minusMillis(500)))
+    @Test fun singleStepBeforeCoalesceInterval_isThrottled() {
+        assertFalse(policy.shouldUpdate(101, 100, now, now.minusMillis(200)))
     }
 
-    @Test fun oneStepAfterOneSecond_updates() {
-        assertTrue(policy.shouldUpdate(101, 100, now, now.minusSeconds(1)))
+    @Test fun oneStepAfterCoalesceInterval_updates() {
+        assertTrue(policy.shouldUpdate(101, 100, now, now.minusMillis(350)))
     }
 
     @Test fun unchangedValueDoesNotUpdateOnlyBecauseTimeElapsed() {

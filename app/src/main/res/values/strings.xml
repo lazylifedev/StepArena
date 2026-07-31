@@ -320,6 +320,11 @@
     <string name="diagnostics_sensor_baseline">sensor baseline</string>
     <string name="diagnostics_last_sensor_value">last sensor value</string>
     <string name="diagnostics_today_steps">当日歩数</string>
+    <string name="diagnostics_official_steps">正式歩数（Counter）</string>
+    <string name="diagnostics_pending_detector_steps">通知プレビュー待機歩数（Detector）</string>
+    <string name="diagnostics_notification_displayed_steps">通知の表示歩数</string>
+    <string name="diagnostics_last_detector_received">最終 Detector 受信</string>
+    <string name="diagnostics_last_counter_received">最終 Counter 受信</string>
     <string name="diagnostics_recovered_steps">補完歩数</string>
     <string name="diagnostics_estimated_steps">推定歩数</string>
     <string name="diagnostics_today_total">今日の合計</string>

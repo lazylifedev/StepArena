@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.core.net.toUri
 import com.lazyapps.steparena.tracking.StepTrackingState
+import com.lazyapps.steparena.tracking.NotificationStepPreviewDiagnostics
 import com.lazyapps.steparena.tracking.readTrackingDiagnostics
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.recovery.TrackingHealthStatus
@@ -53,6 +54,7 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
     val context = LocalContext.current
     val app = context.applicationContext as StepArenaApplication
     val diagnostics = context.readTrackingDiagnostics()
+    val notificationPreview by NotificationStepPreviewDiagnostics.snapshot.collectAsState()
     val today = LocalDate.now()
     val zone = ZoneId.systemDefault()
     val daily by app.activityRepository.observeToday(today, zone).collectAsState(initial = null)
@@ -109,6 +111,26 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         DiagnosticRow(R.string.diagnostics_previous_raw, state.previousSensorValue?.toString() ?: stringResource(R.string.state_not_received))
         DiagnosticRow(R.string.diagnostics_today_steps, state.accumulatedTodaySteps.toString())
         DiagnosticRow(
+            R.string.diagnostics_official_steps,
+            notificationPreview.officialSteps.toString(),
+        )
+        DiagnosticRow(
+            R.string.diagnostics_pending_detector_steps,
+            notificationPreview.pendingDetectorSteps.toString(),
+        )
+        DiagnosticRow(
+            R.string.diagnostics_notification_displayed_steps,
+            notificationPreview.displayedSteps.toString(),
+        )
+        DiagnosticRow(
+            R.string.diagnostics_last_detector_received,
+            relativeTime(notificationPreview.lastDetectorAt, Instant.now()),
+        )
+        DiagnosticRow(
+            R.string.diagnostics_last_counter_received,
+            relativeTime(notificationPreview.lastCounterAt, Instant.now()),
+        )
+        DiagnosticRow(
             R.string.diagnostics_recovered_steps,
             if (recoverySettings.healthConnectEnabled) {
                 (daily?.unclassifiedSteps ?: 0).toString()
@@ -124,7 +146,10 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
                 if (recoverySettings.healthConnectEnabled) daily?.unclassifiedSteps ?: 0 else 0)
                 .toString(),
         )
-        DiagnosticRow(R.string.diagnostics_notification_value, state.accumulatedTodaySteps.toString())
+        DiagnosticRow(
+            R.string.diagnostics_notification_value,
+            notificationPreview.displayedSteps.toString(),
+        )
         DiagnosticRow(R.string.diagnostics_home_value, state.accumulatedTodaySteps.toString())
         DiagnosticRow(R.string.diagnostics_hourly_total, hours.sumOf { it.steps }.toString())
         DiagnosticRow(R.string.diagnostics_daily_total, (daily?.steps ?: 0).toString())
