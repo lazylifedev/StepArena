@@ -89,9 +89,9 @@ object RankSystem {
 
 data class CompetitiveStepPolicy(
     val measuredRate: Double = 1.0,
-    val recoveredRate: Double = 0.8,
-    val externalRecoveredRate: Double = 0.7,
-    val estimatedRate: Double = 0.5,
+    val recoveredRate: Double = 0.0,
+    val externalRecoveredRate: Double = 0.0,
+    val estimatedRate: Double = 0.0,
     val unknownRate: Double = 0.0,
     val maxExternalRecoveredStepsPerDay: Long = 10_000,
     val maxEligibleStepsPerDay: Long = 30_000,

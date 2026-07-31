@@ -222,19 +222,6 @@ class LocalGameRepository(
         }
     }
 
-    private fun competitiveSummary(daily: DailyActivityRecordEntity?): CompetitiveStepSummary {
-        if (daily == null) return stepCalculator.calculate(CompetitiveStepInput())
-        val recovered = daily.unclassifiedSteps.coerceAtMost(daily.steps)
-        val measured = (daily.steps - recovered).coerceAtLeast(0)
-        return when (daily.stepsQuality) {
-            DataQuality.MEASURED -> stepCalculator.calculate(CompetitiveStepInput(measured = daily.steps))
-            DataQuality.RECOVERED -> stepCalculator.calculate(CompetitiveStepInput(recovered = daily.steps))
-            DataQuality.ESTIMATED -> stepCalculator.calculate(CompetitiveStepInput(estimated = daily.steps))
-            DataQuality.UNKNOWN -> stepCalculator.calculate(CompetitiveStepInput(unknown = daily.steps))
-            DataQuality.MIXED -> stepCalculator.calculate(CompetitiveStepInput(measured, recovered))
-        }
-    }
-
     override suspend fun rebuildCurrentLeague() = database.withTransaction { rebuildLeague(clock.millis()) }
 
     private suspend fun rebuildLeague(now: Long) {
@@ -431,3 +418,23 @@ class LocalGameRepository(
 
     private fun seasonId(date: LocalDate) = "%04d-%02d".format(date.year, date.monthValue)
 }
+
+internal fun competitiveSummary(
+    daily: DailyActivityRecordEntity?,
+    calculator: CompetitiveStepCalculator = CompetitiveStepCalculator(),
+): CompetitiveStepSummary {
+    if (daily == null) return calculator.calculate(CompetitiveStepInput())
+    val steps = daily.steps.coerceAtLeast(0)
+    val recovered = daily.unclassifiedSteps.coerceAtLeast(0)
+    val input = when (daily.stepsQuality) {
+        DataQuality.MEASURED -> CompetitiveStepInput(measured = steps, recovered = recovered)
+        DataQuality.RECOVERED -> CompetitiveStepInput(recovered = safeStepSum(steps, recovered))
+        DataQuality.ESTIMATED -> CompetitiveStepInput(estimated = steps, recovered = recovered)
+        DataQuality.UNKNOWN -> CompetitiveStepInput(unknown = steps, recovered = recovered)
+        DataQuality.MIXED -> CompetitiveStepInput(measured = steps, recovered = recovered)
+    }
+    return calculator.calculate(input)
+}
+
+private fun safeStepSum(first: Long, second: Long): Long =
+    if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
