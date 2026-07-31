@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
+import com.lazyapps.steparena.core.database.entity.ActivityProcessingStateEntity
 import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.activity.ActivityRepository
 import com.lazyapps.steparena.activity.UserProfileRepository
@@ -86,6 +87,33 @@ class ActivityDatabaseTest {
         val next = database.sessions().active(true)!!
         assertEquals("2026-07-30", next.localDate)
         assertEquals(5L, next.steps)
+    }
+
+    @Test fun counterDeltaAcrossHoursAllocatesStepsAndDurationWithoutLoss() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T03:55:00Z")
+        database.processingState().upsert(
+            ActivityProcessingStateEntity(
+                lastCounterValue = 1_000, lastEventEpochMillis = start.toEpochMilli(),
+                lastZoneId = zone.id, lastBootSessionId = "boot", activeAutoSessionId = null,
+                activeManualSessionId = null, lastDetectorEventEpochMillis = null,
+                lastWalkingEventEpochMillis = start.toEpochMilli(),
+                updatedAtEpochMillis = start.toEpochMilli(), activityRepairVersion = 1,
+            ),
+        )
+        repository.recordCounterDelta(
+            sensorValue = 2_000, delta = 1_000, at = start.plusSeconds(600),
+            zoneId = zone, bootSessionId = "boot", trackingServiceSessionId = "service",
+            recovered = false,
+        )
+        val hours = database.hourly().forDate("2026-07-29", zone.id)
+        assertEquals(2, hours.size)
+        assertEquals(1_000L, hours.sumOf { it.steps })
+        assertEquals(600L, hours.sumOf { it.walkingDurationSeconds ?: 0 })
+        assertEquals(true, hours.all { (it.walkingDurationSeconds ?: 0) > 0 })
+        assertEquals(600L, database.daily().get("2026-07-29", zone.id)?.walkingDurationSeconds)
     }
 
     private fun hour(steps: Long) = HourlyActivityRecordEntity(

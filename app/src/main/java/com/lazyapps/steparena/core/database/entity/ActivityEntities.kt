@@ -120,4 +120,5 @@ data class ActivityProcessingStateEntity(
     val lastDetectorEventEpochMillis: Long?,
     val lastWalkingEventEpochMillis: Long?,
     val updatedAtEpochMillis: Long,
+    val activityRepairVersion: Int = 0,
 )

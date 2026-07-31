@@ -31,6 +31,7 @@ class ActivityRepository(
 ) {
     private val writer = Mutex()
     private val detectorEvents = ArrayDeque<Instant>()
+    private var learnedCadenceStepsPerMinute: Double? = null
 
     fun observeToday(date: LocalDate, zoneId: ZoneId) =
         database.daily().observeDate(date.toString(), zoneId.id)
@@ -115,6 +116,9 @@ class ActivityRepository(
         val profile = profileRepository.current()
         database.withTransaction {
             val processing = database.processingState().get()
+            if ((processing?.activityRepairVersion ?: 0) < ACTIVITY_REPAIR_VERSION) {
+                repairImplausibleActivity(profile, at)
+            }
             if (
                 processing?.lastCounterValue == sensorValue &&
                 processing.lastBootSessionId == bootSessionId
@@ -122,35 +126,42 @@ class ActivityRepository(
 
             val previousAt = processing?.lastEventEpochMillis?.let(Instant::ofEpochMilli)
             val longGap = previousAt != null && Duration.between(previousAt, at).toHours() >= 2
-            val quality = when {
-                recovered || longGap -> DataQuality.RECOVERED
-                detectorEvents.isEmpty() -> DataQuality.ESTIMATED
-                else -> DataQuality.MIXED
-            }
             val consumedDetectors = detectorEvents
                 .filter { previousAt == null || !it.isBefore(previousAt) }
                 .filter { !it.isAfter(at) }
                 .take(delta.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
             val allocations = allocate(delta, previousAt, at, zoneId, longGap, consumedDetectors)
-            val addedDuration = if (consumedDetectors.isNotEmpty()) {
-                durationCalculator.fromDetectorEvents(consumedDetectors)
-            } else {
-                durationCalculator.fromCounterEvents(previousAt, at)
+            val durationResult = durationCalculator.calculate(
+                delta, consumedDetectors, previousAt, at, recovered || longGap,
+                learnedCadenceStepsPerMinute,
+            )
+            if (durationResult.quality == DataQuality.MEASURED) {
+                durationResult.cadenceStepsPerMinute
+                    ?.takeIf { it in WalkingDurationCalculator.MIN_CADENCE..WalkingDurationCalculator.MAX_CADENCE }
+                    ?.let { cadence ->
+                        learnedCadenceStepsPerMinute = learnedCadenceStepsPerMinute
+                            ?.let { previous -> previous * 0.75 + cadence * 0.25 } ?: cadence
+                    }
             }
+            val quality = durationResult.quality
+            val durationAllocations = allocateByStepRatio(durationResult.totalSeconds, allocations)
             allocations.forEach { (bucket, steps) ->
-                val bucketDuration = if (allocations.size == 1) addedDuration else 0
-                upsertHour(bucket, steps, at, profile, quality, bucketDuration)
+                upsertHour(
+                    bucket, steps, at, profile, quality,
+                    durationAllocations[bucket] ?: 0,
+                    consumedDetectors.count { HourBucket.of(it, zoneId) == bucket },
+                )
             }
             splitManualSessionAtDateBoundary(at, zoneId, profile, trackingServiceSessionId)
             val manual = database.sessions().active(true)
             if (manual != null) {
                 updateManualSession(
-                    manual, delta, at, profile, quality, addedDuration, consumedDetectors.size,
+                    manual, delta, at, profile, quality, durationResult.totalSeconds, consumedDetectors.size,
                 )
             } else {
                 updateAutoSession(
                     delta, at, zoneId, profile, quality, trackingServiceSessionId,
-                    addedDuration, consumedDetectors.size,
+                    durationResult.totalSeconds, consumedDetectors.size,
                 )
             }
             val affectedDays = allocations.keys.map { it.date to it.zone }.toSet()
@@ -180,6 +191,7 @@ class ActivityRepository(
                         ?: processing?.lastDetectorEventEpochMillis,
                     lastWalkingEventEpochMillis = at.toEpochMilli(),
                     updatedAtEpochMillis = at.toEpochMilli(),
+                    activityRepairVersion = ACTIVITY_REPAIR_VERSION,
                 ),
             )
             repeat(consumedDetectors.size) { detectorEvents.removeFirstOrNull() }
@@ -266,6 +278,7 @@ class ActivityRepository(
         profile: UserBodyProfile,
         quality: DataQuality,
         addedDurationSeconds: Long,
+        detectorEventCount: Int,
     ) {
         val old = database.hourly().byId(bucket.id)
         val steps = (old?.steps ?: 0) + addedSteps
@@ -299,7 +312,7 @@ class ActivityRepository(
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 firstActivityAtEpochMillis = first.toEpochMilli(),
                 lastActivityAtEpochMillis = last.toEpochMilli(),
-                sensorEventCount = (old?.sensorEventCount ?: 0) + 1,
+                sensorEventCount = (old?.sensorEventCount ?: 0) + detectorEventCount,
                 recoveredSteps = (old?.recoveredSteps ?: 0) +
                     if (quality == DataQuality.RECOVERED) addedSteps else 0,
                 estimatedSteps = (old?.estimatedSteps ?: 0) +
@@ -311,6 +324,56 @@ class ActivityRepository(
                 updatedAtEpochMillis = now,
             ),
         )
+    }
+
+    private fun allocateByStepRatio(
+        total: Long,
+        steps: Map<HourBucket, Long>,
+    ): Map<HourBucket, Long> {
+        if (steps.isEmpty()) return emptyMap()
+        val totalSteps = steps.values.sum().coerceAtLeast(1)
+        var remaining = total
+        val result = linkedMapOf<HourBucket, Long>()
+        steps.entries.forEachIndexed { index, (bucket, bucketSteps) ->
+            val share = if (index == steps.size - 1) remaining else total * bucketSteps / totalSteps
+            result[bucket] = share
+            remaining -= share
+        }
+        return result
+    }
+
+    private suspend fun repairImplausibleActivity(profile: UserBodyProfile, at: Instant) {
+        val affected = linkedSetOf<Pair<LocalDate, ZoneId>>()
+        database.hourly().all().forEach { hour ->
+            if (hour.steps < WalkingDurationCalculator.MIN_STEPS_FOR_CADENCE_CHECK) return@forEach
+            val oldDuration = hour.walkingDurationSeconds ?: 0
+            val cadence = if (oldDuration > 0) hour.steps * 60.0 / oldDuration else Double.POSITIVE_INFINITY
+            if (oldDuration > 0 && cadence in
+                WalkingDurationCalculator.MIN_CADENCE..WalkingDurationCalculator.MAX_CADENCE
+            ) return@forEach
+            val duration = durationCalculator.estimateSeconds(hour.steps)
+            val distance = hour.steps * hour.appliedStepLengthMeters
+            val speed = WalkingSpeedCalculator.movingKmh(distance, duration)
+            val calories = calorieEstimator.estimate(profile.weightKg, distance, duration, speed)
+            database.hourly().upsert(
+                hour.copy(
+                    distanceMeters = distance,
+                    walkingDurationSeconds = duration,
+                    estimatedCaloriesKcal = calories?.kcal,
+                    averageWalkingSpeedKmh = speed,
+                    durationQuality = DataQuality.ESTIMATED,
+                    caloriesQuality = calories?.quality ?: DataQuality.UNKNOWN,
+                    speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
+                    updatedAtEpochMillis = at.toEpochMilli(),
+                ),
+            )
+            affected += LocalDate.parse(hour.localDate) to ZoneId.of(hour.zoneId)
+        }
+        affected.forEach { (date, zone) -> rebuildDay(date, zone, profile, at) }
+    }
+
+    private companion object {
+        const val ACTIVITY_REPAIR_VERSION = 1
     }
 
     private suspend fun rebuildDay(

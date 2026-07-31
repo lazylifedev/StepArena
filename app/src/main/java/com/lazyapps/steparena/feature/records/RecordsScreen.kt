@@ -312,13 +312,21 @@ private fun HourDetail(record: HourlyActivityRecordEntity) {
         stringResource(
             R.string.records_hour_duration,
             record.walkingDurationSeconds?.let {
-                stringResource(R.string.records_minutes_seconds, it / 60, it % 60)
+                val duration = stringResource(R.string.records_minutes_seconds, it / 60, it % 60)
+                if (record.durationQuality == DataQuality.MEASURED) duration
+                else stringResource(R.string.records_approximate_value, duration)
             } ?: stringResource(R.string.records_no_value),
         ),
     )
     Text(stringResource(R.string.records_hour_calories, formatCalories(record.estimatedCaloriesKcal, locale)))
-    Text(stringResource(R.string.records_hour_speed, formatSpeed(record.averageWalkingSpeedKmh, locale)))
-    Text(stringResource(R.string.records_hour_quality, stringResource(record.stepsQuality.labelRes())))
+    val speed = formatSpeed(record.averageWalkingSpeedKmh, locale)
+    Text(
+        stringResource(
+            R.string.records_hour_speed,
+            if (record.speedQuality == DataQuality.MEASURED) speed
+            else stringResource(R.string.records_approximate_value, speed),
+        ),
+    )
     if (record.appliedWeightKg == 60.0) Text(stringResource(R.string.calorie_default_weight))
 }
 

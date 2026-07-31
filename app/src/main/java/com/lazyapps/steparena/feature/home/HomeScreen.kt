@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -80,6 +81,7 @@ import com.lazyapps.steparena.core.designsystem.theme.StepArenaColors
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaMotion
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 import com.lazyapps.steparena.core.model.HomeSnapshot
+import com.lazyapps.steparena.core.model.DataReliability
 import com.lazyapps.steparena.core.model.MatchOutcome
 import com.lazyapps.steparena.core.model.RankTier
 import com.lazyapps.steparena.core.model.TrackingStatus
@@ -147,6 +149,7 @@ private fun HomeReadyContent(
     modifier: Modifier,
 ) {
     val locale = LocalConfiguration.current.locales[0]
+    val resources = LocalResources.current
     val numberFormat = remember(locale) { NumberFormat.getIntegerInstance(locale) }
     val goalProgress = ActivityCalculations.goalProgress(snapshot.metrics.steps, snapshot.metrics.goalSteps)
     var cardsVisible by remember(snapshot) { mutableStateOf(uiState.motionLevel == MotionLevel.OFF) }
@@ -244,7 +247,9 @@ private fun HomeReadyContent(
                     value = snapshot.metrics.durationSeconds.toDouble(),
                     formatter = {
                         if (snapshot.metricsAvailable && it > 0) {
-                            ActivityFormatter.duration(it.toLong())
+                            val duration = ActivityFormatter.duration(it.toLong())
+                            if (snapshot.reliability == DataReliability.COMPLETE) duration
+                            else resources.getString(R.string.records_approximate_value, duration)
                         } else "―"
                     },
                     motionLevel = uiState.motionLevel,
@@ -253,28 +258,15 @@ private fun HomeReadyContent(
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm)) {
-                AnimatedMetricCard(
-                    labelRes = R.string.metric_calories,
-                    value = snapshot.metrics.caloriesKcal,
-                    formatter = {
-                        if (snapshot.metricsAvailable) ActivityFormatter.calories(it, locale) else "―"
-                    },
-                    motionLevel = uiState.motionLevel,
-                    modifier = Modifier.weight(1f),
-                )
-                AnimatedMetricCard(
-                    labelRes = R.string.metric_speed,
-                    value = snapshot.metrics.averageSpeedMetersPerSecond,
-                    formatter = {
-                        if (snapshot.metricsAvailable && it > 0) {
-                            ActivityFormatter.speed(it, SpeedUnit.KILOMETERS_PER_HOUR, locale)
-                        } else "―"
-                    },
-                    motionLevel = uiState.motionLevel,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            AnimatedMetricCard(
+                labelRes = R.string.metric_calories,
+                value = snapshot.metrics.caloriesKcal,
+                formatter = {
+                    if (snapshot.metricsAvailable) ActivityFormatter.calories(it, locale) else "―"
+                },
+                motionLevel = uiState.motionLevel,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         item {
             AnimatedVisibility(

@@ -38,7 +38,7 @@ import com.lazyapps.steparena.core.database.dao.*
         AchievementUnlockEntity::class,
         GameNotificationEventEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -65,7 +65,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
 
         fun build(context: Context, name: String): StepArenaDatabase =
             Room.databaseBuilder(context.applicationContext, StepArenaDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -147,6 +147,12 @@ abstract class StepArenaDatabase : RoomDatabase() {
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_game_notification_events_deduplicationKey` " +
                         "ON `game_notification_events` (`deduplicationKey`)",
                 )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE activity_processing_state ADD COLUMN activityRepairVersion INTEGER NOT NULL DEFAULT 0")
             }
         }
     }
