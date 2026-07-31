@@ -438,8 +438,21 @@ class ActivityRepository(
         // Daily steps are the sensor-derived source of truth. Recovery remains separate so
         // it can be explained and can never silently inflate measured activity.
         val steps = hours.sumOf { it.steps } + unallocatedMeasured
-        val distance = hours.mapNotNull { it.distanceMeters }.takeIf { it.isNotEmpty() }?.sum()
-        val duration = hours.mapNotNull { it.walkingDurationSeconds }.takeIf { it.isNotEmpty() }?.sum()
+        val hourlyDistance = hours.mapNotNull { it.distanceMeters }.sum()
+        val hourlyDuration = hours.mapNotNull { it.walkingDurationSeconds }.sum()
+        val estimatedUnallocatedDistance = if (unallocatedMeasured > 0) {
+            unallocatedMeasured * stepLengthEstimator.estimate(profile).meters
+        } else 0.0
+        val estimatedUnallocatedDuration = if (unallocatedMeasured > 0) {
+            durationCalculator.estimateSeconds(
+                unallocatedMeasured,
+                learnedCadenceStepsPerMinute ?: WalkingDurationCalculator.DEFAULT_CADENCE,
+            )
+        } else 0L
+        val distance = (hourlyDistance + estimatedUnallocatedDistance)
+            .takeIf { steps > 0 }
+        val duration = (hourlyDuration + estimatedUnallocatedDuration)
+            .takeIf { steps > 0 }
         val calories = calorieEstimator.estimate(profile.weightKg, distance, duration, null)?.kcal
         val speed = WalkingSpeedCalculator.movingKmh(distance, duration)
         val now = at.toEpochMilli()
@@ -466,7 +479,10 @@ class ActivityRepository(
                         listOf(DataQuality.MEASURED).takeIf { unallocatedMeasured > 0 }.orEmpty(),
                 ),
                 distanceQuality = if (distance == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
-                durationQuality = mergeQuality(hours.map { it.durationQuality }),
+                durationQuality = mergeQuality(
+                    hours.map { it.durationQuality } +
+                        listOf(DataQuality.ESTIMATED).takeIf { unallocatedMeasured > 0 }.orEmpty(),
+                ),
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 activeHourCount = hours.count { it.steps > 0 },

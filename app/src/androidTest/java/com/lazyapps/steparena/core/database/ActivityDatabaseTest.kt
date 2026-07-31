@@ -141,6 +141,13 @@ class ActivityDatabaseTest {
         assertEquals(1_000L, daily.unallocatedMeasuredSteps)
         assertEquals(0L, daily.externalRecoveredSteps)
         assertEquals(DataQuality.MEASURED, daily.stepsQuality)
+        assertEquals(true, (daily.distanceMeters ?: 0.0) > 0.0)
+        assertEquals(600L, daily.walkingDurationSeconds)
+        assertEquals(true, (daily.estimatedCaloriesKcal ?: 0.0) > 0.0)
+        assertEquals(DataQuality.ESTIMATED, daily.distanceQuality)
+        assertEquals(DataQuality.ESTIMATED, daily.durationQuality)
+        assertEquals(DataQuality.ESTIMATED, daily.speedQuality)
+        assertEquals(DataQuality.ESTIMATED, daily.caloriesQuality)
     }
 
     @Test fun counterMeasuredStepsKeepEstimatedDurationIndependent() = runBlocking {
