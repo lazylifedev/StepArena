@@ -525,4 +525,8 @@
     <string name="notification_monthly_record_title">月間記録を集計しました</string>
     <string name="notification_monthly_record_text">今月の歩行記録が確定しました</string>
     <string name="notification_achievement_title">達成記録が追加されました</string>
+    <string name="game_achievement_new">新着</string>
+    <string name="game_achievement_unlocked_state">達成済み</string>
+    <string name="game_achievement_locked_state">未達成</string>
+    <string name="game_achievement_accessibility">%1$s、%2$s、現在値%3$s、目標値%4$s、%5$s</string>
 </resources>

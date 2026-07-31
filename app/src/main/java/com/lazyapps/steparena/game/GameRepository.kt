@@ -1,7 +1,6 @@
 package com.lazyapps.steparena.game
 
 import android.content.Context
-import com.lazyapps.steparena.activity.DailyStepGoalRepository
 import androidx.room.withTransaction
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.database.StepArenaDatabase
@@ -377,20 +376,28 @@ class LocalGameRepository(
 
     override suspend fun evaluateAchievements() {
         val profile = database.gamePlayerProfile().get() ?: return
-        val dailyStepGoal = DailyStepGoalRepository(context).current()
         val now = clock.millis()
         val daily = database.daily().recentNow(40)
         val finalizedMatches = database.dailyMatches().recentNow(50).filter { it.status == MatchStatus.FINALIZED }
+        val todayDaily = database.daily().get(today.toString(), zone.id)
+        val todayEligible = competitiveSummary(
+            todayDaily,
+            database.competitiveIntegritySegments().forDate(today.toString(), zone.id),
+            stepCalculator,
+        ).eligibleSteps
         val measuredDays = daily.filter { it.stepsQuality != DataQuality.UNKNOWN && it.steps > 0 }
         val definitions = buildList {
-            val bestEligibleDaily = finalizedMatches.maxOfOrNull { it.eligibleUserSteps } ?: 0
+            val bestEligibleDaily = maxOf(
+                finalizedMatches.maxOfOrNull { it.eligibleUserSteps } ?: 0,
+                todayEligible,
+            )
             if (bestEligibleDaily >= 1_000) add("first_1000_steps" to bestEligibleDaily)
             if (consecutiveDays(measuredDays.map { it.localDate }) >= 3) add("three_day_streak" to 3L)
             if (consecutiveDays(measuredDays.map { it.localDate }) >= 7) add("seven_day_streak" to 7L)
             if (profile.wins >= 1) add("first_win" to profile.wins.toLong())
             if (profile.bestWinStreak >= 3) add("three_wins" to profile.bestWinStreak.toLong())
             if (profile.bestWinStreak >= 5) add("five_wins" to profile.bestWinStreak.toLong())
-            if (bestEligibleDaily >= dailyStepGoal) {
+            if (shouldUnlockDailyTenThousand(bestEligibleDaily)) {
                 add("daily_10000_steps" to bestEligibleDaily)
             }
             if (bestEligibleDaily >= 20_000) add("daily_20000_steps" to bestEligibleDaily)
@@ -400,7 +407,7 @@ class LocalGameRepository(
             }
             val noRecovery = daily.filter { it.externalRecoveredSteps == 0L && it.stepsQuality == DataQuality.MEASURED }
             if (consecutiveDays(noRecovery.map { it.localDate }) >= 7) add("seven_days_no_recovery" to 7L)
-            if (daily.any { it.stepsQuality == DataQuality.RECOVERED || it.stepsQuality == DataQuality.MIXED }) {
+            if (daily.any { it.externalRecoveredSteps > 0 }) {
                 add("gap_recovery_success" to 1L)
             }
         }
@@ -503,3 +510,5 @@ internal fun competitiveSummary(
 
 private fun safeStepSum(first: Long, second: Long): Long =
     if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
+
+internal fun shouldUnlockDailyTenThousand(eligibleSteps: Long): Boolean = eligibleSteps >= 10_000

@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -95,7 +97,7 @@ fun AchievementScreen(
                 Text(
                     stringResource(
                         R.string.game_achievement_progress_detail,
-                        formatNumber(progress.current.coerceAtMost(progress.target)),
+                        formatNumber(progress.current),
                         formatNumber(progress.target),
                     ),
                     fontWeight = FontWeight.Bold,
@@ -117,9 +119,25 @@ private fun AchievementBadge(
     onClick: () -> Unit,
 ) {
     val accent = if (progress.unlocked) Color(0xFF58E6FF) else MaterialTheme.colorScheme.outline
+    val title = stringResource(definition.titleRes)
+    val stateLabel = stringResource(
+        if (progress.unlocked) R.string.game_achievement_unlocked_state
+        else R.string.game_achievement_locked_state,
+    )
+    val newLabel = if (progress.isNew) stringResource(R.string.game_achievement_new) else ""
+    val accessibilityLabel = stringResource(
+        R.string.game_achievement_accessibility,
+        title,
+        stateLabel,
+        formatNumber(progress.current),
+        formatNumber(progress.target),
+        newLabel,
+    )
     Card(
         modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp)
-            .testTag(AchievementTestTags.item(progress.id)).clickable(onClick = onClick),
+            .testTag(AchievementTestTags.item(progress.id))
+            .semantics { contentDescription = accessibilityLabel }
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (progress.unlocked) MaterialTheme.colorScheme.secondaryContainer
@@ -134,13 +152,13 @@ private fun AchievementBadge(
                     contentDescription = null,
                     tint = accent,
                 )
-                if (progress.isNew) Badge { Text("NEW") }
+                if (progress.isNew) Badge { Text(stringResource(R.string.game_achievement_new)) }
             }
             Text(stringResource(definition.titleRes), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
                 stringResource(
                     R.string.game_achievement_progress_compact,
-                    formatNumber(progress.current.coerceAtMost(progress.target)),
+                    formatNumber(progress.current),
                     formatNumber(progress.target),
                 ),
                 style = MaterialTheme.typography.bodyLarge,
@@ -158,14 +176,20 @@ internal fun achievementProgress(
     matches: List<DailyMatchEntity>,
     daily: List<DailyActivityRecordEntity>,
     unlocks: List<AchievementUnlockEntity>,
+    currentSeasonId: String? = null,
+    currentEligibleSteps: Long = 0,
 ): List<AchievementProgressUi> {
     val finalized = matches.filter { it.status == MatchStatus.FINALIZED }
-    val bestEligible = finalized.maxOfOrNull { it.eligibleUserSteps } ?: 0
+    val bestEligible = maxOf(
+        finalized.maxOfOrNull { it.eligibleUserSteps } ?: 0,
+        currentEligibleSteps.coerceAtLeast(0),
+    )
     val recordedStreak = consecutiveRecordedDays(daily.filter { it.steps > 0 }.map { it.localDate })
     val noRecoveryStreak = consecutiveRecordedDays(
         daily.filter { it.steps > 0 && it.externalRecoveredSteps == 0L }.map { it.localDate },
     )
-    val currentSeasonMatches = finalized.groupingBy { it.seasonId }.eachCount().values.maxOrNull() ?: 0
+    val effectiveSeasonId = currentSeasonId ?: finalized.firstOrNull()?.seasonId
+    val currentSeasonMatches = finalized.count { it.seasonId == effectiveSeasonId }
     val silverRating = RankSystem.definitions.first { it.tier.name == "SILVER" }.minimumRating.toLong()
     val values = mapOf(
         "first_1000_steps" to bestEligible,
@@ -190,8 +214,12 @@ internal fun achievementProgress(
     )
     return achievementDefinitions.map { definition ->
         val unlock = unlocks.firstOrNull { it.achievementId == definition.id }
+        val target = targets.getValue(definition.id)
+        val current = if (unlock == null) values.getValue(definition.id) else {
+            maxOf(values.getValue(definition.id), unlock.progressValue, target)
+        }
         AchievementProgressUi(
-            definition.id, values.getValue(definition.id), targets.getValue(definition.id),
+            definition.id, current, target,
             unlock != null, unlock?.unlockedAtEpochMillis?.let(Instant::ofEpochMilli),
             unlock != null && !unlock.acknowledged,
         )

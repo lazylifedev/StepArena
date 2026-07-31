@@ -47,7 +47,11 @@ internal fun GameUiState.monthlyRecordUiState() = MonthlyRecordUiState(
 )
 
 internal fun GameUiState.achievementUiState() = AchievementUiState(
-    achievementProgress(profile, recentMatches, recentDailyActivity, achievements),
+    achievementProgress(
+        profile, recentMatches, recentDailyActivity, achievements,
+        currentSeasonId = season?.id,
+        currentEligibleSteps = currentEligibleSteps,
+    ),
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -126,6 +130,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             currentLocalDay.collect { day ->
                 repository.ensureMatch(day.date, day.zoneId)
+            }
+        }
+        viewModelScope.launch {
+            healthConnectAddedSteps.map { it.measuredSteps }.distinctUntilChanged().collect {
+                repository.evaluateAchievements()
             }
         }
     }
