@@ -95,7 +95,7 @@ private fun GameNotificationSetting() {
             Icon(Icons.Default.Notifications, contentDescription = null)
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.settings_game_notifications), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(R.string.settings_game_notifications_summary))
+                Text(stringResource(if (enabled) R.string.state_enabled else R.string.state_disabled))
             }
             Switch(
                 checked = enabled,

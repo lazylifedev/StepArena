@@ -12,6 +12,11 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -24,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.activity.UserBodyProfile
 import com.lazyapps.steparena.activity.DefaultUserBodyProfileValidator
 import com.lazyapps.steparena.activity.DefaultStepLengthEstimator
@@ -38,6 +44,7 @@ import java.text.DecimalFormat
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -52,6 +59,7 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
     var messageRes by remember { mutableStateOf<Int?>(null) }
     var savedProfile by remember { mutableStateOf<UserBodyProfile?>(null) }
     var savedDisplayName by remember { mutableStateOf<String?>(null) }
+    var showInfo by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val savedMessage = stringResource(R.string.profile_saved)
     val validator = remember { DefaultUserBodyProfileValidator() }
@@ -86,7 +94,12 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
             .padding(StepArenaSpacing.md).testTag("profile_settings"),
         verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.md),
     ) {
-        Text(stringResource(R.string.settings_profile), style = MaterialTheme.typography.headlineMedium)
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.settings_profile), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = { showInfo = true }) {
+                Icon(Icons.Default.Info, contentDescription = stringResource(R.string.profile_info_action))
+            }
+        }
         GlassSurface(Modifier.fillMaxWidth()) {
             OutlinedTextField(
                 value = displayName,
@@ -116,7 +129,6 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
             if (automatic && estimatedCm != null) {
                 Text(stringResource(R.string.profile_estimated_from_height))
             }
-            Text(stringResource(R.string.profile_estimate_note))
             Button(onClick = {
                 val result = validator.validate(
                     height,
@@ -145,8 +157,14 @@ fun ProfileSettingsScreen(modifier: Modifier = Modifier) {
             }
             messageRes?.let { Text(stringResource(it)) }
         }
-        Text(stringResource(R.string.profile_history_policy))
         SnackbarHost(snackbar)
+    }
+    if (showInfo) ModalBottomSheet(onDismissRequest = { showInfo = false }, modifier = Modifier.testTag("profile_info_sheet")) {
+        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(R.string.profile_info_title), style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.profile_estimate_note))
+            Text(stringResource(R.string.profile_history_policy))
+        }
     }
 }
 
