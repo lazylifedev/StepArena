@@ -22,6 +22,8 @@ import com.lazyapps.steparena.core.database.entity.TrackingGapRecordEntity
 import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEntity
 import com.lazyapps.steparena.core.database.entity.*
 import com.lazyapps.steparena.core.database.dao.*
+import java.time.Instant
+import java.time.ZoneId
 
 @Database(
     entities = [
@@ -225,27 +227,36 @@ abstract class StepArenaDatabase : RoomDatabase() {
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE activity_processing_state ADD COLUMN legacyOriginRepairVersion INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("""
-                    UPDATE daily_activity_records
-                    SET externalRecoveredSteps = MIN(
-                        MAX(unclassifiedSteps, 0),
-                        COALESCE((SELECT SUM(MAX(appliedSteps, 0))
+                db.query("SELECT localDate, zoneId, unclassifiedSteps, unallocatedMeasuredSteps FROM daily_activity_records").use { days ->
+                    while (days.moveToNext()) {
+                        val localDate = days.getString(0)
+                        val zone = ZoneId.of(days.getString(1))
+                        val legacy = days.getLong(2).coerceAtLeast(0)
+                        val existingUnallocated = days.getLong(3).coerceAtLeast(0)
+                        var audited = 0L
+                        db.query("""SELECT p.startedAtEpochMillis, p.appliedSteps, g.zoneId
                             FROM processed_external_step_records p
-                            WHERE date(p.startedAtEpochMillis / 1000, 'unixepoch') = daily_activity_records.localDate
-                              AND p.gapId IS NOT NULL AND p.gapId != ''), 0)
-                    ),
-                    unallocatedMeasuredSteps = MAX(0, unclassifiedSteps - MIN(
-                        MAX(unclassifiedSteps, 0),
-                        COALESCE((SELECT SUM(MAX(appliedSteps, 0))
-                            FROM processed_external_step_records p
-                            WHERE date(p.startedAtEpochMillis / 1000, 'unixepoch') = daily_activity_records.localDate
-                              AND p.gapId IS NOT NULL AND p.gapId != ''), 0)
-                    ))
-                    WHERE unclassifiedSteps > 0
-                """.trimIndent())
+                            JOIN tracking_gap_records g ON g.id = p.gapId
+                            WHERE p.gapId IS NOT NULL AND p.gapId != ''""").use { records ->
+                            while (records.moveToNext()) {
+                                val recordDate = Instant.ofEpochMilli(records.getLong(0)).atZone(ZoneId.of(records.getString(2))).toLocalDate().toString()
+                                if (recordDate == localDate && ZoneId.of(records.getString(2)) == zone) {
+                                    audited = safeAdd(audited, records.getLong(1).coerceAtLeast(0))
+                                }
+                            }
+                        }
+                        val external = minOf(legacy, audited)
+                        val remainder = legacy - external
+                        db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = ?, unallocatedMeasuredSteps = ? WHERE localDate = ? AND zoneId = ?",
+                            arrayOf(external, safeAdd(existingUnallocated, remainder), localDate, zone.id))
+                    }
+                }
                 db.execSQL("UPDATE activity_processing_state SET legacyOriginRepairVersion = 1 WHERE key = 'sensor'")
             }
         }
+
+        private fun safeAdd(first: Long, second: Long): Long =
+            if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
 
         private fun migrateLegacyLeagueParticipants(db: SupportSQLiteDatabase) {
             db.query(
