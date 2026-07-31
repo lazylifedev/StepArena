@@ -482,11 +482,16 @@ internal fun competitiveSummary(
     if (daily == null) return calculator.calculate(CompetitiveStepInput())
     val steps = daily.steps.coerceAtLeast(0)
     val recovered = daily.externalRecoveredSteps.coerceAtLeast(0)
-    val classifiedTotal = integritySegments.sumOf { it.totalSteps }.coerceAtMost(steps)
+    val classifiedTotal = integritySegments.sumOf { it.totalSteps.coerceAtLeast(0) }.coerceAtMost(steps)
     val unclassifiedMeasured = (steps - classifiedTotal).coerceAtLeast(0)
-    val integrityEligible = integritySegments.sumOf { it.eligibleSteps }
-    val integrityRestricted = integritySegments.sumOf { it.restrictedSteps }
-    val integrityExcluded = integritySegments.sumOf { it.excludedSteps }
+    val rawEligible = integritySegments.sumOf { it.eligibleSteps.coerceAtLeast(0) }
+    val rawRestricted = integritySegments.sumOf { it.restrictedSteps.coerceAtLeast(0) }
+    val rawExcluded = integritySegments.sumOf { it.excludedSteps.coerceAtLeast(0) }
+    val scale = minOf(1.0, if (rawEligible + rawRestricted + rawExcluded == 0L) 1.0
+        else classifiedTotal.toDouble() / (rawEligible + rawRestricted + rawExcluded))
+    val integrityExcluded = (rawExcluded * scale).toLong().coerceAtMost(classifiedTotal)
+    val integrityRestricted = (rawRestricted * scale).toLong().coerceAtMost(classifiedTotal - integrityExcluded)
+    val integrityEligible = (rawEligible * scale).toLong().coerceAtMost(classifiedTotal - integrityExcluded - integrityRestricted)
     val integrityReasons = integritySegments.flatMap { segment ->
         segment.reasons.split(',').mapNotNull { reason ->
             runCatching { CompetitiveStepRestrictionReason.valueOf(reason) }.getOrNull()

@@ -53,6 +53,26 @@ class CompetitiveDailySummaryTest {
         assertEquals(today, finalized)
     }
 
+    @Test
+    fun `duplicate and legacy segments are bounded by daily steps`() {
+        val daily = daily(measuredSteps = 100, healthConnectAddedSteps = 0)
+            .copy(stepsQuality = DataQuality.MEASURED)
+        val duplicate = CompetitiveIntegritySegmentEntity(
+            id = "duplicate", localDate = daily.localDate, zoneId = daily.zoneId,
+            startedAtEpochMillis = 0, endedAtEpochMillis = 1,
+            totalSteps = 120, eligibleSteps = 120, restrictedSteps = 0, excludedSteps = 0,
+            assessment = CompetitiveIntegrityAssessment.TRUSTED,
+            reasons = "", classifierVersion = 1, createdAtEpochMillis = 1,
+        )
+
+        val summary = competitiveSummary(daily, listOf(duplicate, duplicate))
+
+        assertTrue(summary.totalSteps <= 100)
+        assertTrue(summary.eligibleSteps <= 100)
+        assertTrue(summary.eligibleSteps >= 0)
+        assertTrue(summary.eligibleSteps + summary.restrictedSteps + summary.excludedSteps <= 100)
+    }
+
     private fun daily(
         measuredSteps: Long,
         healthConnectAddedSteps: Long,

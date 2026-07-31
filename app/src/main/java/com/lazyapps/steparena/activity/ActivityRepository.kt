@@ -161,23 +161,37 @@ class ActivityRepository(
                     recentCadences = listOfNotNull(learnedCadenceStepsPerMinute),
                 ),
             )
-            database.competitiveIntegritySegments().upsert(
-                CompetitiveIntegritySegmentEntity(
-                    id = "integrity-$bootSessionId-${at.toEpochMilli()}-$sensorValue",
-                    localDate = at.atZone(zoneId).toLocalDate().toString(),
-                    zoneId = zoneId.id,
-                    startedAtEpochMillis = (previousAt ?: at).toEpochMilli(),
-                    endedAtEpochMillis = at.toEpochMilli(),
-                    totalSteps = integrity.totalSteps,
-                    eligibleSteps = integrity.eligibleSteps,
-                    restrictedSteps = integrity.restrictedSteps,
-                    excludedSteps = integrity.excludedSteps,
-                    assessment = integrity.assessment,
-                    reasons = integrity.reasons.joinToString(",") { it.name },
-                    classifierVersion = integrity.classifierVersion,
-                    createdAtEpochMillis = at.toEpochMilli(),
-                ),
-            )
+            val segmentAllocations = if (allocations.isEmpty()) {
+                // A long gap cannot be placed on a clock timeline. Keep it visible as
+                // unallocated instead of pretending that it belongs to eventAt's day.
+                mapOf(HourBucket.of(at, zoneId) to delta)
+            } else allocations
+            val reasonText = integrity.reasons.joinToString(",") { it.name }
+            val grouped = segmentAllocations.entries.groupBy { it.key.date to it.key.zone }
+            val groupedEntries = grouped.entries.toList()
+            val groupWeights = groupedEntries.map { it.value.sumOf { entry -> entry.value } }
+            groupedEntries.forEachIndexed { groupIndex, (dayAndZone, entries) ->
+                val daySteps = entries.sumOf { it.value }
+                fun portion(value: Long): Long = if (groupIndex == groupWeights.lastIndex) {
+                    value - groupWeights.dropLast(1).sumOf { value * it / delta.coerceAtLeast(1) }
+                } else value * daySteps / delta.coerceAtLeast(1)
+                val total = daySteps
+                val eligible = portion(integrity.eligibleSteps)
+                val restricted = portion(integrity.restrictedSteps)
+                val excluded = portion(integrity.excludedSteps)
+                database.competitiveIntegritySegments().upsert(
+                    CompetitiveIntegritySegmentEntity(
+                        id = "integrity-$bootSessionId-${at.toEpochMilli()}-${sensorValue}-${dayAndZone.first}-${dayAndZone.second}-$groupIndex",
+                        localDate = dayAndZone.first.toString(), zoneId = dayAndZone.second.id,
+                        startedAtEpochMillis = entries.minOf { it.key.start.toEpochMilli() },
+                        endedAtEpochMillis = entries.maxOf { it.key.end.toEpochMilli() }.coerceAtMost(at.toEpochMilli()),
+                        totalSteps = total, eligibleSteps = eligible,
+                        restrictedSteps = restricted, excludedSteps = excluded,
+                        assessment = integrity.assessment, reasons = reasonText,
+                        classifierVersion = integrity.classifierVersion, createdAtEpochMillis = at.toEpochMilli(),
+                    ),
+                )
+            }
             if (durationResult.quality == DataQuality.MEASURED) {
                 durationResult.cadenceStepsPerMinute
                     ?.takeIf { it in WalkingDurationCalculator.MIN_CADENCE..WalkingDurationCalculator.MAX_CADENCE }
