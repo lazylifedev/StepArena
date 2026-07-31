@@ -126,7 +126,7 @@ class DataManagementRepository(
         val snapshot = database.withTransaction {
             linkedMapOf(
                 "activity_daily.csv" to queryCsv(
-                    "SELECT localDate,zoneId,steps,distanceMeters,walkingDurationSeconds,estimatedCaloriesKcal,averageWalkingSpeedKmh,stepsQuality FROM daily_activity_records ORDER BY localDate",
+                    "SELECT localDate,zoneId,steps,externalRecoveredSteps,unallocatedMeasuredSteps,distanceMeters,walkingDurationSeconds,estimatedCaloriesKcal,averageWalkingSpeedKmh,stepsQuality FROM daily_activity_records ORDER BY localDate",
                 ),
                 "activity_hourly.csv" to queryCsv(
                     "SELECT localDate,hourOfDay,zoneId,utcOffsetSeconds,steps,distanceMeters,walkingDurationSeconds,estimatedCaloriesKcal,averageWalkingSpeedKmh,stepsQuality FROM hourly_activity_records ORDER BY periodStartEpochMillis",

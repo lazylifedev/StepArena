@@ -66,7 +66,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             activityRepository.observeToday(it.date, it.zoneId)
         },
     ) { settings, daily ->
-        if (settings.healthConnectEnabled) daily?.unclassifiedSteps ?: 0 else 0
+        if (settings.healthConnectEnabled) daily?.externalRecoveredSteps ?: 0 else 0
     }
     private val baseState = combine(
         repository.observePlayerProfile(),

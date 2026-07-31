@@ -116,6 +116,33 @@ class ActivityDatabaseTest {
         assertEquals(600L, database.daily().get("2026-07-29", zone.id)?.walkingDurationSeconds)
     }
 
+    @Test fun longGapCounterDeltaRemainsMeasuredButUnallocatedAndIsNotExternal() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T01:00:00Z")
+        database.processingState().upsert(
+            ActivityProcessingStateEntity(
+                lastCounterValue = 1_000, lastEventEpochMillis = start.toEpochMilli(),
+                lastZoneId = zone.id, lastBootSessionId = "boot", activeAutoSessionId = null,
+                activeManualSessionId = null, lastDetectorEventEpochMillis = null,
+                lastWalkingEventEpochMillis = start.toEpochMilli(),
+                updatedAtEpochMillis = start.toEpochMilli(), activityRepairVersion = 1,
+            ),
+        )
+        repository.recordCounterDelta(
+            sensorValue = 2_000, delta = 1_000, at = start.plusSeconds(7_200),
+            zoneId = zone, bootSessionId = "boot", trackingServiceSessionId = "service",
+            recovered = false,
+        )
+
+        val daily = database.daily().get("2026-07-29", zone.id)!!
+        assertEquals(1_000L, daily.steps)
+        assertEquals(1_000L, daily.unallocatedMeasuredSteps)
+        assertEquals(0L, daily.externalRecoveredSteps)
+        assertEquals(DataQuality.MEASURED, daily.stepsQuality)
+    }
+
     @Test fun counterMeasuredStepsKeepEstimatedDurationIndependent() = runBlocking {
         assertCounterAndDurationQuality(0, DataQuality.ESTIMATED)
     }

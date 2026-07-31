@@ -163,7 +163,7 @@ internal fun achievementProgress(
     val bestEligible = finalized.maxOfOrNull { it.eligibleUserSteps } ?: 0
     val recordedStreak = consecutiveRecordedDays(daily.filter { it.steps > 0 }.map { it.localDate })
     val noRecoveryStreak = consecutiveRecordedDays(
-        daily.filter { it.steps > 0 && it.unclassifiedSteps == 0L }.map { it.localDate },
+        daily.filter { it.steps > 0 && it.externalRecoveredSteps == 0L }.map { it.localDate },
     )
     val currentSeasonMatches = finalized.groupingBy { it.seasonId }.eachCount().values.maxOrNull() ?: 0
     val silverRating = RankSystem.definitions.first { it.tier.name == "SILVER" }.minimumRating.toLong()
@@ -179,7 +179,7 @@ internal fun achievementProgress(
         "silver_promotion" to (profile?.rating ?: 1_000).toLong(),
         "season_10_matches" to currentSeasonMatches.toLong(),
         "seven_days_no_recovery" to noRecoveryStreak.toLong(),
-        "gap_recovery_success" to daily.count { it.unclassifiedSteps > 0 }.toLong(),
+        "gap_recovery_success" to daily.count { it.externalRecoveredSteps > 0 }.toLong(),
     )
     val targets = mapOf(
         "first_1000_steps" to 1_000L, "three_day_streak" to 3L, "seven_day_streak" to 7L,

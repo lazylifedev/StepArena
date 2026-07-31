@@ -72,6 +72,8 @@ class GapRecoveryInstrumentationTest {
         assertEquals(100L, second.recoveredSteps)
         assertEquals(0L, database.daily().get("2026-07-29", "UTC")?.steps)
         assertEquals(100L, database.daily().get("2026-07-29", "UTC")?.unclassifiedSteps)
+        assertEquals(100L, database.daily().get("2026-07-29", "UTC")?.externalRecoveredSteps)
+        assertEquals(0L, database.daily().get("2026-07-29", "UTC")?.unallocatedMeasuredSteps)
     }
 
     @Test fun realAvailabilityCheckNeverCrashes() = runBlocking {

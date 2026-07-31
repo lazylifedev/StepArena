@@ -133,7 +133,7 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         DiagnosticRow(
             R.string.diagnostics_recovered_steps,
             if (recoverySettings.healthConnectEnabled) {
-                (daily?.unclassifiedSteps ?: 0).toString()
+                (daily?.externalRecoveredSteps ?: 0).toString()
             } else "0",
         )
         DiagnosticRow(
@@ -143,7 +143,7 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         DiagnosticRow(
             R.string.diagnostics_today_total,
             (state.accumulatedTodaySteps +
-                if (recoverySettings.healthConnectEnabled) daily?.unclassifiedSteps ?: 0 else 0)
+                if (recoverySettings.healthConnectEnabled) daily?.externalRecoveredSteps ?: 0 else 0)
                 .toString(),
         )
         DiagnosticRow(

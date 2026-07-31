@@ -398,7 +398,7 @@ class LocalGameRepository(
             if (finalizedMatches.count { it.seasonId == seasonId(today) } >= 10) {
                 add("season_10_matches" to finalizedMatches.count { it.seasonId == seasonId(today) }.toLong())
             }
-            val noRecovery = daily.filter { it.unclassifiedSteps == 0L && it.stepsQuality == DataQuality.MEASURED }
+            val noRecovery = daily.filter { it.externalRecoveredSteps == 0L && it.stepsQuality == DataQuality.MEASURED }
             if (consecutiveDays(noRecovery.map { it.localDate }) >= 7) add("seven_days_no_recovery" to 7L)
             if (daily.any { it.stepsQuality == DataQuality.RECOVERED || it.stepsQuality == DataQuality.MIXED }) {
                 add("gap_recovery_success" to 1L)
@@ -474,7 +474,7 @@ internal fun competitiveSummary(
 ): CompetitiveStepSummary {
     if (daily == null) return calculator.calculate(CompetitiveStepInput())
     val steps = daily.steps.coerceAtLeast(0)
-    val recovered = daily.unclassifiedSteps.coerceAtLeast(0)
+    val recovered = daily.externalRecoveredSteps.coerceAtLeast(0)
     val classifiedTotal = integritySegments.sumOf { it.totalSteps }.coerceAtMost(steps)
     val unclassifiedMeasured = (steps - classifiedTotal).coerceAtLeast(0)
     val integrityEligible = integritySegments.sumOf { it.eligibleSteps }

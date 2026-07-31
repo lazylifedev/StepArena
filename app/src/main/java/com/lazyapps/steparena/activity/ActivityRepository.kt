@@ -101,8 +101,7 @@ class ActivityRepository(
                 zoneId,
                 profile,
                 at,
-                addedUnclassifiedSteps = steps,
-                addedQuality = DataQuality.RECOVERED,
+                addedExternalRecoveredSteps = steps,
             )
         }
     }
@@ -206,8 +205,7 @@ class ActivityRepository(
                     zoneId,
                     profile,
                     at,
-                    addedUnclassifiedSteps = delta,
-                    addedQuality = DataQuality.RECOVERED,
+                    addedUnallocatedMeasuredSteps = delta,
                 )
             } else {
                 affectedDays.forEach { (date, zone) ->
@@ -416,19 +414,18 @@ class ActivityRepository(
         zone: ZoneId,
         profile: UserBodyProfile,
         at: Instant,
-        addedUnclassifiedSteps: Long = 0,
-        addedQuality: DataQuality? = null,
+        addedExternalRecoveredSteps: Long = 0,
+        addedUnallocatedMeasuredSteps: Long = 0,
     ) {
         val hours = database.hourly().forDate(date.toString(), zone.id)
         val old = database.daily().get(date.toString(), zone.id)
-        val unclassified = (old?.unclassifiedSteps ?: 0) + addedUnclassifiedSteps
-        val unclassifiedQuality = mergeQuality(
-            listOfNotNull(old?.unclassifiedStepsQuality, addedQuality)
-                .filterNot { it == DataQuality.UNKNOWN },
-        )
+        val externalRecovered = (old?.externalRecoveredSteps ?: old?.unclassifiedSteps ?: 0) +
+            addedExternalRecoveredSteps
+        val unallocatedMeasured = (old?.unallocatedMeasuredSteps ?: 0) +
+            addedUnallocatedMeasuredSteps
         // Daily steps are the sensor-derived source of truth. Recovery remains separate so
         // it can be explained and can never silently inflate measured activity.
-        val steps = hours.sumOf { it.steps }
+        val steps = hours.sumOf { it.steps } + unallocatedMeasured
         val distance = hours.mapNotNull { it.distanceMeters }.takeIf { it.isNotEmpty() }?.sum()
         val duration = hours.mapNotNull { it.walkingDurationSeconds }.takeIf { it.isNotEmpty() }?.sum()
         val calories = calorieEstimator.estimate(profile.weightKg, distance, duration, null)?.kcal
@@ -440,16 +437,22 @@ class ActivityRepository(
                 localDate = date.toString(),
                 zoneId = zone.id,
                 steps = steps,
-                unclassifiedSteps = unclassified,
+                // Retained as a schema-compatibility mirror through v9. New code reads the
+                // explicit fields below and never mixes Counter gaps with external recovery.
+                unclassifiedSteps = externalRecovered,
+                unclassifiedStepsQuality = if (externalRecovered > 0) {
+                    DataQuality.RECOVERED
+                } else DataQuality.UNKNOWN,
+                externalRecoveredSteps = externalRecovered,
+                unallocatedMeasuredSteps = unallocatedMeasured,
                 distanceMeters = distance,
                 walkingDurationSeconds = duration,
                 estimatedCaloriesKcal = calories,
                 averageWalkingSpeedKmh = speed,
                 stepsQuality = mergeQuality(
                     hours.map { it.stepsQuality } +
-                        listOf(unclassifiedQuality).filterNot { it == DataQuality.UNKNOWN },
+                        listOf(DataQuality.MEASURED).takeIf { unallocatedMeasured > 0 }.orEmpty(),
                 ),
-                unclassifiedStepsQuality = unclassifiedQuality,
                 distanceQuality = if (distance == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 durationQuality = mergeQuality(hours.map { it.durationQuality }),
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,

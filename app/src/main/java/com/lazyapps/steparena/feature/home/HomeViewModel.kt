@@ -135,7 +135,7 @@ class HomeViewModel(
                                 gameMatch = sources.match,
                                 gameLeague = sources.league,
                                 recoveredSteps = if (sources.recoveryEnabled) {
-                                    daily?.unclassifiedSteps ?: 0
+                                    daily?.externalRecoveredSteps ?: 0
                                 } else 0,
                                 goalSteps = sources.goalSteps,
                             ),

@@ -56,6 +56,10 @@ data class DailyActivityRecordEntity(
     val steps: Long,
     val unclassifiedSteps: Long,
     val unclassifiedStepsQuality: DataQuality,
+    /** External provider additions (for example Health Connect), never Counter deltas. */
+    val externalRecoveredSteps: Long = unclassifiedSteps,
+    /** Counter-measured steps included in [steps] but not safely attributable to an hour. */
+    val unallocatedMeasuredSteps: Long = 0,
     val distanceMeters: Double?,
     val walkingDurationSeconds: Long?,
     val estimatedCaloriesKcal: Double?,

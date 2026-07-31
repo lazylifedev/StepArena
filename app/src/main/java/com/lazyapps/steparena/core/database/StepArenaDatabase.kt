@@ -40,7 +40,7 @@ import com.lazyapps.steparena.core.database.dao.*
         GameNotificationEventEntity::class,
         CompetitiveIntegritySegmentEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -77,6 +77,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
+                    MIGRATION_8_9,
                 )
                 .build()
 
@@ -203,6 +204,19 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_competitive_integrity_segments_localDate_zoneId` ON `competitive_integrity_segments` (`localDate`, `zoneId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_competitive_integrity_segments_startedAtEpochMillis` ON `competitive_integrity_segments` (`startedAtEpochMillis`)")
+            }
+        }
+
+        /**
+         * Legacy unclassifiedSteps was documented and presented as external recovery.
+         * Existing values therefore migrate to externalRecoveredSteps. Counter long-gap
+         * deltas are separated into unallocatedMeasuredSteps for all new writes.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE daily_activity_records ADD COLUMN externalRecoveredSteps INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_activity_records ADD COLUMN unallocatedMeasuredSteps INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = unclassifiedSteps")
             }
         }
 
