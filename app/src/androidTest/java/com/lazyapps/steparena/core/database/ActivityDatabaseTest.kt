@@ -116,6 +116,59 @@ class ActivityDatabaseTest {
         assertEquals(600L, database.daily().get("2026-07-29", zone.id)?.walkingDurationSeconds)
     }
 
+    @Test fun counterMeasuredStepsKeepEstimatedDurationIndependent() = runBlocking {
+        assertCounterAndDurationQuality(0, DataQuality.ESTIMATED)
+    }
+
+    @Test fun counterMeasuredStepsKeepMixedDurationIndependent() = runBlocking {
+        assertCounterAndDurationQuality(50, DataQuality.MIXED)
+    }
+
+    @Test fun counterMeasuredStepsKeepMeasuredDurationIndependent() = runBlocking {
+        assertCounterAndDurationQuality(98, DataQuality.MEASURED)
+    }
+
+    private suspend fun assertCounterAndDurationQuality(
+        detectorCount: Int,
+        expectedDurationQuality: DataQuality,
+    ) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        database.processingState().upsert(
+            ActivityProcessingStateEntity(
+                lastCounterValue = 1_000, lastEventEpochMillis = start.toEpochMilli(),
+                lastZoneId = zone.id, lastBootSessionId = "boot", activeAutoSessionId = null,
+                activeManualSessionId = null, lastDetectorEventEpochMillis = null,
+                lastWalkingEventEpochMillis = start.toEpochMilli(),
+                updatedAtEpochMillis = start.toEpochMilli(), activityRepairVersion = 1,
+            ),
+        )
+        repeat(detectorCount) { index ->
+            repository.recordDetector(start.plusMillis(index * 600L))
+        }
+        repository.recordCounterDelta(
+            sensorValue = 1_100, delta = 100, at = start.plusSeconds(60),
+            zoneId = zone, bootSessionId = "boot", trackingServiceSessionId = "service",
+            recovered = false, detectorAvailable = detectorCount > 0,
+        )
+
+        val hour = database.hourly().forDate("2026-07-29", zone.id).single()
+        val daily = database.daily().get("2026-07-29", zone.id)!!
+        val session = database.sessions().active(false)!!
+        assertEquals(DataQuality.MEASURED, hour.stepsQuality)
+        assertEquals(expectedDurationQuality, hour.durationQuality)
+        assertEquals(0L, hour.estimatedSteps)
+        assertEquals(0L, hour.recoveredSteps)
+        assertEquals(DataQuality.MEASURED, daily.stepsQuality)
+        assertEquals(expectedDurationQuality, daily.durationQuality)
+        assertEquals(DataQuality.MEASURED, session.stepsQuality)
+        assertEquals(expectedDurationQuality, session.durationQuality)
+        assertEquals(0L, session.estimatedStepCount)
+        assertEquals(0L, session.recoveredStepCount)
+    }
+
     private fun hour(steps: Long) = HourlyActivityRecordEntity(
         id = "2026-07-29|12|Asia/Tokyo|32400",
         localDate = "2026-07-29", hourOfDay = 12, zoneId = "Asia/Tokyo",

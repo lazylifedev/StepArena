@@ -178,11 +178,11 @@ class ActivityRepository(
                             ?.let { previous -> previous * 0.75 + cadence * 0.25 } ?: cadence
                     }
             }
-            val quality = durationResult.quality
+            val durationQuality = durationResult.quality
             val durationAllocations = allocateByStepRatio(durationResult.totalSeconds, allocations)
             allocations.forEach { (bucket, steps) ->
                 upsertHour(
-                    bucket, steps, at, profile, quality,
+                    bucket, steps, at, profile, durationQuality,
                     durationAllocations[bucket] ?: 0,
                     consumedDetectors.count { HourBucket.of(it, zoneId) == bucket },
                 )
@@ -191,11 +191,11 @@ class ActivityRepository(
             val manual = database.sessions().active(true)
             if (manual != null) {
                 updateManualSession(
-                    manual, delta, at, profile, quality, durationResult.totalSeconds, consumedDetectors.size,
+                    manual, delta, at, profile, durationQuality, durationResult.totalSeconds, consumedDetectors.size,
                 )
             } else {
                 updateAutoSession(
-                    delta, at, zoneId, profile, quality, trackingServiceSessionId,
+                    delta, at, zoneId, profile, durationQuality, trackingServiceSessionId,
                     durationResult.totalSeconds, consumedDetectors.size,
                 )
             }
@@ -311,7 +311,7 @@ class ActivityRepository(
         addedSteps: Long,
         eventAt: Instant,
         profile: UserBodyProfile,
-        quality: DataQuality,
+        durationQuality: DataQuality,
         addedDurationSeconds: Long,
         detectorEventCount: Int,
     ) {
@@ -340,18 +340,18 @@ class ActivityRepository(
                 walkingDurationSeconds = duration,
                 estimatedCaloriesKcal = calories?.kcal,
                 averageWalkingSpeedKmh = speed,
-                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, quality)),
+                // Step Counter deltas are measured steps. Duration estimation must not
+                // downgrade or otherwise alter the independent step-quality dimension.
+                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, DataQuality.MEASURED)),
                 distanceQuality = DataQuality.ESTIMATED,
-                durationQuality = if (duration == 0L) DataQuality.UNKNOWN else quality,
+                durationQuality = if (duration == 0L) DataQuality.UNKNOWN else durationQuality,
                 caloriesQuality = calories?.quality ?: DataQuality.UNKNOWN,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 firstActivityAtEpochMillis = first.toEpochMilli(),
                 lastActivityAtEpochMillis = last.toEpochMilli(),
                 sensorEventCount = (old?.sensorEventCount ?: 0) + detectorEventCount,
-                recoveredSteps = (old?.recoveredSteps ?: 0) +
-                    if (quality == DataQuality.RECOVERED) addedSteps else 0,
-                estimatedSteps = (old?.estimatedSteps ?: 0) +
-                    if (quality == DataQuality.ESTIMATED || quality == DataQuality.MIXED) addedSteps else 0,
+                recoveredSteps = old?.recoveredSteps ?: 0,
+                estimatedSteps = old?.estimatedSteps ?: 0,
                 appliedStepLengthMeters = stepLength.meters,
                 appliedWeightKg = profile.weightKg ?: DistanceCalorieEstimator.DEFAULT_WEIGHT_KG,
                 calorieFormulaVersion = 1,
@@ -469,7 +469,7 @@ class ActivityRepository(
         at: Instant,
         zone: ZoneId,
         profile: UserBodyProfile,
-        quality: DataQuality,
+        durationQuality: DataQuality,
         trackingServiceSessionId: String?,
         addedDurationSeconds: Long,
         detectorCount: Int,
@@ -500,9 +500,9 @@ class ActivityRepository(
                 averageElapsedSpeedKmh = WalkingSpeedCalculator.movingKmh(distance, elapsed),
                 sessionType = WalkingSessionType.AUTO_DETECTED,
                 status = WalkingSessionStatus.ACTIVE,
-                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, quality)),
+                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, DataQuality.MEASURED)),
                 distanceQuality = DataQuality.ESTIMATED,
-                durationQuality = if (active >= 60) quality else DataQuality.UNKNOWN,
+                durationQuality = if (active >= 60) durationQuality else DataQuality.UNKNOWN,
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 trackingServiceSessionId = trackingServiceSessionId,
@@ -510,10 +510,8 @@ class ActivityRepository(
                 pausedSinceEpochMillis = null,
                 isManual = false,
                 detectorEventCount = (old?.detectorEventCount ?: 0) + detectorCount,
-                estimatedStepCount = (old?.estimatedStepCount ?: 0) +
-                    if (quality == DataQuality.ESTIMATED || quality == DataQuality.MIXED) delta else 0,
-                recoveredStepCount = (old?.recoveredStepCount ?: 0) +
-                    if (quality == DataQuality.RECOVERED) delta else 0,
+                estimatedStepCount = old?.estimatedStepCount ?: 0,
+                recoveredStepCount = old?.recoveredStepCount ?: 0,
                 createdAtEpochMillis = old?.createdAtEpochMillis ?: at.toEpochMilli(),
                 updatedAtEpochMillis = at.toEpochMilli(),
             ),
@@ -567,7 +565,7 @@ class ActivityRepository(
         delta: Long,
         at: Instant,
         profile: UserBodyProfile,
-        quality: DataQuality,
+        durationQuality: DataQuality,
         addedDurationSeconds: Long,
         detectorCount: Int,
     ) {
@@ -589,18 +587,16 @@ class ActivityRepository(
                 averageMovingSpeedKmh = speed,
                 averageElapsedSpeedKmh = WalkingSpeedCalculator.movingKmh(distance, elapsed),
                 status = WalkingSessionStatus.ACTIVE,
-                stepsQuality = mergeQuality(listOf(old.stepsQuality, quality)),
+                stepsQuality = mergeQuality(listOf(old.stepsQuality, DataQuality.MEASURED)),
                 distanceQuality = DataQuality.ESTIMATED,
-                durationQuality = if (active >= 60) quality else DataQuality.UNKNOWN,
+                durationQuality = if (active >= 60) durationQuality else DataQuality.UNKNOWN,
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 lastWalkingEventAtEpochMillis = at.toEpochMilli(),
                 pausedSinceEpochMillis = null,
                 detectorEventCount = old.detectorEventCount + detectorCount,
-                estimatedStepCount = old.estimatedStepCount +
-                    if (quality in setOf(DataQuality.ESTIMATED, DataQuality.MIXED)) delta else 0,
-                recoveredStepCount = old.recoveredStepCount +
-                    if (quality == DataQuality.RECOVERED) delta else 0,
+                estimatedStepCount = old.estimatedStepCount,
+                recoveredStepCount = old.recoveredStepCount,
                 updatedAtEpochMillis = at.toEpochMilli(),
             ),
         )
