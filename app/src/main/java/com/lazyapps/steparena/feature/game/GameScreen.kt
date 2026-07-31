@@ -37,7 +37,7 @@ import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.component.RankBadge
 import com.lazyapps.steparena.core.designsystem.component.RankProgressBar
-import com.lazyapps.steparena.core.designsystem.component.StepProgressRing
+import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 import com.lazyapps.steparena.game.GameNotificationType
 import com.lazyapps.steparena.game.LeagueStatus
@@ -65,7 +65,11 @@ object GameTestTags {
 }
 
 @Composable
-fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewModel()) {
+fun GameScreen(
+    initialPage: GamePage = GamePage.MATCH,
+    motionLevel: MotionLevel = MotionLevel.FULL,
+    vm: GameViewModel = viewModel(),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf(initialPage) }
     state.notificationEvents.firstOrNull {
@@ -96,124 +100,16 @@ fun GameScreen(initialPage: GamePage = GamePage.MATCH, vm: GameViewModel = viewM
             }
         }
         when (page) {
-            GamePage.MATCH -> MatchPage(state)
+            GamePage.MATCH -> MatchPage(
+                state = state,
+                motionLevel = motionLevel,
+                onChallengeObserved = vm::observeChallengeMilestone,
+                onCelebrationConsumed = vm::acknowledgeChallengeCelebration,
+            )
             GamePage.RANK -> RankPage(state)
             GamePage.LEAGUE -> LeaguePage(state)
             GamePage.SEASON -> SeasonPage(state)
             GamePage.ACHIEVEMENTS -> AchievementPage(state)
-        }
-    }
-}
-
-@Composable
-internal fun MatchPage(state: GameUiState) = LazyColumn(
-    Modifier.fillMaxSize(),
-    contentPadding = PaddingValues(16.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp),
-) {
-    item {
-        Text(
-            stringResource(R.string.game_today_title),
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.semantics { heading() },
-        )
-        Text(stringResource(R.string.game_today_explanation))
-    }
-    state.todayMatch?.let { match ->
-        item {
-            val currentSteps = currentChallengeSteps(match, state.currentMeasuredSteps)
-            GameCard(stringResource(R.string.game_today_progress)) {
-                StepProgressRing(
-                    progress = (currentSteps.eligibleSteps.toFloat() /
-                        match.opponentTargetSteps.coerceAtLeast(1)).coerceIn(0f, 1f),
-                    description = stringResource(
-                        R.string.game_progress_description,
-                        formatNumber(currentSteps.eligibleSteps),
-                        formatNumber(match.opponentTargetSteps),
-                    ),
-                    modifier = Modifier.size(152.dp),
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            stringResource(
-                                if (!currentSteps.isFinalized &&
-                                    state.currentHealthConnectAddedSteps > 0
-                                ) R.string.game_today_total else R.string.game_you,
-                            ),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                        Text(
-                            stringResource(
-                                R.string.records_value_steps,
-                                formatNumber(
-                                    if (!currentSteps.isFinalized) {
-                                        currentSteps.displayedUserSteps +
-                                            state.currentHealthConnectAddedSteps
-                                    } else {
-                                        currentSteps.displayedUserSteps
-                                    },
-                                ),
-                            ),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                    }
-                }
-                Text(stringResource(R.string.game_partner_target, formatNumber(match.opponentTargetSteps)))
-                Text(
-                    if (currentSteps.eligibleSteps >= match.opponentTargetSteps) {
-                        stringResource(R.string.game_goal_achieved)
-                    } else {
-                        stringResource(
-                            R.string.game_steps_remaining,
-                            formatNumber(match.opponentTargetSteps - currentSteps.eligibleSteps),
-                        )
-                    },
-                )
-                Text(
-                    stringResource(
-                        if (currentSteps.isFinalized) R.string.game_finalized_eligible_steps
-                        else R.string.game_eligible_steps,
-                        formatNumber(currentSteps.eligibleSteps),
-                    ),
-                )
-                if (!currentSteps.isFinalized && state.currentHealthConnectAddedSteps > 0) {
-                    Text(
-                        stringResource(
-                            R.string.game_health_connect_steps,
-                            formatNumber(state.currentHealthConnectAddedSteps),
-                        ),
-                    )
-                    Text(stringResource(R.string.game_health_connect_reason))
-                }
-                if (currentSteps.displayedUserSteps > 30_000) {
-                    Text(
-                        stringResource(R.string.game_health_cap),
-                        modifier = Modifier.testTag(GameTestTags.HEALTH_CAP),
-                    )
-                }
-            }
-        }
-    } ?: item {
-        Text(stringResource(R.string.game_today_loading), modifier = Modifier.testTag(GameTestTags.EMPTY))
-    }
-    item { Text(stringResource(R.string.game_past_title), style = MaterialTheme.typography.titleLarge) }
-    val finalized = state.recentMatches.filter { it.status == MatchStatus.FINALIZED }
-    if (finalized.isEmpty()) item { Text(stringResource(R.string.game_past_empty)) }
-    items(finalized) { match ->
-        GameCard(formatDate(match.localDate)) {
-            Text(
-                stringResource((match.outcome ?: MatchOutcome.IN_PROGRESS).displayNameRes()),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(stringResource(R.string.game_user_steps, formatNumber(match.eligibleUserSteps)))
-            Text(stringResource(R.string.game_partner_target, formatNumber(match.opponentTargetSteps)))
-            Text(
-                stringResource(
-                    R.string.game_rating_change,
-                    formatNumber(match.ratingBefore),
-                    match.ratingAfter?.let(::formatNumber) ?: stringResource(R.string.records_no_value),
-                ),
-            )
         }
     }
 }
@@ -462,10 +358,10 @@ fun nextRankProgress(rating: Int): NextRankProgress? {
     )
 }
 
-private fun formatNumber(value: Number): String =
+internal fun formatNumber(value: Number): String =
     NumberFormat.getNumberInstance(Locale.getDefault()).format(value)
 
-private fun formatDate(value: String): String = runCatching {
+internal fun formatDate(value: String): String = runCatching {
     LocalDate.parse(value).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 }.getOrDefault(value)
 

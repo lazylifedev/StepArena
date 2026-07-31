@@ -20,6 +20,7 @@ data class GameUiState(
     val notificationEvents: List<GameNotificationEventEntity> = emptyList(),
     val currentMeasuredSteps: Long = 0,
     val currentHealthConnectAddedSteps: Long = 0,
+    val challengeCelebration: ChallengeCelebration? = null,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -29,6 +30,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val trackingRepository = TrackingStateRepository(application)
     private val activityRepository = app.activityRepository
     private val recoverySettingsRepository = app.recoverySettingsRepository
+    private val challengeCelebrationRepository = ChallengeCelebrationRepository(application)
+    private val _challengeCelebration = MutableStateFlow<ChallengeCelebration?>(null)
+    private val celebrationClaimsInFlight = mutableSetOf<String>()
+    private val celebrationClaimsCompleted = mutableSetOf<String>()
     private val currentLocalDay = app.currentLocalDayProvider.current
     private val healthConnectAddedSteps = combine(
         recoverySettingsRepository.settings,
@@ -38,7 +43,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     ) { settings, daily ->
         if (settings.healthConnectEnabled) daily?.unclassifiedSteps ?: 0 else 0
     }
-    val state: StateFlow<GameUiState> = combine(
+    private val baseState = combine(
         repository.observePlayerProfile(),
         currentLocalDay.flatMapLatest { repository.observeMatch(it.date, it.zoneId) },
         repository.observeRecentMatches(30),
@@ -69,6 +74,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             },
             values[8] as Long,
         )
+    }
+    val state: StateFlow<GameUiState> = combine(
+        baseState,
+        _challengeCelebration,
+    ) { state, celebration ->
+        state.copy(challengeCelebration = celebration)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GameUiState())
 
     init {
@@ -85,6 +96,39 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun acknowledgeEvent(id: String) {
         viewModelScope.launch { repository.acknowledgeNotificationEvent(id) }
+    }
+
+    fun observeChallengeMilestone(
+        matchId: String,
+        eligibleSteps: Long,
+        partnerTargetSteps: Long,
+    ) {
+        if (
+            eligibleSteps < partnerTargetSteps ||
+            matchId in celebrationClaimsCompleted ||
+            !celebrationClaimsInFlight.add(matchId)
+        ) return
+        viewModelScope.launch {
+            try {
+                if (challengeCelebrationRepository.claim(
+                        matchId,
+                        eligibleSteps,
+                        partnerTargetSteps,
+                    )
+                ) {
+                    _challengeCelebration.value = ChallengeCelebration(matchId)
+                }
+            } finally {
+                celebrationClaimsInFlight.remove(matchId)
+                celebrationClaimsCompleted.add(matchId)
+            }
+        }
+    }
+
+    fun acknowledgeChallengeCelebration(matchId: String) {
+        if (_challengeCelebration.value?.matchId == matchId) {
+            _challengeCelebration.value = null
+        }
     }
 }
 

@@ -29,6 +29,7 @@ class RecordsScreenTest {
     @Test fun dailySummary_changesWithAllMetrics_andNeverTotalsSpeed() {
         setRecords()
         composeRule.onNodeWithTag("record_period_daily").performClick()
+        composeRule.onNodeWithText("目標 10,000歩").assertIsDisplayed()
         listOf(
             "steps" to "5,000歩",
             "distance" to "3.42 km",

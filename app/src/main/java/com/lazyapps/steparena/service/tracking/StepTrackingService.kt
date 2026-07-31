@@ -24,6 +24,7 @@ import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.MainActivity
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.activity.ActivityRepository
+import com.lazyapps.steparena.activity.DailyStepGoal
 import com.lazyapps.steparena.tracking.BootSession
 import com.lazyapps.steparena.tracking.DailyStepSummary
 import com.lazyapps.steparena.tracking.DiagnosticLogEntry
@@ -50,6 +51,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.text.NumberFormat
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -77,14 +79,26 @@ class StepTrackingService : Service(), SensorEventListener {
     private var sessionTimeoutJob: Job? = null
     private var pendingNotificationJob: Job? = null
     private var manualStartRequested = false
+    private var dailyStepGoal = DailyStepGoal.DEFAULT
 
     override fun onCreate() {
         super.onCreate()
         repository = TrackingStateRepository(applicationContext)
         diagnosticLog = DiagnosticLogRepository(applicationContext)
         activityRepository = (application as StepArenaApplication).activityRepository
+        val goalRepository = (application as StepArenaApplication).dailyStepGoalRepository
+        dailyStepGoal = goalRepository.current()
         sensorManager = getSystemService(SensorManager::class.java)
         createNotificationChannel()
+        scope.launch {
+            goalRepository.goalSteps.collect { goalSteps ->
+                val changed = dailyStepGoal != goalSteps
+                dailyStepGoal = goalSteps
+                if (changed && setupStarted.get() && state.trackingRequested) {
+                    updateNotificationIfNeeded(Instant.now(), force = true)
+                }
+            }
+        }
         sensorConsumerJob = scope.launch {
             for (sample in sensorSamples) {
                 when (sample) {
@@ -496,10 +510,21 @@ class StepTrackingService : Service(), SensorEventListener {
             else R.string.notification_walking_title,
         )
         val text = if (manual == null) {
-            getString(R.string.notification_tracking_text, model.steps, updated)
+            getString(
+                R.string.notification_tracking_text,
+                NumberFormat.getNumberInstance().format(model.steps),
+                NumberFormat.getNumberInstance().format(dailyStepGoal),
+                updated,
+            )
         } else {
             val minutes = manual.elapsedDurationSeconds / 60
-            getString(R.string.notification_walking_text, manual.steps, minutes, model.steps)
+            getString(
+                R.string.notification_walking_text,
+                NumberFormat.getNumberInstance().format(manual.steps),
+                minutes,
+                NumberFormat.getNumberInstance().format(model.steps),
+                NumberFormat.getNumberInstance().format(dailyStepGoal),
+            )
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)

@@ -12,6 +12,7 @@ import com.lazyapps.steparena.tracking.StepTrackingState
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.service.tracking.StepTrackingService
 import com.lazyapps.steparena.activity.UserProfileRepository
+import com.lazyapps.steparena.activity.DailyStepGoalRepository
 import com.lazyapps.steparena.recovery.RecoverySettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -88,6 +89,7 @@ class DataManagementRepository(
         database.clearAllTables()
         TrackingStateRepository(context).clear()
         UserProfileRepository(context).reset()
+        DailyStepGoalRepository(context).reset()
         RecoverySettingsRepository(context).reset()
         context.getSharedPreferences("game_notifications", 0).edit().clear().commit()
         context.cacheDir.resolve("exports").deleteRecursively()
@@ -97,6 +99,7 @@ class DataManagementRepository(
 
     suspend fun resetSettings(keepOnboarding: Boolean) {
         UserProfileRepository(context).reset()
+        DailyStepGoalRepository(context).reset()
         RecoverySettingsRepository(context).reset()
         context.getSharedPreferences("game_notifications", 0).edit().clear().commit()
         TrackingStateRepository(context).update {
@@ -146,12 +149,17 @@ class DataManagementRepository(
             )
         }
         val usage = usage()
+        val dailyStepGoal = DailyStepGoalRepository(context).current()
         val output = requireNotNull(context.contentResolver.openOutputStream(uri)) {
             "EXPORT-OPEN-01"
         }
         ZipOutputStream(output.buffered()).use { zip ->
             snapshot.forEach { (name, csv) -> write(zip, name, csv) }
-            write(zip, "settings.json", """{"gameNotifications":false,"healthConnectEnabled":false}""")
+            write(
+                zip,
+                "settings.json",
+                """{"dailyStepGoal":$dailyStepGoal,"gameNotifications":false,"healthConnectEnabled":false}""",
+            )
             write(zip, "metadata.json", metadata(exportedAt, usage))
             write(zip, "README.txt", "StepArena local data export\nUTF-8 / ISO 8601 / RFC 4180 compatible CSV\nNo account or server sync is used.\n")
         }

@@ -2,6 +2,7 @@ package com.lazyapps.steparena.app
 
 import android.app.Application
 import com.lazyapps.steparena.activity.ActivityRepository
+import com.lazyapps.steparena.activity.DailyStepGoalRepository
 import com.lazyapps.steparena.activity.UserProfileRepository
 import com.lazyapps.steparena.core.database.StepArenaDatabase
 import com.lazyapps.steparena.recovery.GapRecoveryRepository
@@ -36,6 +37,7 @@ open class StepArenaApplication : Application(), AppGraph {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     override val database by lazy { StepArenaDatabase.get(this) }
     val profileRepository by lazy { UserProfileRepository(this) }
+    val dailyStepGoalRepository by lazy { DailyStepGoalRepository(this) }
     override val activityRepository by lazy { ActivityRepository(database, profileRepository) }
     val externalActivityDataSource by lazy { HealthConnectActivityDataSource(this) }
     val recoverySettingsRepository by lazy { RecoverySettingsRepository(this) }

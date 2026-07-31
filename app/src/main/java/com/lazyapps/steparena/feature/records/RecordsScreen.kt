@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.R
+import com.lazyapps.steparena.activity.DailyStepGoal
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
@@ -72,7 +73,16 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
         .collectAsState(initial = emptyList())
     val sessions by remember { app.activityRepository.observeSessions() }
         .collectAsState(initial = emptyList())
-    RecordsContent(daily, hours, sessions, modifier)
+    val goalSteps by app.dailyStepGoalRepository.goalSteps.collectAsState(
+        initial = DailyStepGoal.DEFAULT,
+    )
+    RecordsContent(
+        daily = daily,
+        hours = hours,
+        sessions = sessions,
+        modifier = modifier,
+        goalSteps = goalSteps,
+    )
 }
 
 @Composable
@@ -81,6 +91,7 @@ internal fun RecordsContent(
     hours: List<HourlyActivityRecordEntity>,
     sessions: List<WalkingSessionEntity>,
     modifier: Modifier = Modifier,
+    goalSteps: Int = DailyStepGoal.DEFAULT,
 ) {
     val orderedHours = remember(hours) { orderedRecordedHours(hours) }
     var period by remember { mutableStateOf(RecordPeriod.HOURLY) }
@@ -134,7 +145,7 @@ internal fun RecordsContent(
             if (hours.isEmpty() && daily == null) {
                 item { EmptyRecords(R.string.records_empty_today) }
             } else if (period == RecordPeriod.DAILY) {
-                item { DailySummary(summarizeToday(metric, daily, hours), metric) }
+                item { DailySummary(summarizeToday(metric, daily, hours), metric, goalSteps) }
             } else {
                 item {
                     HourChart(orderedHours, metric, selectedHourKey) {
@@ -157,10 +168,13 @@ internal fun RecordsContent(
 }
 
 @Composable
-private fun DailySummary(summary: RecordSummary, metric: RecordMetric) {
+private fun DailySummary(summary: RecordSummary, metric: RecordMetric, goalSteps: Int) {
     GlassSurface(Modifier.fillMaxWidth().testTag("daily_summary")) {
         Text(stringResource(metric.summaryTitleRes()), style = MaterialTheme.typography.titleMedium)
         Text(summaryValue(summary.value, metric), style = MaterialTheme.typography.headlineSmall)
+        if (metric == RecordMetric.STEPS) {
+            Text(stringResource(R.string.records_daily_goal, formatNumber(goalSteps)))
+        }
         Text(stringResource(R.string.records_quality_heading))
         Text(stringResource(summary.qualitySummary.summaryRes()))
         Text(

@@ -1,6 +1,7 @@
 package com.lazyapps.steparena.game
 
 import android.content.Context
+import com.lazyapps.steparena.activity.DailyStepGoalRepository
 import androidx.room.withTransaction
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.database.StepArenaDatabase
@@ -341,6 +342,7 @@ class LocalGameRepository(
 
     override suspend fun evaluateAchievements() {
         val profile = database.gamePlayerProfile().get() ?: return
+        val dailyStepGoal = DailyStepGoalRepository(context).current()
         val now = clock.millis()
         val daily = database.daily().recentNow(40)
         val finalizedMatches = database.dailyMatches().recentNow(50).filter { it.status == MatchStatus.FINALIZED }
@@ -353,7 +355,9 @@ class LocalGameRepository(
             if (profile.wins >= 1) add("first_win" to profile.wins.toLong())
             if (profile.bestWinStreak >= 3) add("three_wins" to profile.bestWinStreak.toLong())
             if (profile.bestWinStreak >= 5) add("five_wins" to profile.bestWinStreak.toLong())
-            if (bestEligibleDaily >= 10_000) add("daily_10000_steps" to bestEligibleDaily)
+            if (bestEligibleDaily >= dailyStepGoal) {
+                add("daily_10000_steps" to bestEligibleDaily)
+            }
             if (bestEligibleDaily >= 20_000) add("daily_20000_steps" to bestEligibleDaily)
             if (profile.rankTier != RankTier.BRONZE) add("silver_promotion" to profile.rating.toLong())
             if (finalizedMatches.count { it.seasonId == seasonId(today) } >= 10) {

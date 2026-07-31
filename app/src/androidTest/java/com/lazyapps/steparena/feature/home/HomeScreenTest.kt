@@ -21,6 +21,7 @@ import com.lazyapps.steparena.app.navigation.StepArenaApp
 import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import com.lazyapps.steparena.core.model.*
+import com.lazyapps.steparena.feature.game.ChallengeTestTags
 import com.lazyapps.steparena.test.awaitResumedHost
 import org.junit.Before
 import org.junit.Rule
@@ -227,9 +228,9 @@ class HomeScreenTest {
             StepArenaTheme { StepArenaApp(readyState, {}) }
         }
         composeRule.onNodeWithText("チャレンジ").performClick()
-        composeRule.onNodeWithText(
-            "毎日の歩数を、端末内で自動生成されたパートナーと比べます。実在するユーザーとのオンライン対戦ではありません。",
-        ).assertIsDisplayed()
+        composeRule.onNodeWithTag(ChallengeTestTags.INFO).assertIsDisplayed()
+        composeRule.onNodeWithText("毎日の歩数を、端末内で", substring = true)
+            .assertDoesNotExist()
     }
 
     @Test fun largeFont_canReachBottomContent() {

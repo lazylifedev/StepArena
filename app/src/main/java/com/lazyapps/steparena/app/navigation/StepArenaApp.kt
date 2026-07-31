@@ -135,11 +135,15 @@ fun StepArenaApp(
                 composable(AppDestination.HOME.route) {
                     HomeScreen(uiState = homeUiState, onAction = onHomeAction)
                 }
-                composable(AppDestination.MATCH.route) { GameScreen(GamePage.MATCH) }
-                composable(AppDestination.ACHIEVEMENTS.route) { GameScreen(GamePage.ACHIEVEMENTS) }
-                composable("rank") { GameScreen(GamePage.RANK) }
-                composable("league") { GameScreen(GamePage.LEAGUE) }
-                composable("season") { GameScreen(GamePage.SEASON) }
+                composable(AppDestination.MATCH.route) {
+                    GameScreen(GamePage.MATCH, homeUiState.motionLevel)
+                }
+                composable(AppDestination.ACHIEVEMENTS.route) {
+                    GameScreen(GamePage.ACHIEVEMENTS, homeUiState.motionLevel)
+                }
+                composable("rank") { GameScreen(GamePage.RANK, homeUiState.motionLevel) }
+                composable("league") { GameScreen(GamePage.LEAGUE, homeUiState.motionLevel) }
+                composable("season") { GameScreen(GamePage.SEASON, homeUiState.motionLevel) }
                 composable(AppDestination.RECORDS.route) { RecordsScreen() }
                 composable(AppDestination.SETTINGS.route) {
                     SettingsScreen(
