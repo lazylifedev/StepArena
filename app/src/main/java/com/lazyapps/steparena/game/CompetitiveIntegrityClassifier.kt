@@ -26,7 +26,7 @@ data class CompetitiveIntegrityThresholds(
     val regularRhythmMinimumSamples: Int = 5,
     val regularRhythmMaxDeviation: Double = 1.0,
     val dailyEligibleLimit: Long = 30_000,
-    val version: Int = 1,
+    val version: Int = 2,
 )
 
 data class CompetitiveIntegrityInput(
@@ -79,14 +79,22 @@ class CompetitiveIntegrityClassifier(
             reasons += CompetitiveIntegrityReason.IMPLAUSIBLY_REGULAR_RHYTHM
         }
 
+        val strongEvidenceCount = listOf(
+            CompetitiveIntegrityReason.IMPOSSIBLE_CADENCE,
+            CompetitiveIntegrityReason.IMPLAUSIBLY_REGULAR_RHYTHM,
+        ).count { it in reasons }
         val assessment = when {
-            CompetitiveIntegrityReason.IMPOSSIBLE_CADENCE in reasons -> CompetitiveIntegrityAssessment.EXCLUDED
+            strongEvidenceCount >= 2 -> CompetitiveIntegrityAssessment.EXCLUDED
+            CompetitiveIntegrityReason.IMPOSSIBLE_CADENCE in reasons -> CompetitiveIntegrityAssessment.REVIEW
             CompetitiveIntegrityReason.COUNTER_BURST in reasons &&
                 CompetitiveIntegrityReason.LONG_GAP_INCREMENT !in reasons -> CompetitiveIntegrityAssessment.REVIEW
             reasons.isNotEmpty() -> CompetitiveIntegrityAssessment.LIMITED
             else -> CompetitiveIntegrityAssessment.TRUSTED
         }
-        return result(assessment, steps, reasons)
+        val plausibleSteps = duration?.toMillis()?.let {
+            (thresholds.highCadenceStepsPerMinute * it / 60_000.0).toLong().coerceAtLeast(1)
+        } ?: thresholds.counterBurstSteps
+        return result(assessment, steps, plausibleSteps, reasons)
     }
 
     private fun isImplausiblyRegular(cadences: List<Double>): Boolean {
@@ -102,8 +110,21 @@ class CompetitiveIntegrityClassifier(
         assessment: CompetitiveIntegrityAssessment,
         steps: Long,
         reasons: Set<CompetitiveIntegrityReason>,
+    ): CompetitiveIntegrityResult = result(assessment, steps, steps, reasons)
+
+    private fun result(
+        assessment: CompetitiveIntegrityAssessment,
+        steps: Long,
+        plausibleSteps: Long,
+        reasons: Set<CompetitiveIntegrityReason>,
     ): CompetitiveIntegrityResult {
-        val eligible = if (assessment == CompetitiveIntegrityAssessment.TRUSTED) steps else 0
+        // This is an abnormal-interval limiter, not a claim of complete hand-swing detection.
+        val eligible = when (assessment) {
+            CompetitiveIntegrityAssessment.TRUSTED -> steps
+            CompetitiveIntegrityAssessment.LIMITED,
+            CompetitiveIntegrityAssessment.REVIEW -> steps.coerceAtMost(plausibleSteps.coerceAtLeast(0))
+            CompetitiveIntegrityAssessment.EXCLUDED -> 0
+        }
         val excluded = if (assessment == CompetitiveIntegrityAssessment.EXCLUDED) steps else 0
         return CompetitiveIntegrityResult(
             assessment, steps, eligible, steps - eligible - excluded, excluded, reasons, thresholds.version,

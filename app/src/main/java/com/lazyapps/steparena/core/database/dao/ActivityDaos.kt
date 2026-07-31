@@ -105,5 +105,7 @@ interface CompetitiveIntegritySegmentDao {
     @Upsert suspend fun upsert(record: CompetitiveIntegritySegmentEntity)
     @Query("SELECT * FROM competitive_integrity_segments WHERE localDate = :date AND zoneId = :zone ORDER BY startedAtEpochMillis")
     suspend fun forDate(date: String, zone: String): List<CompetitiveIntegritySegmentEntity>
+    @Query("SELECT * FROM competitive_integrity_segments WHERE localDate = :date AND zoneId = :zone ORDER BY startedAtEpochMillis")
+    fun observeDate(date: String, zone: String): Flow<List<CompetitiveIntegritySegmentEntity>>
     @Query("SELECT COUNT(*) FROM competitive_integrity_segments") suspend fun count(): Int
 }

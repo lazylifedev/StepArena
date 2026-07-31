@@ -80,6 +80,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private val sensorEventClock = RealtimeSensorEventClock()
     private var sessionTimeoutJob: Job? = null
     private var pendingNotificationJob: Job? = null
+    private var previewExpiryJob: Job? = null
     private var manualStartRequested = false
     private var dailyStepGoal = DailyStepGoal.DEFAULT
 
@@ -325,6 +326,15 @@ class StepTrackingService : Service(), SensorEventListener {
         val dateChanged = notificationPreview.snapshot.localDate != localDate
         publishNotificationPreview(notificationPreview.onDetector(localDate, eventAt))
         updateNotificationIfNeeded(eventAt, force = dateChanged)
+        if (previewExpiryJob == null) {
+            previewExpiryJob = scope.launch {
+                while (notificationPreview.snapshot.pendingDetectorSteps > 0) {
+                    delay(1_000)
+                    updateNotificationIfNeeded(Instant.now())
+                }
+                previewExpiryJob = null
+            }
+        }
         activityRepository.recordDetector(eventAt)
         logEvent("step_detector")
     }
@@ -394,6 +404,7 @@ class StepTrackingService : Service(), SensorEventListener {
         heartbeatJob?.cancel()
         sessionTimeoutJob?.cancel()
         pendingNotificationJob?.cancel()
+        previewExpiryJob?.cancel()
         scope.launch {
             val now = Instant.now()
             activityRepository.finishAllActiveSessions(now)
@@ -424,20 +435,24 @@ class StepTrackingService : Service(), SensorEventListener {
         heartbeatJob?.cancel()
         sessionTimeoutJob?.cancel()
         pendingNotificationJob?.cancel()
+        previewExpiryJob?.cancel()
         NotificationStepPreviewDiagnostics.clear()
         scope.cancel()
         super.onDestroy()
     }
 
     private suspend fun updateNotificationIfNeeded(now: Instant, force: Boolean = false) {
-        val preview = notificationPreview.snapshot
+        val beforeExpiry = notificationPreview.snapshot.displayedSteps
+        val preview = notificationPreview.expire(now)
+        publishNotificationPreview(preview)
+        val expiryReducedDisplay = preview.displayedSteps < beforeExpiry
         if (
             notificationPolicy.shouldUpdate(
                 preview.displayedSteps,
                 lastNotifiedSteps,
                 now,
                 lastNotifiedAt,
-                force,
+                force || expiryReducedDisplay,
             )
         ) {
             val manual = activityRepository.currentManualSession()

@@ -20,6 +20,7 @@ data class GameUiState(
     val achievements: List<AchievementUnlockEntity> = emptyList(),
     val notificationEvents: List<GameNotificationEventEntity> = emptyList(),
     val currentMeasuredSteps: Long = 0,
+    val currentEligibleSteps: Long = 0,
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
     val recentDailyActivity: List<DailyActivityRecordEntity> = emptyList(),
@@ -29,6 +30,7 @@ internal fun GameUiState.challengeUiState() = ChallengeUiState(
     todayMatch = todayMatch,
     recentMatches = recentMatches,
     currentMeasuredSteps = currentMeasuredSteps,
+    currentEligibleSteps = currentEligibleSteps,
     currentHealthConnectAddedSteps = currentHealthConnectAddedSteps,
     challengeCelebration = challengeCelebration,
     displayName = profile?.displayName,
@@ -66,7 +68,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             activityRepository.observeToday(it.date, it.zoneId)
         },
     ) { settings, daily ->
-        if (settings.healthConnectEnabled) daily?.externalRecoveredSteps ?: 0 else 0
+        TodayActivity(
+            measuredSteps = daily?.steps ?: 0,
+            externalSteps = if (settings.healthConnectEnabled) daily?.externalRecoveredSteps ?: 0 else 0,
+        )
+    }
+    private val todayIntegrity = currentLocalDay.flatMapLatest {
+        app.database.competitiveIntegritySegments().observeDate(it.date.toString(), it.zoneId.id)
     }
     private val baseState = combine(
         repository.observePlayerProfile(),
@@ -79,6 +87,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         repository.observeNotificationEvents(),
         trackingRepository.state,
         healthConnectAddedSteps,
+        todayIntegrity,
         currentLocalDay,
         app.database.daily().recent(40),
     ) { values ->
@@ -92,16 +101,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             season = values[5] as GameSeasonEntity?,
             achievements = values[6] as List<AchievementUnlockEntity>,
             notificationEvents = values[7] as List<GameNotificationEventEntity>,
-            currentMeasuredSteps = (values[8] as com.lazyapps.steparena.tracking.StepTrackingState).let { tracking ->
-                (values[10] as com.lazyapps.steparena.core.time.LocalDay).let { day ->
-                    tracking.accumulatedTodaySteps.takeIf {
-                        tracking.currentLocalDate == day.date &&
-                            tracking.currentZoneId == day.zoneId.id
-                    } ?: 0
-                }
-            },
-            currentHealthConnectAddedSteps = values[9] as Long,
-            recentDailyActivity = values[11] as List<DailyActivityRecordEntity>,
+            currentMeasuredSteps = (values[9] as TodayActivity).measuredSteps,
+            currentEligibleSteps = (values[10] as List<CompetitiveIntegritySegmentEntity>)
+                .let { segments ->
+                    if (segments.isEmpty()) (values[9] as TodayActivity).measuredSteps
+                    else segments.sumOf { it.eligibleSteps }
+                }.coerceAtMost(30_000),
+            currentHealthConnectAddedSteps = (values[9] as TodayActivity).externalSteps,
+            recentDailyActivity = values[12] as List<DailyActivityRecordEntity>,
         )
     }
     val state: StateFlow<GameUiState> = combine(
@@ -171,10 +178,16 @@ data class CurrentChallengeSteps(
     val isFinalized: Boolean,
 )
 
-fun currentChallengeSteps(match: DailyMatchEntity, measuredSteps: Long): CurrentChallengeSteps =
+fun currentChallengeSteps(
+    match: DailyMatchEntity,
+    measuredSteps: Long,
+    eligibleSteps: Long = measuredSteps.coerceAtMost(30_000),
+): CurrentChallengeSteps =
     if (match.status == MatchStatus.FINALIZED) {
         CurrentChallengeSteps(match.totalUserSteps, match.eligibleUserSteps, true)
     } else {
         val current = measuredSteps.coerceAtLeast(0)
-        CurrentChallengeSteps(current, current.coerceAtMost(30_000), false)
+        CurrentChallengeSteps(current, eligibleSteps.coerceIn(0, minOf(current, 30_000)), false)
     }
+
+private data class TodayActivity(val measuredSteps: Long, val externalSteps: Long)

@@ -53,6 +53,38 @@ class NotificationStepPreviewTest {
         assertEquals(110, complete.displayedSteps)
     }
 
+    @Test fun unconfirmedDetectorEventsExpireBackToOfficialSteps() {
+        val preview = initialized(100)
+        repeat(10) { preview.onDetector(date, start) }
+
+        val expired = preview.expire(start.plusSeconds(NotificationStepPreview.PENDING_TTL_SECONDS + 1))
+
+        assertEquals(0, expired.pendingDetectorSteps)
+        assertEquals(100, expired.displayedSteps)
+    }
+
+    @Test fun delayedCounterWithinTtlConsumesMatchingPendingEvents() {
+        val preview = initialized(100)
+        repeat(10) { preview.onDetector(date, start) }
+
+        val reconciled = preview.onCounter(
+            110, date, start.plusSeconds(NotificationStepPreview.PENDING_TTL_SECONDS),
+        )
+
+        assertEquals(0, reconciled.pendingDetectorSteps)
+        assertEquals(110, reconciled.displayedSteps)
+    }
+
+    @Test fun pendingEventsAreBounded() {
+        val preview = initialized(100)
+        repeat(NotificationStepPreview.MAX_PENDING_EVENTS + 10) {
+            preview.onDetector(date, start.plusMillis(it.toLong()))
+        }
+
+        assertEquals(NotificationStepPreview.MAX_PENDING_EVENTS.toLong(), preview.snapshot.pendingDetectorSteps)
+        assertEquals(100L + NotificationStepPreview.MAX_PENDING_EVENTS, preview.snapshot.displayedSteps)
+    }
+
     @Test fun dateChange_discardsPendingDetectorSteps() {
         val preview = initialized(100)
         repeat(3) { preview.onDetector(date, start) }

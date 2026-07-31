@@ -228,7 +228,7 @@ class HomeScreenTest {
             StepArenaTheme { StepArenaApp(readyState, {}) }
         }
         composeRule.onNodeWithText("チャレンジ").performClick()
-        composeRule.onNodeWithTag(ChallengeTestTags.INFO).assertIsDisplayed()
+        composeRule.onNodeWithTag(ChallengeTestTags.INFO).assertDoesNotExist()
         composeRule.onNodeWithText("毎日の歩数を、端末内で", substring = true)
             .assertDoesNotExist()
     }

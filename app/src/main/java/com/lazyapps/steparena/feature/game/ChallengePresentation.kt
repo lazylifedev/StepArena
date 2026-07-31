@@ -14,7 +14,7 @@ data class ChallengeComparison(
     val isFinalized: Boolean,
 ) {
     val goalAchieved: Boolean get() = eligibleSteps >= partnerTargetSteps
-    val showsTotalBreakdown: Boolean get() = healthConnectAddedSteps > 0
+    val showsTotalBreakdown: Boolean get() = totalSteps != eligibleSteps
 }
 
 data class ChallengeCelebration(val matchId: String)

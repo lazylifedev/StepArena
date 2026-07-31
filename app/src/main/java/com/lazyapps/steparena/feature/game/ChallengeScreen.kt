@@ -86,6 +86,7 @@ data class ChallengeUiState(
     val todayMatch: DailyMatchEntity? = null,
     val recentMatches: List<DailyMatchEntity> = emptyList(),
     val currentMeasuredSteps: Long = 0,
+    val currentEligibleSteps: Long = currentMeasuredSteps.coerceAtMost(30_000),
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
     val displayName: String? = null,
@@ -102,7 +103,7 @@ fun ChallengeScreen(
     val match = state.todayMatch
     val comparison = match?.let {
         challengeComparison(
-            current = currentChallengeSteps(it, state.currentMeasuredSteps),
+            current = currentChallengeSteps(it, state.currentMeasuredSteps, state.currentEligibleSteps),
             healthConnectAddedSteps = state.currentHealthConnectAddedSteps,
             partnerTargetSteps = it.opponentTargetSteps,
         )
@@ -147,16 +148,18 @@ fun ChallengeScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.weight(1f).semantics { heading() },
                 )
-                IconButton(
-                    onClick = { showInformation = true },
-                    modifier = Modifier
-                        .size(StepArenaSpacing.minimumTouchTarget)
-                        .testTag(ChallengeTestTags.INFO),
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = stringResource(R.string.game_information_action),
-                    )
+                if (comparison?.showsTotalBreakdown == true) {
+                    IconButton(
+                        onClick = { showInformation = true },
+                        modifier = Modifier
+                            .size(StepArenaSpacing.minimumTouchTarget)
+                            .testTag(ChallengeTestTags.INFO),
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = stringResource(R.string.game_information_action),
+                        )
+                    }
                 }
             }
         }

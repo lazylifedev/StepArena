@@ -16,11 +16,12 @@ class CompetitiveIntegrityClassifierTest {
         assertEquals(100, result.eligibleSteps)
     }
 
-    @Test fun impossibleHumanCadence_isExcludedFromCompetitionOnly() {
+    @Test fun oneImpossibleCadenceSignalRestrictsOnlyImplausibleExcess() {
         val result = classify(400, detectorEvents = 400, detectorAvailable = true)
-        assertEquals(CompetitiveIntegrityAssessment.EXCLUDED, result.assessment)
-        assertEquals(0, result.eligibleSteps)
-        assertEquals(400, result.excludedSteps)
+        assertEquals(CompetitiveIntegrityAssessment.REVIEW, result.assessment)
+        assertEquals(220, result.eligibleSteps)
+        assertEquals(180, result.restrictedSteps)
+        assertEquals(0, result.excludedSteps)
         assertTrue(CompetitiveIntegrityReason.IMPOSSIBLE_CADENCE in result.reasons)
     }
 
@@ -29,7 +30,8 @@ class CompetitiveIntegrityClassifierTest {
             CompetitiveIntegrityInput(1_000, end.minusSeconds(300), end, 0, false, false, false),
         )
         assertEquals(CompetitiveIntegrityAssessment.REVIEW, result.assessment)
-        assertEquals(1_000, result.restrictedSteps)
+        assertEquals(1_000, result.eligibleSteps)
+        assertEquals(0, result.restrictedSteps)
     }
 
     @Test fun longGapBatch_isLimitedNotExcluded() {
@@ -40,6 +42,7 @@ class CompetitiveIntegrityClassifierTest {
         )
         assertEquals(CompetitiveIntegrityAssessment.LIMITED, result.assessment)
         assertEquals(0, result.excludedSteps)
+        assertTrue(result.eligibleSteps > 0)
         assertTrue(CompetitiveIntegrityReason.LONG_GAP_INCREMENT in result.reasons)
     }
 
@@ -60,7 +63,22 @@ class CompetitiveIntegrityClassifierTest {
         )
         assertEquals(CompetitiveIntegrityAssessment.LIMITED, result.assessment)
         assertEquals(100, result.totalSteps)
-        assertEquals(100, result.restrictedSteps)
+        assertEquals(100, result.eligibleSteps)
+    }
+
+    @Test fun normal1593StepAndroidBatchIsNeverReducedToZero() {
+        val noDetector = classifier.classify(
+            CompetitiveIntegrityInput(1_593, end.minusSeconds(3_600), end, 0, false, false, true),
+        )
+        val partialDetector = classifier.classify(
+            CompetitiveIntegrityInput(1_593, end.minusSeconds(600), end, 100, true, false, false),
+        )
+        val detectorUnsupported = classifier.classify(
+            CompetitiveIntegrityInput(1_593, end.minusSeconds(600), end, 0, false, true, false),
+        )
+        assertTrue(noDetector.eligibleSteps > 0)
+        assertTrue(partialDetector.eligibleSteps > 0)
+        assertTrue(detectorUnsupported.eligibleSteps > 0)
     }
 
     private fun classify(

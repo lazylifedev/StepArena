@@ -13,6 +13,16 @@ class CurrentChallengeStepsTest {
         assertEquals(false, result.isFinalized)
     }
 
+    @Test fun activeMatchUsesRealtimeIntegrityEligibleStepsAndExcludesExternalAddition() {
+        val result = currentChallengeSteps(
+            match(MatchStatus.ACTIVE, 8_081), measuredSteps = 3_619, eligibleSteps = 3_619,
+        )
+        val comparison = challengeComparison(result, healthConnectAddedSteps = 20, partnerTargetSteps = 4_000)
+        assertEquals(3_619, comparison.eligibleSteps)
+        assertEquals(3_639, comparison.totalSteps)
+        assertEquals(true, comparison.showsTotalBreakdown)
+    }
+
     @Test fun finalizedMatchKeepsFinalizedSnapshot() {
         val result = currentChallengeSteps(
             match(MatchStatus.FINALIZED, totalSteps = 3_639, eligibleSteps = 3_619),
