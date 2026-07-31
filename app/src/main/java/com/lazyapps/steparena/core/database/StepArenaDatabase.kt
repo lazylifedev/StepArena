@@ -38,8 +38,9 @@ import com.lazyapps.steparena.core.database.dao.*
         GameSeasonEntity::class,
         AchievementUnlockEntity::class,
         GameNotificationEventEntity::class,
+        CompetitiveIntegritySegmentEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -57,6 +58,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
     abstract fun gameSeasons(): GameSeasonDao
     abstract fun achievementUnlocks(): AchievementUnlockDao
     abstract fun gameNotificationEvents(): GameNotificationEventDao
+    abstract fun competitiveIntegritySegments(): CompetitiveIntegritySegmentDao
 
     companion object {
         const val PRODUCTION_DATABASE_NAME = "step_arena.db"
@@ -74,6 +76,7 @@ abstract class StepArenaDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
                 )
                 .build()
 
@@ -183,6 +186,23 @@ abstract class StepArenaDatabase : RoomDatabase() {
                         "ON `weekly_league_participants` (`leagueId`)",
                 )
                 migrateLegacyLeagueParticipants(db)
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `competitive_integrity_segments` (
+                        `id` TEXT NOT NULL, `localDate` TEXT NOT NULL, `zoneId` TEXT NOT NULL,
+                        `startedAtEpochMillis` INTEGER NOT NULL, `endedAtEpochMillis` INTEGER NOT NULL,
+                        `totalSteps` INTEGER NOT NULL, `eligibleSteps` INTEGER NOT NULL,
+                        `restrictedSteps` INTEGER NOT NULL, `excludedSteps` INTEGER NOT NULL,
+                        `assessment` TEXT NOT NULL, `reasons` TEXT NOT NULL,
+                        `classifierVersion` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`))""",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_competitive_integrity_segments_localDate_zoneId` ON `competitive_integrity_segments` (`localDate`, `zoneId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_competitive_integrity_segments_startedAtEpochMillis` ON `competitive_integrity_segments` (`startedAtEpochMillis`)")
             }
         }
 

@@ -6,6 +6,7 @@ import com.lazyapps.steparena.core.database.entity.ActivityProcessingStateEntity
 import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.WalkingSessionEntity
+import com.lazyapps.steparena.core.database.entity.CompetitiveIntegritySegmentEntity
 import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.core.database.model.WalkingSessionStatus
 import com.lazyapps.steparena.core.database.model.WalkingSessionType
@@ -19,6 +20,8 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 import java.util.UUID
+import com.lazyapps.steparena.game.CompetitiveIntegrityClassifier
+import com.lazyapps.steparena.game.CompetitiveIntegrityInput
 
 class ActivityRepository(
     private val database: StepArenaDatabase,
@@ -28,6 +31,7 @@ class ActivityRepository(
     private val policy: WalkingDetectionPolicy = WalkingDetectionPolicy(),
     private val durationCalculator: WalkingDurationCalculator =
         WalkingDurationCalculator(policy.activeGapThresholdSeconds),
+    private val integrityClassifier: CompetitiveIntegrityClassifier = CompetitiveIntegrityClassifier(),
 ) {
     private val writer = Mutex()
     private val detectorEvents = ArrayDeque<Instant>()
@@ -111,6 +115,7 @@ class ActivityRepository(
         bootSessionId: String,
         trackingServiceSessionId: String?,
         recovered: Boolean,
+        detectorAvailable: Boolean = false,
     ) = writer.withLock {
         if (delta <= 0) return@withLock
         val profile = profileRepository.current()
@@ -134,6 +139,36 @@ class ActivityRepository(
             val durationResult = durationCalculator.calculate(
                 delta, consumedDetectors, previousAt, at, recovered || longGap,
                 learnedCadenceStepsPerMinute,
+            )
+            val integrity = integrityClassifier.classify(
+                CompetitiveIntegrityInput(
+                    steps = delta,
+                    startedAt = previousAt,
+                    endedAt = at,
+                    detectorEvents = consumedDetectors.size,
+                    detectorAvailable = detectorAvailable,
+                    bootSessionChanged = processing?.lastBootSessionId != null &&
+                        processing.lastBootSessionId != bootSessionId,
+                    recoveredOrLongGap = recovered || longGap,
+                    recentCadences = listOfNotNull(learnedCadenceStepsPerMinute),
+                ),
+            )
+            database.competitiveIntegritySegments().upsert(
+                CompetitiveIntegritySegmentEntity(
+                    id = "integrity-$bootSessionId-${at.toEpochMilli()}-$sensorValue",
+                    localDate = at.atZone(zoneId).toLocalDate().toString(),
+                    zoneId = zoneId.id,
+                    startedAtEpochMillis = (previousAt ?: at).toEpochMilli(),
+                    endedAtEpochMillis = at.toEpochMilli(),
+                    totalSteps = integrity.totalSteps,
+                    eligibleSteps = integrity.eligibleSteps,
+                    restrictedSteps = integrity.restrictedSteps,
+                    excludedSteps = integrity.excludedSteps,
+                    assessment = integrity.assessment,
+                    reasons = integrity.reasons.joinToString(",") { it.name },
+                    classifierVersion = integrity.classifierVersion,
+                    createdAtEpochMillis = at.toEpochMilli(),
+                ),
             )
             if (durationResult.quality == DataQuality.MEASURED) {
                 durationResult.cadenceStepsPerMinute

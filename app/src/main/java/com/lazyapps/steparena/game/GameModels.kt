@@ -11,7 +11,9 @@ enum class OpponentPersonality { STEADY, SPRINTER, EARLY_BIRD, NIGHT_WALKER, CHA
 enum class CompetitiveStepQuality { FULL, RESTRICTED, EXCLUDED }
 enum class CompetitiveStepRestrictionReason {
     RECOVERED_LIMITED, EXTERNAL_RECOVERY_LIMITED, ESTIMATED_LIMITED, UNKNOWN_EXCLUDED,
-    INTEGRITY_LIMIT, DEBUG_DATA, OVERFLOW, NEGATIVE_VALUE,
+    INTEGRITY_LIMIT, DEBUG_DATA, OVERFLOW, NEGATIVE_VALUE, DAILY_ELIGIBLE_LIMIT,
+    ABNORMAL_STEPS_PER_MINUTE, COUNTER_BURST, LOW_DETECTOR_COVERAGE,
+    IMPLAUSIBLY_REGULAR_RHYTHM, LONG_GAP_INCREMENT, REBOOT_OR_RESET, IMPOSSIBLE_CADENCE,
 }
 enum class LeagueStatus { ACTIVE, FINALIZED }
 enum class SeasonStatus { ACTIVE, FINALIZED }
@@ -109,6 +111,9 @@ data class CompetitiveStepInput(
     val externalRecovered: Long = 0,
     val estimated: Long = 0,
     val unknown: Long = 0,
+    val integrityRestricted: Long = 0,
+    val integrityExcluded: Long = 0,
+    val integrityReasons: Set<CompetitiveStepRestrictionReason> = emptySet(),
     val integrityViolation: Boolean = false,
     val debugData: Boolean = false,
 )
@@ -125,7 +130,10 @@ data class CompetitiveStepSummary(
 class CompetitiveStepCalculator(private val policy: CompetitiveStepPolicy = CompetitiveStepPolicy()) {
     fun calculate(input: CompetitiveStepInput): CompetitiveStepSummary {
         val reasons = linkedSetOf<CompetitiveStepRestrictionReason>()
-        val raw = listOf(input.measured, input.recovered, input.externalRecovered, input.estimated, input.unknown)
+        val raw = listOf(
+            input.measured, input.recovered, input.externalRecovered, input.estimated, input.unknown,
+            input.integrityRestricted, input.integrityExcluded,
+        )
         if (raw.any { it < 0 }) reasons += CompetitiveStepRestrictionReason.NEGATIVE_VALUE
         val values = raw.map { it.coerceAtLeast(0) }
         val total = values.fold(0L) { acc, value ->
@@ -139,6 +147,7 @@ class CompetitiveStepCalculator(private val policy: CompetitiveStepPolicy = Comp
                 else CompetitiveStepRestrictionReason.INTEGRITY_LIMIT
             return CompetitiveStepSummary(total, 0, 0, total, CompetitiveStepQuality.EXCLUDED, reasons)
         }
+        reasons += input.integrityReasons
         fun weighted(value: Long, rate: Double): Long = (value * rate).toLong().coerceAtMost(value)
         val external = values[2].coerceAtMost(policy.maxExternalRecoveredStepsPerDay)
         var eligible = weighted(values[0], policy.measuredRate) +
@@ -150,8 +159,9 @@ class CompetitiveStepCalculator(private val policy: CompetitiveStepPolicy = Comp
         if (values[2] > 0) reasons += CompetitiveStepRestrictionReason.EXTERNAL_RECOVERY_LIMITED
         if (values[3] > 0) reasons += CompetitiveStepRestrictionReason.ESTIMATED_LIMITED
         if (values[4] > 0) reasons += CompetitiveStepRestrictionReason.UNKNOWN_EXCLUDED
+        if (eligible > policy.maxEligibleStepsPerDay) reasons += CompetitiveStepRestrictionReason.DAILY_ELIGIBLE_LIMIT
         eligible = eligible.coerceAtMost(policy.maxEligibleStepsPerDay)
-        val excluded = values[4] + (values[2] - external)
+        val excluded = values[4] + (values[2] - external) + values[6]
         val restricted = (total - eligible - excluded).coerceAtLeast(0)
         return CompetitiveStepSummary(
             total, eligible, restricted, excluded,

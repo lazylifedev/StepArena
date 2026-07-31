@@ -10,6 +10,8 @@ import com.lazyapps.steparena.core.database.model.WalkingSessionStatus
 import com.lazyapps.steparena.core.database.model.WalkingSessionType
 
 class ActivityConverters {
+    @TypeConverter fun integrityAssessment(value: CompetitiveIntegrityAssessment): String = value.name
+    @TypeConverter fun integrityAssessment(value: String): CompetitiveIntegrityAssessment = enumValueOf(value)
     @TypeConverter fun rankTier(value: RankTier?): String? = value?.name
     @TypeConverter fun rankTier(value: String?): RankTier? = value?.let(RankTier::valueOf)
     @TypeConverter fun matchType(value: MatchType): String = value.name

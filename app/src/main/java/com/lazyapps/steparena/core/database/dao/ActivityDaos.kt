@@ -9,6 +9,7 @@ import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.WalkingSessionEntity
 import com.lazyapps.steparena.core.database.entity.TrackingGapRecordEntity
 import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEntity
+import com.lazyapps.steparena.core.database.entity.CompetitiveIntegritySegmentEntity
 import com.lazyapps.steparena.recovery.TrackingGapStatus
 import kotlinx.coroutines.flow.Flow
 
@@ -97,4 +98,12 @@ interface ProcessedExternalStepRecordDao {
     @Query("SELECT COALESCE(SUM(appliedSteps), 0) FROM processed_external_step_records WHERE startedAtEpochMillis < :end AND endedAtEpochMillis > :start")
     suspend fun appliedInRange(start: Long, end: Long): Long
     @Query("SELECT COUNT(*) FROM processed_external_step_records") suspend fun count(): Int
+}
+
+@Dao
+interface CompetitiveIntegritySegmentDao {
+    @Upsert suspend fun upsert(record: CompetitiveIntegritySegmentEntity)
+    @Query("SELECT * FROM competitive_integrity_segments WHERE localDate = :date AND zoneId = :zone ORDER BY startedAtEpochMillis")
+    suspend fun forDate(date: String, zone: String): List<CompetitiveIntegritySegmentEntity>
+    @Query("SELECT COUNT(*) FROM competitive_integrity_segments") suspend fun count(): Int
 }

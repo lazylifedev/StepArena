@@ -123,7 +123,10 @@ class LocalGameRepository(
         )
         database.dailyMatches().getForDate(date, targetZone.id)?.let { active ->
             if (active.status == MatchStatus.ACTIVE) {
-                val summary = competitiveSummary(database.daily().get(date, targetZone.id))
+                val summary = competitiveSummary(
+                    database.daily().get(date, targetZone.id),
+                    database.competitiveIntegritySegments().forDate(date, targetZone.id),
+                )
                 database.dailyMatches().update(
                     active.copy(
                         totalUserSteps = summary.totalSteps,
@@ -150,7 +153,10 @@ class LocalGameRepository(
         val match = dao.get(id) ?: return@withTransaction
         if (match.status != MatchStatus.ACTIVE || match.ratingAfter != null) return@withTransaction
         val daily = database.daily().get(match.localDate, match.zoneId)
-        val steps = competitiveSummary(daily)
+        val steps = competitiveSummary(
+            daily,
+            database.competitiveIntegritySegments().forDate(match.localDate, match.zoneId),
+        )
         val result = outcome(
             steps.eligibleSteps, match.opponentTargetSteps,
             steps.quality == CompetitiveStepQuality.EXCLUDED,
@@ -463,13 +469,30 @@ class LocalGameRepository(
 
 internal fun competitiveSummary(
     daily: DailyActivityRecordEntity?,
+    integritySegments: List<CompetitiveIntegritySegmentEntity> = emptyList(),
     calculator: CompetitiveStepCalculator = CompetitiveStepCalculator(),
 ): CompetitiveStepSummary {
     if (daily == null) return calculator.calculate(CompetitiveStepInput())
     val steps = daily.steps.coerceAtLeast(0)
     val recovered = daily.unclassifiedSteps.coerceAtLeast(0)
+    val classifiedTotal = integritySegments.sumOf { it.totalSteps }.coerceAtMost(steps)
+    val unclassifiedMeasured = (steps - classifiedTotal).coerceAtLeast(0)
+    val integrityEligible = integritySegments.sumOf { it.eligibleSteps }
+    val integrityRestricted = integritySegments.sumOf { it.restrictedSteps }
+    val integrityExcluded = integritySegments.sumOf { it.excludedSteps }
+    val integrityReasons = integritySegments.flatMap { segment ->
+        segment.reasons.split(',').mapNotNull { reason ->
+            runCatching { CompetitiveStepRestrictionReason.valueOf(reason) }.getOrNull()
+        }
+    }.toSet()
     val input = when (daily.stepsQuality) {
-        DataQuality.MEASURED -> CompetitiveStepInput(measured = steps, recovered = recovered)
+        DataQuality.MEASURED -> CompetitiveStepInput(
+            measured = unclassifiedMeasured + integrityEligible,
+            recovered = recovered,
+            integrityRestricted = integrityRestricted,
+            integrityExcluded = integrityExcluded,
+            integrityReasons = integrityReasons,
+        )
         DataQuality.RECOVERED -> CompetitiveStepInput(recovered = safeStepSum(steps, recovered))
         DataQuality.ESTIMATED -> CompetitiveStepInput(estimated = steps, recovered = recovered)
         DataQuality.UNKNOWN -> CompetitiveStepInput(unknown = steps, recovered = recovered)

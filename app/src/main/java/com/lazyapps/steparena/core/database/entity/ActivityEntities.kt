@@ -6,6 +6,7 @@ import androidx.room.PrimaryKey
 import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.core.database.model.WalkingSessionStatus
 import com.lazyapps.steparena.core.database.model.WalkingSessionType
+import com.lazyapps.steparena.game.CompetitiveIntegrityAssessment
 
 @Entity(
     tableName = "hourly_activity_records",
@@ -121,4 +122,24 @@ data class ActivityProcessingStateEntity(
     val lastWalkingEventEpochMillis: Long?,
     val updatedAtEpochMillis: Long,
     val activityRepairVersion: Int = 0,
+)
+
+@Entity(
+    tableName = "competitive_integrity_segments",
+    indices = [Index(value = ["localDate", "zoneId"]), Index("startedAtEpochMillis")],
+)
+data class CompetitiveIntegritySegmentEntity(
+    @PrimaryKey val id: String,
+    val localDate: String,
+    val zoneId: String,
+    val startedAtEpochMillis: Long,
+    val endedAtEpochMillis: Long,
+    val totalSteps: Long,
+    val eligibleSteps: Long,
+    val restrictedSteps: Long,
+    val excludedSteps: Long,
+    val assessment: CompetitiveIntegrityAssessment,
+    val reasons: String,
+    val classifierVersion: Int,
+    val createdAtEpochMillis: Long,
 )

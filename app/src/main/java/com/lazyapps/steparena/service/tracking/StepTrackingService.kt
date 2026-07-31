@@ -356,6 +356,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 bootSessionId = bootSession,
                 trackingServiceSessionId = state.sessionId,
                 recovered = (result as? StepEventResult.Added)?.unusuallyLarge == true,
+                detectorAvailable = stepDetectorRegistered,
             )
         }
         when (result) {
