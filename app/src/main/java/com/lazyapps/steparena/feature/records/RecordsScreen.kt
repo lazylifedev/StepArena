@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +86,7 @@ fun RecordsScreen(modifier: Modifier = Modifier) {
     )
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 internal fun RecordsContent(
     daily: DailyActivityRecordEntity?,
@@ -96,15 +98,9 @@ internal fun RecordsContent(
     val orderedHours = remember(hours) { orderedRecordedHours(hours) }
     var period by remember { mutableStateOf(RecordPeriod.HOURLY) }
     var metric by remember { mutableStateOf(RecordMetric.STEPS) }
-    var selectedHourKey by remember(hours) {
-        mutableStateOf(orderedHours.firstOrNull()?.periodStartEpochMillis)
-    }
+    var selectedHourKey by remember(hours) { mutableStateOf<Long?>(null) }
     var selectedSession by remember { mutableStateOf<WalkingSessionEntity?>(null) }
-    LaunchedEffect(orderedHours) {
-        if (selectedHourKey !in orderedHours.map { it.periodStartEpochMillis }) {
-            selectedHourKey = orderedHours.firstOrNull()?.periodStartEpochMillis
-        }
-    }
+    var dailyDetail by remember { mutableStateOf(false) }
     val selectedHour = orderedHours.firstOrNull { it.periodStartEpochMillis == selectedHourKey }
 
     LazyColumn(
@@ -145,47 +141,48 @@ internal fun RecordsContent(
             if (hours.isEmpty() && daily == null) {
                 item { EmptyRecords(R.string.records_empty_today) }
             } else if (period == RecordPeriod.DAILY) {
-                item { DailySummary(summarizeToday(metric, daily, hours), metric, goalSteps) }
+                item { DailySummary(summarizeToday(metric, daily, hours), metric, goalSteps) { dailyDetail = true } }
             } else {
                 item {
                     HourChart(orderedHours, metric, selectedHourKey) {
                         selectedHourKey = it.periodStartEpochMillis
                     }
                 }
-                selectedHour?.let { hour ->
-                    item {
-                        HourSelection(
-                            record = hour,
-                            ordered = orderedHours,
-                            onSelect = { selectedHourKey = it.periodStartEpochMillis },
-                        )
-                    }
-                }
             }
         }
-        selectedSession?.let { session -> item { SessionDetail(session) } }
+    }
+    selectedHour?.let { hour ->
+        ModalBottomSheet(onDismissRequest = { selectedHourKey = null }, modifier = Modifier.testTag("hour_detail")) {
+            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.records_selected_hour, hour.hourOfDay, offsetText(hour.utcOffsetSeconds)), style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("selected_hour_title"))
+                HourDetail(hour)
+            }
+        }
+    }
+    selectedSession?.let { session ->
+        ModalBottomSheet(onDismissRequest = { selectedSession = null }, modifier = Modifier.testTag("session_detail")) {
+            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) { SessionDetail(session) }
+        }
+    }
+    if (dailyDetail) ModalBottomSheet(onDismissRequest = { dailyDetail = false }) {
+        val summary = summarizeToday(metric, daily, hours)
+        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.records_details_title), style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(summary.qualitySummary.summaryRes()))
+            Text(stringResource(if (summary.source == RecordSummarySource.DAILY) R.string.records_daily_source else R.string.records_hourly_source))
+        }
     }
 }
 
 @Composable
-private fun DailySummary(summary: RecordSummary, metric: RecordMetric, goalSteps: Int) {
-    GlassSurface(Modifier.fillMaxWidth().testTag("daily_summary")) {
+private fun DailySummary(summary: RecordSummary, metric: RecordMetric, goalSteps: Int, onClick: () -> Unit) {
+    GlassSurface(Modifier.fillMaxWidth().testTag("daily_summary").clickable(onClick = onClick)) {
         Text(stringResource(metric.summaryTitleRes()), style = MaterialTheme.typography.titleMedium)
         Text(summaryValue(summary.value, metric), style = MaterialTheme.typography.headlineSmall)
         if (metric == RecordMetric.STEPS) {
             Text(stringResource(R.string.records_daily_goal, formatNumber(goalSteps)))
         }
-        Text(stringResource(R.string.records_quality_heading))
-        Text(stringResource(summary.qualitySummary.summaryRes()))
-        Text(
-            stringResource(
-                if (summary.source == RecordSummarySource.DAILY) {
-                    R.string.records_daily_source
-                } else {
-                    R.string.records_hourly_source
-                },
-            ),
-        )
+        Text(stringResource(R.string.records_tap_for_details))
     }
 }
 
@@ -227,7 +224,7 @@ private fun HourChart(
                             val fill = StepArenaColors.CyanSoft
                             val border = MaterialTheme.colorScheme.onSurface
                             Canvas(
-                                Modifier.weight(1f).fillMaxHeight()
+                                Modifier.weight(1f).fillMaxHeight().testTag("hour_bar_${record.periodStartEpochMillis}")
                                     .semantics {
                                         contentDescription = description
                                         this.selected = selected
@@ -260,46 +257,6 @@ private fun HourChart(
             Text(stringResource(R.string.records_hour_twelve), modifier = Modifier.align(Alignment.Center))
             Text(stringResource(R.string.records_hour_twenty_three), modifier = Modifier.align(Alignment.CenterEnd))
         }
-    }
-}
-
-@Composable
-private fun HourSelection(
-    record: HourlyActivityRecordEntity,
-    ordered: List<HourlyActivityRecordEntity>,
-    onSelect: (HourlyActivityRecordEntity) -> Unit,
-) {
-    val index = ordered.indexOfFirst { it.periodStartEpochMillis == record.periodStartEpochMillis }
-    val previous = ordered.getOrNull(index - 1)
-    val next = ordered.getOrNull(index + 1)
-    GlassSurface(
-        Modifier.fillMaxWidth().testTag("hour_detail"),
-    ) {
-        Text(
-            stringResource(
-                R.string.records_selected_hour,
-                record.hourOfDay,
-                offsetText(record.utcOffsetSeconds),
-            ),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.testTag("selected_hour_title"),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm),
-        ) {
-            OutlinedButton(
-                onClick = { previous?.let(onSelect) },
-                enabled = previous != null,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("previous_hour"),
-            ) { Text(stringResource(R.string.records_previous_hour)) }
-            OutlinedButton(
-                onClick = { next?.let(onSelect) },
-                enabled = next != null,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("next_hour"),
-            ) { Text(stringResource(R.string.records_next_hour)) }
-        }
-        HourDetail(record)
     }
 }
 
@@ -349,19 +306,14 @@ private fun SessionRow(session: WalkingSessionEntity, onClick: () -> Unit) {
                 session.activeDurationSeconds / 60,
             ),
         )
-        if (session.stepsQuality != DataQuality.MEASURED) {
-            Text(
-                stringResource(R.string.records_quality_value, stringResource(session.stepsQuality.labelRes())),
-                color = StepArenaColors.Amber,
-            )
-        }
+        Text(stringResource(R.string.records_tap_for_details))
     }
 }
 
 @Composable
 private fun SessionDetail(session: WalkingSessionEntity) {
     val locale = LocalConfiguration.current.locales[0]
-    GlassSurface(Modifier.fillMaxWidth().testTag("session_detail")) {
+    GlassSurface(Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.records_session_detail), style = MaterialTheme.typography.titleMedium)
         Text(stringResource(R.string.records_session_start, formatTime(session.startedAtEpochMillis)))
         Text(

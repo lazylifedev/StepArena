@@ -75,6 +75,8 @@
     <string name="error_message">時間をおいて、もう一度お試しください。</string>
     <string name="retry">再試行</string>
     <string name="records_title">活動記録</string>
+    <string name="records_tap_for_details">タップして詳細</string>
+    <string name="records_details_title">記録の詳細</string>
     <string name="record_period_hourly">時間</string>
     <string name="record_period_daily">今日のまとめ</string>
     <string name="record_period_weekly">週</string>

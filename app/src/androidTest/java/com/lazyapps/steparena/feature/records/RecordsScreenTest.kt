@@ -44,15 +44,15 @@ class RecordsScreenTest {
         composeRule.onNodeWithText("合計速度", substring = true).assertDoesNotExist()
     }
 
-    @Test fun recordedHours_canBeSelectedWithoutTouchingBars_andControlsAre48dp() {
+    @Test fun recordedHourDetails_openFromChartWithoutNavigationButtons() {
         setRecords()
-        composeRule.onNodeWithTag("records_screen").performScrollToNode(hasTestTag("selected_hour_title"))
+        composeRule.onNodeWithTag("records_screen").performScrollToNode(hasTestTag("hour_bar_1000"))
+        composeRule.onNodeWithTag("hour_bar_1000").performClick()
         composeRule.onNodeWithTag("selected_hour_title")
             .assertIsDisplayed()
             .assertTextEquals("1時台（UTC+09:00）")
-        composeRule.onNodeWithTag("previous_hour").assertHeightIsAtLeast(48.dp)
-        composeRule.onNodeWithTag("next_hour").assertHeightIsAtLeast(48.dp).performClick()
-        composeRule.onNodeWithTag("selected_hour_title").assertTextEquals("2時台（UTC+09:00）")
+        composeRule.onNodeWithTag("previous_hour").assertDoesNotExist()
+        composeRule.onNodeWithTag("next_hour").assertDoesNotExist()
     }
 
     @Test fun duplicateDstHour_isSwitchedInInstantOrderByUtcOffset() {
@@ -62,11 +62,8 @@ class RecordsScreenTest {
                 hour(2_000, 1, -18_000),
             ),
         )
-        composeRule.onNodeWithTag("records_screen").performScrollToNode(hasTestTag("selected_hour_title"))
-        composeRule.onNodeWithTag("selected_hour_title")
-            .assertIsDisplayed()
-            .assertTextEquals("1時台（UTC-04:00）")
-        composeRule.onNodeWithTag("next_hour").performClick()
+        composeRule.onNodeWithTag("records_screen").performScrollToNode(hasTestTag("hour_bar_2000"))
+        composeRule.onNodeWithTag("hour_bar_2000").performClick()
         composeRule.onNodeWithTag("selected_hour_title").assertTextEquals("1時台（UTC-05:00）")
     }
 
