@@ -23,6 +23,12 @@ import java.util.UUID
 import com.lazyapps.steparena.game.CompetitiveIntegrityClassifier
 import com.lazyapps.steparena.game.CompetitiveIntegrityInput
 
+data class PersistedActivityUpdate(
+    val localDate: LocalDate,
+    val zoneId: ZoneId,
+    val officialDailySteps: Long,
+)
+
 class ActivityRepository(
     private val database: StepArenaDatabase,
     private val profileRepository: UserProfileRepository,
@@ -41,6 +47,8 @@ class ActivityRepository(
         database.daily().observeDate(date.toString(), zoneId.id)
     fun observeHours(date: LocalDate, zoneId: ZoneId) =
         database.hourly().observeDate(date.toString(), zoneId.id)
+    suspend fun officialDailySteps(date: LocalDate, zoneId: ZoneId): Long =
+        database.daily().get(date.toString(), zoneId.id)?.steps ?: 0
     fun observeSessions() = database.sessions().observeAll()
     fun observeActiveManualSession() = database.sessions().observeActiveManual()
     suspend fun currentManualSession() = database.sessions().active(true)
@@ -115,10 +123,11 @@ class ActivityRepository(
         trackingServiceSessionId: String?,
         recovered: Boolean,
         detectorAvailable: Boolean = false,
-    ) = writer.withLock {
-        if (delta <= 0) return@withLock
+    ): PersistedActivityUpdate? = writer.withLock {
+        if (delta <= 0) return@withLock null
+        val localDate = at.atZone(zoneId).toLocalDate()
         val profile = profileRepository.current()
-        database.withTransaction {
+        val persisted = database.withTransaction {
             val processing = database.processingState().get()
             if ((processing?.activityRepairVersion ?: 0) < ACTIVITY_REPAIR_VERSION) {
                 repairImplausibleActivity(profile, at)
@@ -126,7 +135,7 @@ class ActivityRepository(
             if (
                 processing?.lastCounterValue == sensorValue &&
                 processing.lastBootSessionId == bootSessionId
-            ) return@withTransaction
+            ) return@withTransaction false
 
             val previousAt = processing?.lastEventEpochMillis?.let(Instant::ofEpochMilli)
             val longGap = previousAt != null && Duration.between(previousAt, at).toHours() >= 2
@@ -228,7 +237,10 @@ class ActivityRepository(
                 ),
             )
             repeat(consumedDetectors.size) { detectorEvents.removeFirstOrNull() }
+            true
         }
+        if (!persisted) return@withLock null
+        PersistedActivityUpdate(localDate, zoneId, officialDailySteps(localDate, zoneId))
     }
 
     suspend fun finishSession(id: String?, at: Instant) = writer.withLock {

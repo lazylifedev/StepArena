@@ -161,8 +161,11 @@ class StepTrackingService : Service(), SensorEventListener {
             scope.launch {
                 if (setupStarted.compareAndSet(false, true)) {
                     state = repository.current()
+                    val debugZone = ZoneId.systemDefault()
+                    val debugDate = Instant.now().atZone(debugZone).toLocalDate()
+                    val officialSteps = activityRepository.officialDailySteps(debugDate, debugZone)
                     publishNotificationPreview(
-                        notificationPreview.reset(state.accumulatedTodaySteps, state.currentLocalDate),
+                        notificationPreview.reset(officialSteps, debugDate),
                     )
                     if (state.trackingRequested) {
                         val now = Instant.now()
@@ -173,7 +176,7 @@ class StepTrackingService : Service(), SensorEventListener {
                                 sessionId = it.sessionId ?: UUID.randomUUID().toString(),
                             )
                         }
-                        promote(NotificationModel(state.accumulatedTodaySteps, state.lastSensorEventAt, getString(R.string.notification_status_tracking)))
+                        promote(NotificationModel(officialSteps, state.lastSensorEventAt, getString(R.string.notification_status_tracking)))
                         startHeartbeat()
                     }
                 } else if (state.sessionId == null) {
@@ -206,8 +209,11 @@ class StepTrackingService : Service(), SensorEventListener {
 
     private suspend fun restoreAndRegister() {
         state = repository.current()
+        val restoreZone = ZoneId.systemDefault()
+        val restoreDate = Instant.now().atZone(restoreZone).toLocalDate()
+        val officialSteps = activityRepository.officialDailySteps(restoreDate, restoreZone)
         publishNotificationPreview(
-            notificationPreview.reset(state.accumulatedTodaySteps, state.currentLocalDate),
+            notificationPreview.reset(officialSteps, restoreDate),
         )
         if (!state.trackingRequested) {
             stopSelf()
@@ -357,7 +363,7 @@ class StepTrackingService : Service(), SensorEventListener {
         val result = counter.accept(raw, state, now, zone, bootSession)
         state = result.state
         val delta = (result as? StepEventResult.Added)?.delta
-        if (delta != null) {
+        val persistedUpdate = if (delta != null) {
             activityRepository.recordCounterDelta(
                 sensorValue = raw.toLong(),
                 delta = delta,
@@ -368,7 +374,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 recovered = (result as? StepEventResult.Added)?.unusuallyLarge == true,
                 detectorAvailable = stepDetectorRegistered,
             )
-        }
+        } else null
         when (result) {
             is StepEventResult.Added ->
                 Log.d(TAG, "event=step_delta delta=${result.delta} review=${result.unusuallyLarge}")
@@ -382,7 +388,14 @@ class StepTrackingService : Service(), SensorEventListener {
         lastPersistedAt = now
         val previewDateChanged = notificationPreview.snapshot.localDate != state.currentLocalDate
         publishNotificationPreview(
-            notificationPreview.onCounter(state.accumulatedTodaySteps, state.currentLocalDate, now),
+            notificationPreview.onCounter(
+                persistedUpdate?.officialDailySteps ?: activityRepository.officialDailySteps(
+                    state.currentLocalDate,
+                    ZoneId.of(state.currentZoneId),
+                ),
+                state.currentLocalDate,
+                now,
+            ),
         )
         updateNotificationIfNeeded(now, force = previewDateChanged)
         logEvent(

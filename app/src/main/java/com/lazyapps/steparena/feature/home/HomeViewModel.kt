@@ -93,10 +93,7 @@ class HomeViewModel(
             }.collect { (sources, day, daily) ->
                 val tracking = sources.tracking
                 val manual = sources.manual
-                val measuredToday = tracking.accumulatedTodaySteps.takeIf {
-                    tracking.currentLocalDate == day.date &&
-                        tracking.currentZoneId == day.zoneId.id
-                } ?: 0
+                val measuredToday = daily?.steps ?: 0
                 val status = when (tracking.trackingStatus) {
                     PersistentTrackingStatus.TRACKING, PersistentTrackingStatus.RESTARTED ->
                         TrackingStatus.ACTIVE
@@ -121,8 +118,10 @@ class HomeViewModel(
                                 calories = daily?.estimatedCaloriesKcal,
                                 speedKmh = daily?.averageWalkingSpeedKmh,
                                 reliability = when {
-                                    !sources.recoveryEnabled &&
-                                        measuredToday > 0 -> DataReliability.COMPLETE
+                                    (daily?.externalRecoveredSteps ?: 0) > 0 ->
+                                        DataReliability.PARTLY_RECOVERED
+                                    !sources.recoveryEnabled && measuredToday > 0 ->
+                                        DataReliability.COMPLETE
                                     else -> when (daily?.stepsQuality) {
                                     DataQuality.RECOVERED, DataQuality.MIXED ->
                                         DataReliability.PARTLY_RECOVERED
