@@ -41,6 +41,7 @@ import com.lazyapps.steparena.game.DebugGameController
 import com.lazyapps.steparena.game.DebugGameScenario
 import com.lazyapps.steparena.game.DebugGameScreen
 import com.lazyapps.steparena.game.GameNotificationDispatcher
+import com.lazyapps.steparena.app.navigation.canonicalGameRoute
 import com.lazyapps.steparena.game.DebugGameMaintenanceWorker
 import com.lazyapps.steparena.game.GameMaintenanceWorker
 import com.lazyapps.steparena.recovery.TrackingHealthWorker
@@ -239,8 +240,7 @@ class MainActivity : ComponentActivity() {
             debugGameVisible = true
             return "home"
         }
-        val route = intent.getStringExtra(GameNotificationDispatcher.EXTRA_DESTINATION)
-        return route?.takeIf { it in setOf("match", "rank", "achievements", "league", "season") } ?: "home"
+        return canonicalGameRoute(intent.getStringExtra(GameNotificationDispatcher.EXTRA_DESTINATION))
     }
 
     private fun runDebugGameScenario(scenario: DebugGameScenario) {

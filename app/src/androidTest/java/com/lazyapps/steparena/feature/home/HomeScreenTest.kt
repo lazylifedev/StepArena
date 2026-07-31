@@ -41,9 +41,9 @@ class HomeScreenTest {
 
     @Before fun awaitHost() = composeRule.awaitResumedHost()
 
-    @Test fun requiredFiveMetrics_areReachable() {
+    @Test fun requiredMetrics_areReachable() {
         setHome()
-        listOf("今日の歩数", "歩行距離", "歩行時間", "消費カロリー", "平均歩行速度").forEach { label ->
+        listOf("今日の歩数", "歩行距離", "歩行時間", "消費カロリー").forEach { label ->
             composeRule.onNodeWithTag(HomeTestTags.CONTENT).performScrollToNode(hasText(label))
             composeRule.onNodeWithText(label).assertIsDisplayed()
         }

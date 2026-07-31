@@ -66,6 +66,7 @@ import com.lazyapps.steparena.core.designsystem.theme.StepArenaMotion
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 import com.lazyapps.steparena.game.MatchOutcome
 import com.lazyapps.steparena.game.MatchStatus
+import com.lazyapps.steparena.core.database.entity.DailyMatchEntity
 import kotlinx.coroutines.delay
 
 object ChallengeTestTags {
@@ -79,9 +80,17 @@ object ChallengeTestTags {
     const val CELEBRATION = "challenge_celebration"
 }
 
+data class ChallengeUiState(
+    val todayMatch: DailyMatchEntity? = null,
+    val recentMatches: List<DailyMatchEntity> = emptyList(),
+    val currentMeasuredSteps: Long = 0,
+    val currentHealthConnectAddedSteps: Long = 0,
+    val challengeCelebration: ChallengeCelebration? = null,
+)
+
 @Composable
-internal fun MatchPage(
-    state: GameUiState,
+fun ChallengeScreen(
+    state: ChallengeUiState,
     motionLevel: MotionLevel = MotionLevel.FULL,
     onChallengeObserved: (String, Long, Long) -> Unit = { _, _, _ -> },
     onCelebrationConsumed: (String) -> Unit = {},
@@ -214,6 +223,19 @@ internal fun MatchPage(
         )
     }
 }
+
+@Composable
+internal fun MatchPage(
+    state: GameUiState,
+    motionLevel: MotionLevel = MotionLevel.FULL,
+    onChallengeObserved: (String, Long, Long) -> Unit = { _, _, _ -> },
+    onCelebrationConsumed: (String) -> Unit = {},
+) = ChallengeScreen(
+    state = state.challengeUiState(),
+    motionLevel = motionLevel,
+    onChallengeObserved = onChallengeObserved,
+    onCelebrationConsumed = onCelebrationConsumed,
+)
 
 @Composable
 private fun ChallengeComparisonCard(

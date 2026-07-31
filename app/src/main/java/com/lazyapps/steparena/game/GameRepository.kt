@@ -200,7 +200,7 @@ class LocalGameRepository(
             "match:${match.id}",
             context.getString(R.string.notification_challenge_result_title),
             context.getString(R.string.notification_challenge_result_text, result.notificationName()),
-            "match",
+            "challenge",
             now,
         )
         val beforeRank = RankSystem.definition(profile.rating)
@@ -216,7 +216,7 @@ class LocalGameRepository(
                     beforeRank.displayName,
                     afterRank.displayName,
                 ),
-                "rank",
+                "challenge/rank",
                 now,
             )
         }
@@ -285,7 +285,7 @@ class LocalGameRepository(
                     GameNotificationType.WEEKLY_LEAGUE, current.id, "league:${current.id}",
                     context.getString(R.string.notification_weekly_group_title),
                     context.getString(R.string.notification_weekly_group_text, rank),
-                    "league", now,
+                    "challenge/weekly-group", now,
                 )
             }
         }
@@ -334,7 +334,7 @@ class LocalGameRepository(
                     GameNotificationType.SEASON, current.id, "season:${current.id}",
                     context.getString(R.string.notification_monthly_record_title),
                     context.getString(R.string.notification_monthly_record_text),
-                    "season", now,
+                    "challenge/monthly-record", now,
                 )
             }
         }

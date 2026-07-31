@@ -23,6 +23,25 @@ data class GameUiState(
     val challengeCelebration: ChallengeCelebration? = null,
 )
 
+internal fun GameUiState.challengeUiState() = ChallengeUiState(
+    todayMatch = todayMatch,
+    recentMatches = recentMatches,
+    currentMeasuredSteps = currentMeasuredSteps,
+    currentHealthConnectAddedSteps = currentHealthConnectAddedSteps,
+    challengeCelebration = challengeCelebration,
+)
+
+internal fun GameUiState.rankUiState() = RankUiState(profile)
+
+internal fun GameUiState.weeklyGroupUiState() = WeeklyGroupUiState(league)
+
+internal fun GameUiState.monthlyRecordUiState() = MonthlyRecordUiState(
+    season = season,
+    currentRating = profile?.rating ?: 0,
+)
+
+internal fun GameUiState.achievementUiState() = AchievementUiState(achievements)
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as StepArenaApplication

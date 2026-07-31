@@ -24,6 +24,7 @@ import com.lazyapps.steparena.tracking.StepTrackingState
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.tracking.reconcileForceStop
 import com.lazyapps.steparena.game.GameNotificationDispatcher
+import com.lazyapps.steparena.app.navigation.canonicalGameRoute
 import kotlinx.coroutines.launch
 import com.lazyapps.steparena.release.ONBOARDING_VERSION
 
@@ -140,8 +141,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun notificationRoute(intent: Intent): String {
-        val route = intent.getStringExtra(GameNotificationDispatcher.EXTRA_DESTINATION)
-        return route?.takeIf { it in setOf("match", "rank", "achievements", "league", "season") } ?: "home"
+        return canonicalGameRoute(intent.getStringExtra(GameNotificationDispatcher.EXTRA_DESTINATION))
     }
 
     private fun requestPermissions(startTracking: Boolean, includeNotification: Boolean) {
