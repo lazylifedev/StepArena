@@ -22,6 +22,7 @@ data class GameUiState(
     val currentMeasuredSteps: Long = 0,
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
+    val recentDailyActivity: List<DailyActivityRecordEntity> = emptyList(),
 )
 
 internal fun GameUiState.challengeUiState() = ChallengeUiState(
@@ -42,7 +43,9 @@ internal fun GameUiState.monthlyRecordUiState() = MonthlyRecordUiState(
     currentRating = profile?.rating ?: 0,
 )
 
-internal fun GameUiState.achievementUiState() = AchievementUiState(achievements)
+internal fun GameUiState.achievementUiState() = AchievementUiState(
+    achievementProgress(profile, recentMatches, recentDailyActivity, achievements),
+)
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -76,6 +79,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         trackingRepository.state,
         healthConnectAddedSteps,
         currentLocalDay,
+        app.database.daily().recent(40),
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         GameUiState(
@@ -96,6 +100,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             },
             currentHealthConnectAddedSteps = values[9] as Long,
+            recentDailyActivity = values[11] as List<DailyActivityRecordEntity>,
         )
     }
     val state: StateFlow<GameUiState> = combine(
@@ -119,6 +124,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun acknowledgeEvent(id: String) {
         viewModelScope.launch { repository.acknowledgeNotificationEvent(id) }
+    }
+
+    fun acknowledgeAchievement(id: String) {
+        viewModelScope.launch { app.database.achievementUnlocks().acknowledge(id) }
     }
 
     fun observeChallengeMilestone(

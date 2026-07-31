@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import com.lazyapps.steparena.test.awaitResumedHost
 import org.junit.Before
@@ -42,5 +43,22 @@ class ArenaNavigationScreenTest {
 
         compose.onAllNodesWithTag(ArenaTestTags.SCREEN).assertCountEquals(0)
         compose.onAllNodesWithTag(ArenaTestTags.tab(ArenaPage.CHALLENGE)).assertCountEquals(0)
+    }
+
+    @Test
+    fun achievementBadgeOpensItsProgressSheet() {
+        compose.setContent {
+            StepArenaTheme {
+                AchievementScreen(
+                    AchievementUiState(
+                        listOf(AchievementProgressUi("first_1000_steps", 620, 1_000, false, null, false)),
+                    ),
+                )
+            }
+        }
+
+        compose.onNodeWithTag(AchievementTestTags.item("first_1000_steps"))
+            .assertIsDisplayed().performClick()
+        compose.onNodeWithTag(AchievementTestTags.SHEET).assertIsDisplayed()
     }
 }

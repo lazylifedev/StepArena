@@ -410,6 +410,8 @@
     <string name="game_best_streak">最長連続達成 %1$d回</string>
     <string name="game_season_loading">月間記録を準備しています。</string>
     <string name="game_achievement_title">達成記録</string>
+    <string name="game_achievement_progress_compact">%1$s / %2$s</string>
+    <string name="game_achievement_progress_detail">現在の進捗：%1$s / %2$s</string>
     <string name="game_achievement_unlocked">達成済み</string>
     <string name="game_achievement_not_unlocked">未達成</string>
     <string name="game_achievement_date">達成日 %1$s</string>
