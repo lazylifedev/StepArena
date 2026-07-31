@@ -20,7 +20,7 @@ data class GameUiState(
     val achievements: List<AchievementUnlockEntity> = emptyList(),
     val notificationEvents: List<GameNotificationEventEntity> = emptyList(),
     val currentMeasuredSteps: Long = 0,
-    val currentEligibleSteps: Long = 0,
+    val currentEligibleSteps: Long = currentMeasuredSteps.coerceAtMost(30_000),
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
     val recentDailyActivity: List<DailyActivityRecordEntity> = emptyList(),

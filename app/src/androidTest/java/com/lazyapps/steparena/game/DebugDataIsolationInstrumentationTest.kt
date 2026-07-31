@@ -69,8 +69,13 @@ class DebugDataIsolationInstrumentationTest {
                 VALUES ('local_player',NULL,$rating,'BRONZE',3,7,$wins,0,0,0,1,1,0,0,'WIN',1,1)""",
         )
         sql.execSQL(
-            """INSERT INTO daily_activity_records VALUES
-                ('$DATE|$ZONE','$DATE','$ZONE',$steps,0,'UNKNOWN',$steps*0.7,3600,10.0,3.0,
+            """INSERT INTO daily_activity_records
+                (id,localDate,zoneId,steps,unclassifiedSteps,unclassifiedStepsQuality,
+                externalRecoveredSteps,unallocatedMeasuredSteps,distanceMeters,walkingDurationSeconds,
+                estimatedCaloriesKcal,averageWalkingSpeedKmh,stepsQuality,distanceQuality,durationQuality,
+                caloriesQuality,speedQuality,activeHourCount,walkingSessionCount,finalized,
+                finalizedAtEpochMillis,createdAtEpochMillis,updatedAtEpochMillis) VALUES
+                ('$DATE|$ZONE','$DATE','$ZONE',$steps,0,'UNKNOWN',0,0,$steps*0.7,3600,10.0,3.0,
                 'MEASURED','ESTIMATED','MEASURED','ESTIMATED','ESTIMATED',
                 1,0,0,NULL,1,1)""",
         )
