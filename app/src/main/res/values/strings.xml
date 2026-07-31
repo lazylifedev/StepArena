@@ -253,7 +253,7 @@
     <string name="info_licenses_title">オープンソースライセンス</string>
     <string name="info_licenses_body">AndroidX / Jetpack Compose / Material 3 / Room / DataStore / WorkManager / Health Connect Client / Kotlin\n\n各ライブラリはApache License 2.0等、それぞれの配布条件に従います。正確な依存バージョンはGradle Version Catalogを参照してください。</string>
     <string name="info_about_title">アプリ情報</string>
-    <string name="info_about_body">StepArena\nversion %1$s (%2$d)\npackage com.lazyapps.steparena\nDB schema 5\nZoneId %3$s\nPrivacy 1 / Terms 1</string>
+    <string name="info_about_body">StepArena\nversion %1$s (%2$d)\npackage com.lazyapps.steparena\nDB schema 8\nZoneId %3$s\nPrivacy 1 / Terms 1</string>
     <string name="settings_heading_tracking">計測</string>
     <string name="settings_health_connect">Health Connect</string>
     <string name="settings_health_connect_summary">設定を確認</string>

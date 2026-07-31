@@ -137,6 +137,9 @@ class DataManagementRepository(
                 "tracking_gaps.csv" to queryCsv(
                     "SELECT startedAtEpochMillis,endedAtEpochMillis,zoneId,reason,status,recoveredSteps,unresolvedSteps,quality FROM tracking_gap_records ORDER BY startedAtEpochMillis",
                 ),
+                "competitive_integrity.csv" to queryCsv(
+                    "SELECT localDate,zoneId,startedAtEpochMillis,endedAtEpochMillis,totalSteps,eligibleSteps,restrictedSteps,excludedSteps,assessment,reasons,classifierVersion FROM competitive_integrity_segments ORDER BY startedAtEpochMillis",
+                ),
                 "matches.csv" to queryCsv(
                     "SELECT localDate,zoneId,status,outcome,opponentName,opponentTargetSteps,totalUserSteps,eligibleUserSteps,restrictedUserSteps,competitiveQuality FROM daily_matches ORDER BY localDate",
                 ),
@@ -166,7 +169,7 @@ class DataManagementRepository(
             write(zip, "metadata.json", metadata(exportedAt, usage))
             write(zip, "README.txt", "StepArena local data export\nUTF-8 / ISO 8601 / RFC 4180 compatible CSV\nNo account or server sync is used.\n")
         }
-        ExportResult(11, exportedAt)
+        ExportResult(12, exportedAt)
     }
 
     private fun queryCsv(sql: String): String {

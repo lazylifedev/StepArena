@@ -209,7 +209,7 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
                 "appVersion" to "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 "androidVersion" to Build.VERSION.RELEASE,
                 "deviceModel" to Build.MODEL,
-                "databaseSchema" to "5",
+                "databaseSchema" to "8",
                 "trackingStatus" to state.trackingStatus.name,
                 "trackingRequested" to state.trackingRequested.toString(),
                 "stepCounterAvailable" to diagnostics.stepSensorAvailable.toString(),

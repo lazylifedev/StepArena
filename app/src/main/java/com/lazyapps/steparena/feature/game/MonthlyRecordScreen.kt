@@ -23,7 +23,7 @@ data class MonthlyRecordUiState(
 
 @Composable
 fun MonthlyRecordScreen(state: MonthlyRecordUiState) = LazyColumn(
-    Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+    Modifier.fillMaxSize().testTag("monthly_record_screen"), contentPadding = PaddingValues(16.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
 ) {
     item { Text(stringResource(R.string.game_season_title), style = MaterialTheme.typography.headlineMedium) }
@@ -34,7 +34,7 @@ fun MonthlyRecordScreen(state: MonthlyRecordUiState) = LazyColumn(
         val best = monthDays.maxOfOrNull { it.steps } ?: 0
         item {
             GameCard(formatMonth(season.id)) {
-                Text(stringResource(R.string.game_monthly_steps, formatNumber(total)), style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.game_monthly_steps, formatNumber(total)), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("monthly_primary_value"))
                 Text(stringResource(R.string.game_monthly_average, formatNumber(average)))
                 Text(stringResource(R.string.game_monthly_best, formatNumber(best)))
                 MonthlyBars(monthDays)
