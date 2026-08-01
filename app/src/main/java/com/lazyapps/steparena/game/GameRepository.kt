@@ -482,13 +482,11 @@ internal fun competitiveSummary(
     if (daily == null) return calculator.calculate(CompetitiveStepInput())
     val steps = daily.steps.coerceAtLeast(0)
     val recovered = daily.externalRecoveredSteps.coerceAtLeast(0)
-    val classifiedTotal = integritySegments.sumOf { it.totalSteps.coerceAtLeast(0) }.coerceAtMost(steps)
+    val classifiedTotal = saturatedNonNegativeSum(integritySegments.map { it.totalSteps }).coerceAtMost(steps)
     val unclassifiedMeasured = (steps - classifiedTotal).coerceAtLeast(0)
-    val rawEligible = integritySegments.sumOf { it.eligibleSteps.coerceAtLeast(0) }
-    val rawRestricted = integritySegments.sumOf { it.restrictedSteps.coerceAtLeast(0) }
-    val rawExcluded = integritySegments.sumOf { it.excludedSteps.coerceAtLeast(0) }
-    val scale = minOf(1.0, if (rawEligible + rawRestricted + rawExcluded == 0L) 1.0
-        else classifiedTotal.toDouble() / (rawEligible + rawRestricted + rawExcluded))
+    val rawEligible = saturatedNonNegativeSum(integritySegments.map { it.eligibleSteps })
+    val rawRestricted = saturatedNonNegativeSum(integritySegments.map { it.restrictedSteps })
+    val rawExcluded = saturatedNonNegativeSum(integritySegments.map { it.excludedSteps })
     val scaled = if (rawEligible == 0L && rawRestricted == 0L && rawExcluded == 0L) {
         listOf(classifiedTotal, 0L, 0L)
     } else largestRemainder(classifiedTotal, listOf(rawExcluded, rawRestricted, rawEligible))
@@ -518,5 +516,11 @@ internal fun competitiveSummary(
 
 private fun safeStepSum(first: Long, second: Long): Long =
     if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
+
+private fun saturatedNonNegativeSum(values: Iterable<Long>): Long =
+    values.fold(0L) { total, value ->
+        val safeValue = value.coerceAtLeast(0)
+        if (Long.MAX_VALUE - total < safeValue) Long.MAX_VALUE else total + safeValue
+    }
 
 internal fun shouldUnlockDailyTenThousand(eligibleSteps: Long): Boolean = eligibleSteps >= 10_000

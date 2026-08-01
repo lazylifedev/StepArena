@@ -27,6 +27,16 @@ class CompetitiveAllocationTest {
         assertEquals(Long.MAX_VALUE, result.sum())
     }
 
+    @Test fun `mismatched margins are normalized without crashing`() {
+        listOf(
+            allocateCompetitiveDays(listOf(50, 50), 20, 0, 0),
+            allocateCompetitiveDays(listOf(50, 50), 200, 200, 200),
+            allocateCompetitiveDays(listOf(50, 50), 0, 0, 0),
+        ).forEach { result ->
+            assertTrue(result.all { it.eligible + it.restricted + it.excluded == it.total })
+        }
+    }
+
     @Test fun `summary assigns all zero classified weights to excluded`() {
         val daily = DailyActivityRecordEntity(
             id = "day", localDate = "2026-08-01", zoneId = "Asia/Tokyo", steps = 100,

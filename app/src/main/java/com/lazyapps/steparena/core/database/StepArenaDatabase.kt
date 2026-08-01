@@ -266,8 +266,8 @@ abstract class StepArenaDatabase : RoomDatabase() {
                 daily.forEach { (key, value) ->
                     val legacy = value.second
                     val external = minOf(legacy, proven[key] ?: 0)
-                    // v9 already owns this remainder; never add it a second time.
-                    val unallocated = maxOf(value.third, legacy - external)
+                    val legacyRemainder = (legacy - external).coerceAtLeast(0)
+                    val unallocated = safeAdd(value.third, legacyRemainder)
                     val split = key.split('|', limit = 2)
                     db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = ?, unallocatedMeasuredSteps = ? WHERE localDate = ? AND zoneId = ?",
                         arrayOf(external, unallocated, split[0], split[1]))

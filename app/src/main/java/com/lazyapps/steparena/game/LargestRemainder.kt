@@ -20,11 +20,17 @@ internal fun allocateCompetitiveDays(
 ): List<CompetitiveDayAllocation> {
     val columns = dayTotals.map { it.coerceAtLeast(0) }
     val total = columns.fold(BigInteger.ZERO) { acc, value -> acc.add(value.toBigInteger()) }
-    val rows = listOf(eligible, restricted, excluded).map { it.coerceAtLeast(0).toBigInteger() }
-    val rowTotal = rows.fold(ZERO) { acc, value -> acc.add(value) }
+    val rawRows = listOf(eligible, restricted, excluded).map { it.coerceAtLeast(0) }
+    val rowTotal = rawRows.fold(0L) { acc, value -> saturatedAdd(acc, value) }
+    val normalizedRows = if (rowTotal == 0L) listOf(0L, 0L, 0L)
+        else largestRemainder(total.coerceAtMost(BigInteger.valueOf(Long.MAX_VALUE)).toLong(), rawRows)
+    val rows = normalizedRows.map { it.toBigInteger() }
     if (columns.isEmpty()) return emptyList()
-    if (total == ZERO || rowTotal == ZERO) {
+    if (total == ZERO) {
         return columns.map { CompetitiveDayAllocation(it, 0, 0, 0) }
+    }
+    if (rowTotal == 0L) {
+        return columns.map { CompetitiveDayAllocation(it, 0, 0, it) }
     }
 
     val cells = Array(3) { row -> Array(columns.size) { column ->
@@ -43,7 +49,8 @@ internal fun allocateCompetitiveDays(
     )
     var pending = rowRemaining.fold(ZERO) { acc, value -> acc.add(value) }
     while (pending > ZERO) {
-        val cell = candidates.first { rowRemaining[it.row] > ZERO && columnRemaining[it.column] > ZERO }
+        val cell = candidates.firstOrNull { rowRemaining[it.row] > ZERO && columnRemaining[it.column] > ZERO }
+            ?: break
         result[cell.row][cell.column] = result[cell.row][cell.column].add(BigInteger.ONE)
         rowRemaining[cell.row] = rowRemaining[cell.row].subtract(BigInteger.ONE)
         columnRemaining[cell.column] = columnRemaining[cell.column].subtract(BigInteger.ONE)
@@ -55,6 +62,9 @@ internal fun allocateCompetitiveDays(
         )
     }
 }
+
+private fun saturatedAdd(first: Long, second: Long): Long =
+    if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
 
 private data class Cell(val floor: BigInteger, val remainder: BigInteger, val row: Int, val column: Int)
 
