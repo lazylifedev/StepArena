@@ -371,7 +371,15 @@ class StepTrackingService : Service(), SensorEventListener {
         }
         val bootSession = BootSession.current(applicationContext)
         val result = counter.accept(raw, state, now, zone, bootSession)
-        state = result.state
+        state = result.state.copy(
+            trackingStatus = when {
+                state.trackingRequested &&
+                    state.trackingStatus == TrackingStatus.SERVICE_HEARTBEAT_STALE -> TrackingStatus.TRACKING
+                state.trackingRequested &&
+                    state.trackingStatus == TrackingStatus.SENSOR_DATA_STALE -> TrackingStatus.TRACKING
+                else -> state.trackingStatus
+            },
+        )
         val delta = (result as? StepEventResult.Added)?.delta
         val persistedUpdate = if (delta != null) {
             activityRepository.recordCounterDelta(
@@ -670,4 +678,10 @@ internal fun isCurrentSessionRequest(requested: String?, current: String?): Bool
 internal fun heartbeatState(
     state: StepTrackingState,
     heartbeat: Instant,
-): StepTrackingState = state.copy(lastHeartbeatAt = heartbeat, serviceRunning = true)
+): StepTrackingState = state.copy(
+    lastHeartbeatAt = heartbeat,
+    serviceRunning = true,
+    trackingStatus = if (
+        state.trackingRequested && state.trackingStatus == TrackingStatus.SERVICE_HEARTBEAT_STALE
+    ) TrackingStatus.TRACKING else state.trackingStatus,
+)

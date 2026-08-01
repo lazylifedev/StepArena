@@ -138,7 +138,16 @@ fun StepArenaApp(
                 popExitTransition = { transitions.second },
             ) {
                 composable(AppDestination.HOME.route) {
-                    HomeScreen(uiState = homeUiState, onAction = onHomeAction)
+                    HomeScreen(
+                        uiState = homeUiState,
+                        onAction = { action ->
+                            if (action == HomeAction.OpenDiagnostics) {
+                                navController.navigate("settings/diagnostics") {
+                                    launchSingleTop = true
+                                }
+                            } else onHomeAction(action)
+                        },
+                    )
                 }
                 composable(AppDestination.CHALLENGE.route) {
                     ArenaScreen(ArenaPage.CHALLENGE, homeUiState.motionLevel)

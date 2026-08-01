@@ -34,4 +34,15 @@ class ServicePoliciesTest {
             heartbeatState(state, Instant.EPOCH).trackingStatus,
         )
     }
+
+    @Test fun heartbeat_recoversStaleHeartbeat() {
+        val state = StepTrackingState(
+            trackingRequested = true,
+            trackingStatus = TrackingStatus.SERVICE_HEARTBEAT_STALE,
+        )
+        assertEquals(
+            TrackingStatus.TRACKING,
+            heartbeatState(state, Instant.EPOCH).trackingStatus,
+        )
+    }
 }
