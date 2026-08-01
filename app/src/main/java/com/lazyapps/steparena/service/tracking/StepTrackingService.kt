@@ -373,7 +373,7 @@ class StepTrackingService : Service(), SensorEventListener {
         val bootSession = BootSession.current(applicationContext)
         val previousState = state
         val result = counter.accept(raw, previousState, now, zone, bootSession)
-        state = recoverStatusOnCounterEvent(previousState, result.state).copy(serviceRunning = true)
+        state = recoverStatusOnCounterEvent(previousState, result, raw)
         val delta = (result as? StepEventResult.Added)?.delta
         val persistedUpdate = if (delta != null) {
             activityRepository.recordCounterDelta(
@@ -682,15 +682,28 @@ internal fun heartbeatState(
 
 internal fun recoverStatusOnCounterEvent(
     previous: StepTrackingState,
-    result: StepTrackingState,
-): StepTrackingState = result.copy(
-    trackingStatus = if (
-        result.trackingRequested && previous.trackingStatus in setOf(
-            TrackingStatus.SERVICE_HEARTBEAT_STALE,
-            TrackingStatus.SENSOR_DATA_STALE,
-        )
-    ) TrackingStatus.TRACKING else result.trackingStatus,
-)
+    result: StepEventResult,
+    rawValue: Float,
+): StepTrackingState {
+    val resultState = result.state
+    val validSample =
+        rawValue.isFinite() &&
+            rawValue >= 0f &&
+            resultState.trackingRequested &&
+            result !is StepEventResult.Reset
+    val recoverable = previous.trackingStatus in setOf(
+        TrackingStatus.SERVICE_HEARTBEAT_STALE,
+        TrackingStatus.SENSOR_DATA_STALE,
+    )
+    return resultState.copy(
+        trackingStatus = if (validSample && recoverable) {
+            TrackingStatus.TRACKING
+        } else {
+            resultState.trackingStatus
+        },
+        serviceRunning = if (resultState.trackingRequested) true else resultState.serviceRunning,
+    )
+}
 
 internal fun recoverStatusOnDetectorEvent(
     state: StepTrackingState,

@@ -1,6 +1,7 @@
 package com.lazyapps.steparena.service.tracking
 
 import com.lazyapps.steparena.tracking.StepTrackingState
+import com.lazyapps.steparena.tracking.StepEventResult
 import com.lazyapps.steparena.tracking.TrackingStatus
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -14,15 +15,29 @@ class ServicePoliciesTest {
             trackingRequested = true,
             trackingStatus = TrackingStatus.SENSOR_DATA_STALE,
         )
-        val result = previous.copy(trackingStatus = TrackingStatus.RESTARTED)
-        assertEquals(TrackingStatus.TRACKING, recoverStatusOnCounterEvent(previous, result).trackingStatus)
-        assertEquals(TrackingStatus.RESTARTED, recoverStatusOnCounterEvent(previous.copy(trackingStatus = TrackingStatus.TRACKING), result).trackingStatus)
+        val result = StepEventResult.Added(1, false, previous)
+        assertEquals(TrackingStatus.TRACKING, recoverStatusOnCounterEvent(previous, result, 501f).trackingStatus)
+        val trackingResult = StepEventResult.Added(1, false, previous.copy(trackingStatus = TrackingStatus.TRACKING))
+        assertEquals(TrackingStatus.TRACKING, recoverStatusOnCounterEvent(previous.copy(trackingStatus = TrackingStatus.TRACKING), trackingResult, 501f).trackingStatus)
     }
 
     @Test fun counter_preservesResetResult() {
         val previous = StepTrackingState(trackingRequested = true, trackingStatus = TrackingStatus.TRACKING)
-        val result = previous.copy(trackingStatus = TrackingStatus.RESTARTED)
-        assertEquals(TrackingStatus.RESTARTED, recoverStatusOnCounterEvent(previous, result).trackingStatus)
+        val result = StepEventResult.Reset(previous.copy(trackingStatus = TrackingStatus.RESTARTED))
+        assertEquals(TrackingStatus.RESTARTED, recoverStatusOnCounterEvent(previous, result, 499f).trackingStatus)
+    }
+
+    @Test fun counter_doesNotRecoverFromInvalidSamplesOrStoppedState() {
+        val previous = StepTrackingState(trackingRequested = true, trackingStatus = TrackingStatus.SENSOR_DATA_STALE)
+        val result = StepEventResult.Added(1, false, previous)
+        assertEquals(TrackingStatus.TRACKING, recoverStatusOnCounterEvent(previous, result, 1f).trackingStatus)
+        assertEquals(TrackingStatus.SENSOR_DATA_STALE, recoverStatusOnCounterEvent(previous, result, Float.NaN).trackingStatus)
+        assertEquals(TrackingStatus.SENSOR_DATA_STALE, recoverStatusOnCounterEvent(previous, result, Float.POSITIVE_INFINITY).trackingStatus)
+        assertEquals(TrackingStatus.SENSOR_DATA_STALE, recoverStatusOnCounterEvent(previous, result, -1f).trackingStatus)
+        val stopped = previous.copy(trackingRequested = false, serviceRunning = false)
+        val stoppedResult = StepEventResult.Ignored(stopped)
+        assertEquals(TrackingStatus.SENSOR_DATA_STALE, recoverStatusOnCounterEvent(stopped, stoppedResult, 1f).trackingStatus)
+        assertFalse(recoverStatusOnCounterEvent(stopped, stoppedResult, 1f).serviceRunning)
     }
 
     @Test fun detector_recoversStaleStatusAndRecordsEventTime() {
