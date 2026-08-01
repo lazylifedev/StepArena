@@ -489,10 +489,9 @@ internal fun competitiveSummary(
     val rawExcluded = integritySegments.sumOf { it.excludedSteps.coerceAtLeast(0) }
     val scale = minOf(1.0, if (rawEligible + rawRestricted + rawExcluded == 0L) 1.0
         else classifiedTotal.toDouble() / (rawEligible + rawRestricted + rawExcluded))
-    val scaled = largestRemainder(
-        classifiedTotal,
-        listOf(rawExcluded, rawRestricted, rawEligible),
-    )
+    val scaled = if (rawEligible == 0L && rawRestricted == 0L && rawExcluded == 0L) {
+        listOf(classifiedTotal, 0L, 0L)
+    } else largestRemainder(classifiedTotal, listOf(rawExcluded, rawRestricted, rawEligible))
     val integrityExcluded = scaled[0]
     val integrityRestricted = scaled[1]
     val integrityEligible = scaled[2]

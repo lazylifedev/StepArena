@@ -22,7 +22,7 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 import com.lazyapps.steparena.game.CompetitiveIntegrityClassifier
 import com.lazyapps.steparena.game.CompetitiveIntegrityInput
-import com.lazyapps.steparena.game.largestRemainder
+import com.lazyapps.steparena.game.allocateCompetitiveDays
 
 data class PersistedActivityUpdate(
     val localDate: LocalDate,
@@ -171,15 +171,16 @@ class ActivityRepository(
             val grouped = segmentAllocations.entries.groupBy { it.key.date to it.key.zone }
             val groupedEntries = grouped.entries.toList()
             val groupWeights = groupedEntries.map { it.value.sumOf { entry -> entry.value } }
-            val eligibleByDay = largestRemainder(integrity.eligibleSteps, groupWeights)
-            val restrictedByDay = largestRemainder(integrity.restrictedSteps, groupWeights)
-            val excludedByDay = largestRemainder(integrity.excludedSteps, groupWeights)
+            val dayAllocations = allocateCompetitiveDays(
+                groupWeights, integrity.eligibleSteps, integrity.restrictedSteps, integrity.excludedSteps,
+            )
             groupedEntries.forEachIndexed { groupIndex, (dayAndZone, entries) ->
                 val daySteps = entries.sumOf { it.value }
                 val total = daySteps
-                val eligible = eligibleByDay[groupIndex]
-                val restricted = restrictedByDay[groupIndex]
-                val excluded = excludedByDay[groupIndex]
+                val allocation = dayAllocations[groupIndex]
+                val eligible = allocation.eligible
+                val restricted = allocation.restricted
+                val excluded = allocation.excluded
                 database.competitiveIntegritySegments().upsert(
                     CompetitiveIntegritySegmentEntity(
                         id = "integrity-$bootSessionId-${at.toEpochMilli()}-${sensorValue}-${dayAndZone.first}-${dayAndZone.second}-$groupIndex",
