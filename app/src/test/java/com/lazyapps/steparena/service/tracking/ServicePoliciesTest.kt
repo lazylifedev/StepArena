@@ -64,6 +64,23 @@ class ServicePoliciesTest {
         )
         assertEquals(TrackingStatus.SENSOR_DATA_STALE, recoverStatusOnDetectorEvent(base, Instant.EPOCH).trackingStatus)
         assertEquals(TrackingStatus.SENSOR_DATA_STALE, recoverStatusOnDetectorEvent(base.copy(stepDetectorRegistered = true, trackingRequested = false), Instant.EPOCH).trackingStatus)
+        assertEquals(base, recoverStatusOnDetectorEvent(base, Instant.EPOCH))
+        val stopped = base.copy(serviceRunning = false)
+        assertEquals(stopped, recoverStatusOnDetectorEvent(stopped, Instant.EPOCH))
+    }
+
+    @Test fun detector_updatesEventTimeButPreservesNonStaleStatusWhenActive() {
+        val eventAt = Instant.parse("2026-07-30T00:00:02Z")
+        val state = StepTrackingState(
+            trackingRequested = true,
+            stepDetectorRegistered = true,
+            serviceRunning = true,
+            trackingStatus = TrackingStatus.PERMISSION_REQUIRED,
+        )
+        val result = recoverStatusOnDetectorEvent(state, eventAt)
+        assertEquals(TrackingStatus.PERMISSION_REQUIRED, result.trackingStatus)
+        assertEquals(eventAt, result.lastSensorEventAt)
+        assertTrue(result.serviceRunning)
     }
 
     @Test fun staleSessionAction_isRejected() {

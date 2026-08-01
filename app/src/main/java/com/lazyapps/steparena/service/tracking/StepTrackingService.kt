@@ -708,14 +708,18 @@ internal fun recoverStatusOnCounterEvent(
 internal fun recoverStatusOnDetectorEvent(
     state: StepTrackingState,
     eventAt: Instant,
-): StepTrackingState = state.copy(
-    trackingStatus = if (
-        state.trackingRequested && state.stepDetectorRegistered && state.serviceRunning &&
+): StepTrackingState {
+    if (!state.trackingRequested || !state.stepDetectorRegistered || !state.serviceRunning) {
+        return state
+    }
+
+    return state.copy(
+        trackingStatus = if (
             state.trackingStatus in setOf(
                 TrackingStatus.SERVICE_HEARTBEAT_STALE,
                 TrackingStatus.SENSOR_DATA_STALE,
             )
-    ) TrackingStatus.TRACKING else state.trackingStatus,
-    serviceRunning = true,
-    lastSensorEventAt = eventAt,
-)
+        ) TrackingStatus.TRACKING else state.trackingStatus,
+        lastSensorEventAt = eventAt,
+    )
+}
