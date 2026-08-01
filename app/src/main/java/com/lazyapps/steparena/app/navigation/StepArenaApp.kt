@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraphBuilder
@@ -107,6 +108,7 @@ fun StepArenaApp(
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
                     AppDestination.entries.forEach { destination ->
                         NavigationBarItem(
+                            modifier = Modifier.testTag("bottom_navigation_${destination.route}"),
                             selected = selectedDestination == destination,
                             onClick = {
                                 navController.navigate(destination.route) {
@@ -142,7 +144,7 @@ fun StepArenaApp(
                         uiState = homeUiState,
                         onAction = { action ->
                             if (action == HomeAction.OpenDiagnostics) {
-                                navController.navigate("settings/diagnostics") {
+                                navController.navigate("home/diagnostics") {
                                     launchSingleTop = true
                                 }
                             } else onHomeAction(action)
@@ -180,6 +182,7 @@ fun StepArenaApp(
                     )
                 }
                 composable("settings/profile") { ProfileSettingsScreen() }
+                composable("home/diagnostics") { TrackingDiagnosticsScreen(trackingState) }
                 composable("settings/diagnostics") { TrackingDiagnosticsScreen(trackingState) }
                 composable("settings/recovery") { RecoverySettingsScreen() }
                 composable("settings/recovery-history") { RecoveryHistoryScreen() }
@@ -228,6 +231,7 @@ private fun destinationIcon(destination: AppDestination): ImageVector = when (de
 
 internal fun topLevelDestinationForRoute(route: String?): AppDestination = when {
     route == AppDestination.HOME.route -> AppDestination.HOME
+    route?.startsWith("home/") == true -> AppDestination.HOME
     route?.startsWith(AppDestination.CHALLENGE.route) == true -> AppDestination.CHALLENGE
     route == AppDestination.RECORDS.route -> AppDestination.RECORDS
     route == AppDestination.ACHIEVEMENTS.route -> AppDestination.ACHIEVEMENTS

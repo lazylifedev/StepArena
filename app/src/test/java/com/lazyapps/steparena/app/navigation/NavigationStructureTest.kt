@@ -19,6 +19,8 @@ class NavigationStructureTest {
         assertEquals(AppDestination.CHALLENGE, topLevelDestinationForRoute("challenge/{page}"))
         assertEquals(AppDestination.ACHIEVEMENTS, topLevelDestinationForRoute("achievements"))
         assertEquals(AppDestination.HOME, topLevelDestinationForRoute("rank"))
+        assertEquals(AppDestination.HOME, topLevelDestinationForRoute("home/diagnostics"))
+        assertEquals(AppDestination.SETTINGS, topLevelDestinationForRoute("settings/diagnostics"))
     }
 
     @Test

@@ -2,8 +2,10 @@ package com.lazyapps.steparena.feature.home
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -65,6 +67,62 @@ class HomeDiagnosticsNavigationTest {
         }
         composeRule.onNodeWithTag(HomeTestTags.CONTENT).assertIsDisplayed()
         composeRule.onNodeWithTag(HomeTestTags.TRACKING_STATUS).assertIsDisplayed()
+    }
+
+    @Test
+    fun savedSettingsBackStack_homeDiagnosticsBackReturnsHomeAndKeepsHomeSelected() {
+        setAppContent()
+
+        composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.nav_settings))
+            .performClick()
+        composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.nav_home))
+            .performClick()
+        composeRule.onNodeWithTag(HomeTestTags.TRACKING_STATUS).performClick()
+        composeRule.onNodeWithTag(DiagnosticsTestTags.SCREEN).assertIsDisplayed()
+
+        composeRule.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.onNodeWithTag(HomeTestTags.CONTENT).assertIsDisplayed()
+        composeRule.onNodeWithTag("bottom_navigation_home")
+            .assertIsSelected()
+    }
+
+    @Test
+    fun settingsDiagnosticsBackReturnsSettingsAndKeepsSettingsSelected() {
+        setAppContent()
+
+        composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.nav_settings))
+            .performClick()
+        composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.settings_diagnostics))
+            .performClick()
+        composeRule.onNodeWithTag(DiagnosticsTestTags.SCREEN).assertIsDisplayed()
+
+        composeRule.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.settings_diagnostics))
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("bottom_navigation_settings")
+            .assertIsSelected()
+    }
+
+    private fun setAppContent() {
+        composeRule.setContent {
+            StepArenaTheme {
+                StepArenaApp(
+                    homeUiState = HomeUiState(
+                        content = HomeContent.Ready(snapshot),
+                        motionLevel = MotionLevel.OFF,
+                        sessionState = SessionState.TRACKING_STOPPED,
+                        localDate = LocalDate.of(2026, 7, 30),
+                        zoneId = ZoneId.of("Asia/Tokyo"),
+                    ),
+                    onHomeAction = {},
+                    trackingState = StepTrackingState(),
+                )
+            }
+        }
     }
 
     private val snapshot = HomeSnapshot(

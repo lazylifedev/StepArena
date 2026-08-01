@@ -2,6 +2,7 @@ package com.lazyapps.steparena.service.tracking
 
 import com.lazyapps.steparena.tracking.StepTrackingState
 import com.lazyapps.steparena.tracking.StepEventResult
+import com.lazyapps.steparena.tracking.StepCounter
 import com.lazyapps.steparena.tracking.TrackingStatus
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -10,6 +11,58 @@ import org.junit.Test
 import java.time.Instant
 
 class ServicePoliciesTest {
+    @Test
+    fun staleDiagnosticWritesCannotInflateA469StepCounterSequence() {
+        val counter = StepCounter()
+        val at = Instant.parse("2026-08-01T14:00:00Z")
+        var state = StepTrackingState(
+            trackingRequested = true,
+            currentLocalDate = java.time.LocalDate.of(2026, 8, 1),
+            currentZoneId = "Asia/Tokyo",
+            bootSessionId = "boot-count-304",
+            lastSensorValue = 6_637,
+            accumulatedTodaySteps = 6_635,
+        )
+        val stalePersisted = state
+        var totalDelta = 0L
+
+        for (raw in 6_638..7_106) {
+            val result = counter.accept(
+                raw.toFloat(), state, at, java.time.ZoneId.of("Asia/Tokyo"), "boot-count-304",
+            ) as StepEventResult.Added
+            totalDelta += result.delta
+            state = mergeCounterStateWithPersistedDiagnostics(result.state, stalePersisted)
+        }
+
+        assertEquals(469L, totalDelta)
+        assertEquals(7_106L, state.lastSensorValue)
+        assertEquals(7_104L, state.accumulatedTodaySteps)
+    }
+
+    @Test
+    fun persistedDiagnosticsCannotRollBackCounterState() {
+        val oldDiagnosticTime = Instant.parse("2026-08-01T14:00:00Z")
+        val newDiagnosticTime = Instant.parse("2026-08-01T14:01:00Z")
+        val counterState = StepTrackingState(
+            lastSensorValue = 7_106,
+            previousSensorValue = 7_105,
+            accumulatedTodaySteps = 7_104,
+            lastHeartbeatAt = oldDiagnosticTime,
+        )
+        val persisted = StepTrackingState(
+            lastSensorValue = 7_104,
+            accumulatedTodaySteps = 7_102,
+            lastNotificationAt = newDiagnosticTime,
+        )
+
+        val merged = mergeCounterStateWithPersistedDiagnostics(counterState, persisted)
+
+        assertEquals(7_106L, merged.lastSensorValue)
+        assertEquals(7_105L, merged.previousSensorValue)
+        assertEquals(7_104L, merged.accumulatedTodaySteps)
+        assertEquals(oldDiagnosticTime, merged.lastHeartbeatAt)
+        assertEquals(newDiagnosticTime, merged.lastNotificationAt)
+    }
     @Test fun counter_recoversOnlyFromStaleStatusesUsingPreviousState() {
         val previous = StepTrackingState(
             trackingRequested = true,

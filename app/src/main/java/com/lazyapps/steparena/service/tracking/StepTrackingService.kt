@@ -301,9 +301,7 @@ class StepTrackingService : Service(), SensorEventListener {
             while (true) {
                 delay(HEARTBEAT_INTERVAL_MILLIS)
                 val heartbeat = Instant.now()
-                state = repository.update {
-                    heartbeatState(it, heartbeat)
-                }
+                repository.update { heartbeatState(it, heartbeat) }
                 logEvent("heartbeat")
                 updateNotificationIfNeeded(heartbeat, force = true)
             }
@@ -395,7 +393,10 @@ class StepTrackingService : Service(), SensorEventListener {
             is StepEventResult.Ignored -> Unit
         }
         // Publish after the Room transaction so Home and Records follow the same sample.
-        state = repository.update { state }
+        val counterState = state
+        state = repository.update { persisted ->
+            mergeCounterStateWithPersistedDiagnostics(counterState, persisted)
+        }
         lastPersistedSteps = state.accumulatedTodaySteps
         lastPersistedAt = now
         val previewDateChanged = notificationPreview.snapshot.localDate != state.currentLocalDate
@@ -496,7 +497,7 @@ class StepTrackingService : Service(), SensorEventListener {
             lastNotifiedSteps = preview.displayedSteps
             lastNotifiedAt = now
             scope.launch {
-                state = repository.update { it.copy(lastNotificationAt = now) }
+                repository.update { it.copy(lastNotificationAt = now) }
                 logEvent("notification_update")
             }
             pendingNotificationJob?.cancel()
@@ -668,6 +669,14 @@ class StepTrackingService : Service(), SensorEventListener {
 
 internal fun isCurrentSessionRequest(requested: String?, current: String?): Boolean =
     requested == null || requested == current
+
+internal fun mergeCounterStateWithPersistedDiagnostics(
+    counterState: StepTrackingState,
+    persisted: StepTrackingState,
+): StepTrackingState = counterState.copy(
+    lastHeartbeatAt = listOfNotNull(counterState.lastHeartbeatAt, persisted.lastHeartbeatAt).maxOrNull(),
+    lastNotificationAt = listOfNotNull(counterState.lastNotificationAt, persisted.lastNotificationAt).maxOrNull(),
+)
 
 internal fun heartbeatState(
     state: StepTrackingState,
