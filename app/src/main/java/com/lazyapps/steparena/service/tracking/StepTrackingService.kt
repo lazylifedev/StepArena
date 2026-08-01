@@ -329,6 +329,7 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     private suspend fun acceptDetectorEvent(eventAt: Instant) {
+        state = repository.update { recoverStatusOnDetectorEvent(it, eventAt) }
         val localDate = eventAt.atZone(ZoneId.systemDefault()).toLocalDate()
         val dateChanged = notificationPreview.snapshot.localDate != localDate
         publishNotificationPreview(notificationPreview.onDetector(localDate, eventAt))
@@ -370,16 +371,9 @@ class StepTrackingService : Service(), SensorEventListener {
             logEvent("date_changed")
         }
         val bootSession = BootSession.current(applicationContext)
-        val result = counter.accept(raw, state, now, zone, bootSession)
-        state = result.state.copy(
-            trackingStatus = when {
-                state.trackingRequested &&
-                    state.trackingStatus == TrackingStatus.SERVICE_HEARTBEAT_STALE -> TrackingStatus.TRACKING
-                state.trackingRequested &&
-                    state.trackingStatus == TrackingStatus.SENSOR_DATA_STALE -> TrackingStatus.TRACKING
-                else -> state.trackingStatus
-            },
-        )
+        val previousState = state
+        val result = counter.accept(raw, previousState, now, zone, bootSession)
+        state = recoverStatusOnCounterEvent(previousState, result.state).copy(serviceRunning = true)
         val delta = (result as? StepEventResult.Added)?.delta
         val persistedUpdate = if (delta != null) {
             activityRepository.recordCounterDelta(
@@ -684,4 +678,31 @@ internal fun heartbeatState(
     trackingStatus = if (
         state.trackingRequested && state.trackingStatus == TrackingStatus.SERVICE_HEARTBEAT_STALE
     ) TrackingStatus.TRACKING else state.trackingStatus,
+)
+
+internal fun recoverStatusOnCounterEvent(
+    previous: StepTrackingState,
+    result: StepTrackingState,
+): StepTrackingState = result.copy(
+    trackingStatus = if (
+        result.trackingRequested && previous.trackingStatus in setOf(
+            TrackingStatus.SERVICE_HEARTBEAT_STALE,
+            TrackingStatus.SENSOR_DATA_STALE,
+        )
+    ) TrackingStatus.TRACKING else result.trackingStatus,
+)
+
+internal fun recoverStatusOnDetectorEvent(
+    state: StepTrackingState,
+    eventAt: Instant,
+): StepTrackingState = state.copy(
+    trackingStatus = if (
+        state.trackingRequested && state.stepDetectorRegistered && state.serviceRunning &&
+            state.trackingStatus in setOf(
+                TrackingStatus.SERVICE_HEARTBEAT_STALE,
+                TrackingStatus.SENSOR_DATA_STALE,
+            )
+    ) TrackingStatus.TRACKING else state.trackingStatus,
+    serviceRunning = true,
+    lastSensorEventAt = eventAt,
 )
