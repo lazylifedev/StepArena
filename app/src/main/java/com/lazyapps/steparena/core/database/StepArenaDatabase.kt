@@ -23,7 +23,10 @@ import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEn
 import com.lazyapps.steparena.core.database.entity.*
 import com.lazyapps.steparena.core.database.dao.*
 import java.time.Instant
+import java.time.LocalDate
+import java.time.Duration
 import java.time.ZoneId
+import java.math.BigInteger
 
 @Database(
     entities = [
@@ -227,29 +230,47 @@ abstract class StepArenaDatabase : RoomDatabase() {
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE activity_processing_state ADD COLUMN legacyOriginRepairVersion INTEGER NOT NULL DEFAULT 0")
-                db.query("SELECT localDate, zoneId, unclassifiedSteps, unallocatedMeasuredSteps FROM daily_activity_records").use { days ->
-                    while (days.moveToNext()) {
-                        val localDate = days.getString(0)
-                        val zone = ZoneId.of(days.getString(1))
-                        val legacy = days.getLong(2).coerceAtLeast(0)
-                        val existingUnallocated = days.getLong(3).coerceAtLeast(0)
-                        var audited = 0L
-                        db.query("""SELECT p.startedAtEpochMillis, p.appliedSteps, g.zoneId
-                            FROM processed_external_step_records p
-                            JOIN tracking_gap_records g ON g.id = p.gapId
-                            WHERE p.gapId IS NOT NULL AND p.gapId != ''""").use { records ->
-                            while (records.moveToNext()) {
-                                val recordDate = Instant.ofEpochMilli(records.getLong(0)).atZone(ZoneId.of(records.getString(2))).toLocalDate().toString()
-                                if (recordDate == localDate && ZoneId.of(records.getString(2)) == zone) {
-                                    audited = safeAdd(audited, records.getLong(1).coerceAtLeast(0))
-                                }
-                            }
-                        }
-                        val external = minOf(legacy, audited)
-                        val remainder = legacy - external
-                        db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = ?, unallocatedMeasuredSteps = ? WHERE localDate = ? AND zoneId = ?",
-                            arrayOf(external, safeAdd(existingUnallocated, remainder), localDate, zone.id))
+                val daily = mutableMapOf<String, Triple<String, Long, Long>>()
+                db.query("SELECT localDate, zoneId, unclassifiedSteps, unallocatedMeasuredSteps FROM daily_activity_records").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val key = "${cursor.getString(0)}|${cursor.getString(1)}"
+                        daily[key] = Triple(cursor.getString(1), cursor.getLong(2).coerceAtLeast(0), cursor.getLong(3).coerceAtLeast(0))
                     }
+                }
+                val proven = mutableMapOf<String, Long>()
+                db.query("""SELECT p.startedAtEpochMillis, p.endedAtEpochMillis, p.appliedSteps,
+                    g.startedAtEpochMillis, g.endedAtEpochMillis, g.zoneId
+                    FROM processed_external_step_records p
+                    JOIN tracking_gap_records g ON g.id = p.gapId
+                    WHERE p.gapId IS NOT NULL AND p.gapId != ''""").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val start = Instant.ofEpochMilli(cursor.getLong(0))
+                        val end = Instant.ofEpochMilli(cursor.getLong(1)).let { if (it.isAfter(start)) it else start.plusMillis(1) }
+                        val zone = ZoneId.of(cursor.getString(5))
+                        val applied = cursor.getLong(2).coerceAtLeast(0)
+                        val first = start.atZone(zone).toLocalDate()
+                        val last = end.minusNanos(1).atZone(zone).toLocalDate()
+                        val dates = generateSequence(first) { date -> date.takeIf { it.isBefore(last) }?.plusDays(1) }.toList()
+                        val durations = dates.map { date ->
+                            val dayStart = date.atStartOfDay(zone).toInstant()
+                            val dayEnd = date.plusDays(1).atStartOfDay(zone).toInstant()
+                            Duration.between(maxOf(start, dayStart), minOf(end, dayEnd)).toMillis().coerceAtLeast(0)
+                        }
+                        val allocations = allocateMigrationSteps(applied, durations)
+                        dates.zip(allocations).forEach { (date, amount) ->
+                            val key = "$date|${zone.id}"
+                            if (key in daily) proven[key] = safeAdd(proven[key] ?: 0, amount)
+                        }
+                    }
+                }
+                daily.forEach { (key, value) ->
+                    val legacy = value.second
+                    val external = minOf(legacy, proven[key] ?: 0)
+                    // v9 already owns this remainder; never add it a second time.
+                    val unallocated = maxOf(value.third, legacy - external)
+                    val split = key.split('|', limit = 2)
+                    db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = ?, unallocatedMeasuredSteps = ? WHERE localDate = ? AND zoneId = ?",
+                        arrayOf(external, unallocated, split[0], split[1]))
                 }
                 db.execSQL("UPDATE activity_processing_state SET legacyOriginRepairVersion = 1 WHERE key = 'sensor'")
             }
@@ -257,6 +278,24 @@ abstract class StepArenaDatabase : RoomDatabase() {
 
         private fun safeAdd(first: Long, second: Long): Long =
             if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
+
+        private fun allocateMigrationSteps(total: Long, weights: List<Long>): List<Long> {
+            val denominator = weights.fold(BigInteger.ZERO) { acc, value -> acc + value.toBigInteger() }
+            if (denominator == BigInteger.ZERO) return List(weights.size) { 0L }
+            val safeTotal = total.coerceAtLeast(0).toBigInteger()
+            val floors = weights.map { safeTotal * it.toBigInteger() / denominator }
+            var remaining = (safeTotal - floors.fold(BigInteger.ZERO) { acc, value -> acc + value }).toLong()
+            val order = weights.indices.sortedWith(compareByDescending<Int> {
+                safeTotal * weights[it].toBigInteger() % denominator
+            }.thenBy { it })
+            val result = floors.map { it.toLong() }.toMutableList()
+            for (index in order) {
+                if (remaining == 0L) break
+                result[index]++
+                remaining--
+            }
+            return result
+        }
 
         private fun migrateLegacyLeagueParticipants(db: SupportSQLiteDatabase) {
             db.query(
