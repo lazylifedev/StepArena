@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.core.DataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -16,14 +17,18 @@ import java.time.LocalDate
 
 private val Context.trackingDataStore by preferencesDataStore("step_tracking")
 
-class TrackingStateRepository(private val context: Context) {
-    val state: Flow<StepTrackingState> = context.trackingDataStore.data.map(::decode)
+class TrackingStateRepository(
+    private val dataStore: DataStore<Preferences>,
+) {
+    constructor(context: Context) : this(context.trackingDataStore)
+
+    val state: Flow<StepTrackingState> = dataStore.data.map(::decode)
 
     suspend fun current(): StepTrackingState = state.first()
-    suspend fun clear() { context.trackingDataStore.edit { it.clear() } }
+    suspend fun clear() { dataStore.edit { it.clear() } }
     suspend fun update(transform: (StepTrackingState) -> StepTrackingState): StepTrackingState {
         var result = StepTrackingState()
-        context.trackingDataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             result = transform(decode(preferences))
             encode(preferences, result)
         }
@@ -31,7 +36,7 @@ class TrackingStateRepository(private val context: Context) {
     }
 
     suspend fun saveDailySummary(summary: DailyStepSummary) {
-        context.trackingDataStore.edit {
+        dataStore.edit {
             it[Keys.DAILY_DATE] = summary.localDate.toString()
             it[Keys.DAILY_ZONE] = summary.zoneId
             it[Keys.DAILY_STEPS] = summary.steps
@@ -40,7 +45,7 @@ class TrackingStateRepository(private val context: Context) {
     }
 
     suspend fun lastDailySummary(): DailyStepSummary? {
-        val p = context.trackingDataStore.data.first()
+        val p = dataStore.data.first()
         val date = p[Keys.DAILY_DATE] ?: return null
         return DailyStepSummary(
             localDate = LocalDate.parse(date),

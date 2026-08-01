@@ -22,6 +22,7 @@ class DebugDataIsolationInstrumentationTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        assertEquals(QA_APPLICATION_ID, context.packageName)
         context.deleteDatabase(PRODUCTION_NAME)
         context.deleteDatabase(DebugStepArenaApplication.DEBUG_DATABASE_NAME)
         production = StepArenaDatabase.build(context, PRODUCTION_NAME)
@@ -104,6 +105,7 @@ class DebugDataIsolationInstrumentationTest {
         }
 
     private companion object {
+        const val QA_APPLICATION_ID = "com.lazyapps.steparena.qa"
         const val PRODUCTION_NAME = "step_arena_isolation_production_test.db"
         const val DATE = "2026-07-29"
         const val ZONE = "Asia/Tokyo"
