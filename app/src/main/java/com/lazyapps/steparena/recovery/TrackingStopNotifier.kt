@@ -28,9 +28,11 @@ object TrackingStopNotifier {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "計測状態の警告",
+                context.getString(R.string.notification_channel_tracking_status),
                 NotificationManager.IMPORTANCE_DEFAULT,
-            ),
+            ).apply {
+                description = context.getString(R.string.notification_channel_tracking_status_description)
+            },
         )
         val open = PendingIntent.getActivity(
             context,
@@ -46,21 +48,21 @@ object TrackingStopNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val text = if (severe) {
-            "計測が停止した可能性があります。タップして状態を確認してください。"
+            context.getString(R.string.notification_tracking_stopped_severe)
         } else {
-            "計測状態を12分以上確認できませんでした。"
+            context.getString(R.string.notification_tracking_stopped_delayed)
         }
         NotificationManagerCompat.from(context).notify(
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("StepArenaの歩数計測を確認してください")
+                .setContentTitle(context.getString(R.string.notification_tracking_stopped_title))
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setContentIntent(open)
                 .setAutoCancel(true)
-                .addAction(0, "状態を確認", open)
-                .addAction(0, "計測を再開", restart)
+                .addAction(0, context.getString(R.string.notification_action_check_status), open)
+                .addAction(0, context.getString(R.string.notification_action_restart_tracking), restart)
                 .build(),
         )
     }

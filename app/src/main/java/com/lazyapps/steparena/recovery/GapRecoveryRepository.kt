@@ -15,6 +15,7 @@ class GapRecoveryRepository(
     private val external: ExternalActivityDataSource,
     private val ownPackageName: String,
     private val activityRepository: ActivityRepository,
+    private val settingsRepository: RecoverySettingsRepository,
 ) {
     fun observeHistory() = database.trackingGaps().observeHistory()
     fun observeUnresolvedCount() = database.trackingGaps().observeUnresolvedCount()
@@ -58,6 +59,12 @@ class GapRecoveryRepository(
     suspend fun recover(gapId: String, selfMeasuredSteps: Long = 0): TrackingGapRecordEntity? {
         val gap = database.trackingGaps().get(gapId) ?: return null
         if (gap.explicitUserStop || gap.status == TrackingGapStatus.RECOVERED) return gap
+        if (!settingsRepository.current().healthConnectEnabled) {
+            return gap.copy(
+                status = TrackingGapStatus.UNRESOLVED,
+                updatedAtEpochMillis = Instant.now().toEpochMilli(),
+            ).also { database.trackingGaps().upsert(it) }
+        }
         val start = Instant.ofEpochMilli(gap.startedAtEpochMillis)
         val end = Instant.ofEpochMilli(gap.endedAtEpochMillis)
         val result = external.readSteps(start, end)
@@ -72,7 +79,7 @@ class GapRecoveryRepository(
             return failed
         }
         val updated = database.withTransaction {
-            val accepted = result.segments.filter {
+            val accepted = result.segments.mapNotNull { it.clippedTo(start, end) }.filter {
                 it.validation() == SegmentValidation.VALID &&
                     classifyDataOrigin(it.dataOriginPackage, ownPackageName) !=
                     ExternalDataOriginType.STEP_ARENA
@@ -80,7 +87,7 @@ class GapRecoveryRepository(
             var appliedExternal = 0L
             val now = Instant.now().toEpochMilli()
             accepted.forEach { segment ->
-                val fingerprint = segment.fingerprint()
+                val fingerprint = sha256("${segment.fingerprint()}|$RECOVERY_POLICY_VERSION")
                 val existing = segment.recordId?.let {
                     database.processedExternalSteps().byRecordId(it, segment.dataOriginPackage)
                 } ?: database.processedExternalSteps().byFingerprint(fingerprint)
@@ -88,9 +95,20 @@ class GapRecoveryRepository(
                     segment.start.toEpochMilli(),
                     segment.end.toEpochMilli(),
                 )
+                val measuredInInterval = measuredStepsInInterval(
+                    database.hourly().overlapping(
+                        segment.start.toEpochMilli(),
+                        segment.end.toEpochMilli(),
+                    ),
+                    segment.start,
+                    segment.end,
+                )
                 if (existing == null) {
-                    val candidate = (segment.steps - selfMeasuredSteps - alreadyApplied)
-                        .coerceAtLeast(0)
+                    val candidate = recoverableSteps(
+                        segment.steps,
+                        measuredInInterval + selfMeasuredSteps,
+                        alreadyApplied,
+                    )
                     database.processedExternalSteps().upsert(
                         ProcessedExternalStepRecordEntity(
                             id = UUID.randomUUID().toString(),
@@ -109,8 +127,11 @@ class GapRecoveryRepository(
                     appliedExternal += candidate
                 } else if (existing.fingerprint != fingerprint) {
                     val otherApplied = (alreadyApplied - existing.appliedSteps).coerceAtLeast(0)
-                    val recalculated = (segment.steps - selfMeasuredSteps - otherApplied)
-                        .coerceAtLeast(existing.appliedSteps)
+                    val recalculated = recoverableSteps(
+                        segment.steps,
+                        measuredInInterval + selfMeasuredSteps,
+                        otherApplied,
+                    ).coerceAtLeast(existing.appliedSteps)
                     database.processedExternalSteps().upsert(
                         existing.copy(
                             steps = segment.steps,
@@ -155,4 +176,29 @@ class GapRecoveryRepository(
         }
         return updated
     }
+
+    private companion object {
+        const val RECOVERY_POLICY_VERSION = "interval-difference-v2"
+    }
+}
+
+internal fun recoverableSteps(
+    externalSteps: Long,
+    measuredSteps: Long,
+    alreadyRecoveredSteps: Long,
+): Long = (externalSteps - measuredSteps - alreadyRecoveredSteps).coerceAtLeast(0)
+
+internal fun measuredStepsInInterval(
+    hours: List<com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity>,
+    start: Instant,
+    end: Instant,
+): Long = hours.sumOf { hour ->
+    val hourStart = Instant.ofEpochMilli(hour.periodStartEpochMillis)
+    val hourEnd = Instant.ofEpochMilli(hour.periodEndEpochMillis)
+    val overlapStart = maxOf(start, hourStart)
+    val overlapEnd = minOf(end, hourEnd)
+    if (!overlapStart.isBefore(overlapEnd)) return@sumOf 0L
+    val fullMillis = java.time.Duration.between(hourStart, hourEnd).toMillis()
+    val overlapMillis = java.time.Duration.between(overlapStart, overlapEnd).toMillis()
+    if (fullMillis <= 0) 0L else hour.steps * overlapMillis / fullMillis
 }

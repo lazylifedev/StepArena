@@ -14,14 +14,25 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
 import androidx.navigation.NavHostController
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -41,13 +52,17 @@ import com.lazyapps.steparena.feature.records.RecordsScreen
 import com.lazyapps.steparena.feature.settings.ProfileSettingsScreen
 import com.lazyapps.steparena.feature.settings.SettingsScreen
 import com.lazyapps.steparena.feature.settings.RecoverySettingsScreen
+import com.lazyapps.steparena.feature.settings.DataManagementScreen
+import com.lazyapps.steparena.feature.settings.InfoDocument
+import com.lazyapps.steparena.feature.settings.InfoDocumentScreen
 import com.lazyapps.steparena.feature.diagnostics.RecoveryHistoryScreen
-import com.lazyapps.steparena.feature.game.GamePage
-import com.lazyapps.steparena.feature.game.GameScreen
+import com.lazyapps.steparena.feature.game.AchievementScreen
+import com.lazyapps.steparena.feature.game.ArenaPage
+import com.lazyapps.steparena.feature.game.ArenaScreen
 
 enum class AppDestination(val route: String, val labelRes: Int) {
     HOME("home", R.string.nav_home),
-    MATCH("match", R.string.nav_match),
+    CHALLENGE("challenge", R.string.nav_match),
     RECORDS("records", R.string.nav_records),
     ACHIEVEMENTS("achievements", R.string.nav_achievements),
     SETTINGS("settings", R.string.nav_settings),
@@ -62,13 +77,18 @@ fun StepArenaApp(
     navController: NavHostController = rememberNavController(),
     initialRoute: String = AppDestination.HOME.route,
     environmentBanner: String? = null,
+    onReplayOnboarding: () -> Unit = {},
+    onAllDataDeleted: () -> Unit = {},
+    challengeContent: (@Composable () -> Unit)? = null,
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selectedRoute = backStackEntry?.destination?.route ?: AppDestination.HOME.route
+    val selectedDestination = topLevelDestinationForRoute(selectedRoute)
+    val requestedInitialRoute = canonicalGameRoute(initialRoute)
     val transitions = transitionsFor(homeUiState.motionLevel)
-    LaunchedEffect(initialRoute) {
-        if (initialRoute != AppDestination.HOME.route && selectedRoute != initialRoute) {
-            navController.navigate(initialRoute) { launchSingleTop = true }
+    LaunchedEffect(requestedInitialRoute) {
+        if (requestedInitialRoute != AppDestination.HOME.route && selectedRoute != requestedInitialRoute) {
+            navController.navigate(requestedInitialRoute) { launchSingleTop = true }
         }
     }
 
@@ -89,7 +109,8 @@ fun StepArenaApp(
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
                     AppDestination.entries.forEach { destination ->
                         NavigationBarItem(
-                            selected = selectedRoute == destination.route,
+                            modifier = Modifier.testTag("bottom_navigation_${destination.route}"),
+                            selected = selectedDestination == destination,
                             onClick = {
                                 navController.navigate(destination.route) {
                                     popUpTo(AppDestination.HOME.route) { saveState = true }
@@ -97,7 +118,13 @@ fun StepArenaApp(
                                     restoreState = true
                                 }
                             },
-                            icon = { Text(destinationSymbol(destination)) },
+                            icon = {
+                                androidx.compose.material3.Icon(
+                                    imageVector = destinationIcon(destination),
+                                    contentDescription = null,
+                                    modifier = Modifier.clearAndSetSemantics { },
+                                )
+                            },
                             label = { Text(stringResource(destination.labelRes)) },
                         )
                     }
@@ -106,7 +133,7 @@ fun StepArenaApp(
         ) { innerPadding ->
             NavHost(
                 navController = navController,
-                startDestination = initialRoute,
+                startDestination = AppDestination.HOME.route,
                 modifier = Modifier.padding(innerPadding),
                 enterTransition = { transitions.first },
                 exitTransition = { transitions.second },
@@ -114,13 +141,33 @@ fun StepArenaApp(
                 popExitTransition = { transitions.second },
             ) {
                 composable(AppDestination.HOME.route) {
-                    HomeScreen(uiState = homeUiState, onAction = onHomeAction)
+                    HomeScreen(
+                        uiState = homeUiState,
+                        onAction = { action ->
+                            if (action == HomeAction.OpenDiagnostics) {
+                                navController.navigate("home/diagnostics") {
+                                    launchSingleTop = true
+                                }
+                            } else onHomeAction(action)
+                        },
+                    )
                 }
-                composable(AppDestination.MATCH.route) { GameScreen(GamePage.MATCH) }
-                composable(AppDestination.ACHIEVEMENTS.route) { GameScreen(GamePage.ACHIEVEMENTS) }
-                composable("rank") { GameScreen(GamePage.RANK) }
-                composable("league") { GameScreen(GamePage.LEAGUE) }
-                composable("season") { GameScreen(GamePage.SEASON) }
+                composable(AppDestination.CHALLENGE.route) {
+                    challengeContent?.invoke()
+                        ?: ArenaScreen(ArenaPage.CHALLENGE, homeUiState.motionLevel)
+                }
+                composable(
+                    route = "${AppDestination.CHALLENGE.route}/{page}",
+                    arguments = listOf(navArgument("page") { type = NavType.StringType }),
+                ) { entry ->
+                    ArenaScreen(
+                        initialPage = ArenaPage.fromRouteSegment(entry.arguments?.getString("page")),
+                        motionLevel = homeUiState.motionLevel,
+                    )
+                }
+                composable(AppDestination.ACHIEVEMENTS.route) {
+                    AchievementScreen()
+                }
                 composable(AppDestination.RECORDS.route) { RecordsScreen() }
                 composable(AppDestination.SETTINGS.route) {
                     SettingsScreen(
@@ -128,12 +175,24 @@ fun StepArenaApp(
                         onDiagnostics = { navController.navigate("settings/diagnostics") },
                         onRecoverySettings = { navController.navigate("settings/recovery") },
                         onRecoveryHistory = { navController.navigate("settings/recovery-history") },
+                        onDataManagement = { navController.navigate("settings/data") },
+                        onPrivacy = { navController.navigate("settings/privacy") },
+                        onTerms = { navController.navigate("settings/terms") },
+                        onLicenses = { navController.navigate("settings/licenses") },
+                        onAbout = { navController.navigate("settings/about") },
+                        onReplayOnboarding = onReplayOnboarding,
                     )
                 }
                 composable("settings/profile") { ProfileSettingsScreen() }
+                composable("home/diagnostics") { TrackingDiagnosticsScreen(trackingState) }
                 composable("settings/diagnostics") { TrackingDiagnosticsScreen(trackingState) }
                 composable("settings/recovery") { RecoverySettingsScreen() }
                 composable("settings/recovery-history") { RecoveryHistoryScreen() }
+                composable("settings/data") { DataManagementScreen(onAllDataDeleted) }
+                composable("settings/privacy") { InfoDocumentScreen(InfoDocument.PRIVACY) }
+                composable("settings/terms") { InfoDocumentScreen(InfoDocument.TERMS) }
+                composable("settings/licenses") { InfoDocumentScreen(InfoDocument.LICENSES) }
+                composable("settings/about") { InfoDocumentScreen(InfoDocument.ABOUT) }
             }
         }
     }
@@ -164,10 +223,31 @@ private fun transitionsFor(level: MotionLevel): Pair<EnterTransition, ExitTransi
         MotionLevel.OFF -> Pair(EnterTransition.None, ExitTransition.None)
     }
 
-private fun destinationSymbol(destination: AppDestination): String = when (destination) {
-    AppDestination.HOME -> "⌂"
-    AppDestination.MATCH -> "VS"
-    AppDestination.RECORDS -> "▥"
-    AppDestination.ACHIEVEMENTS -> "◇"
-    AppDestination.SETTINGS -> "⚙"
+private fun destinationIcon(destination: AppDestination): ImageVector = when (destination) {
+    AppDestination.HOME -> Icons.Default.Home
+    AppDestination.CHALLENGE -> Icons.AutoMirrored.Filled.DirectionsWalk
+    AppDestination.RECORDS -> Icons.Default.BarChart
+    AppDestination.ACHIEVEMENTS -> Icons.Default.EmojiEvents
+    AppDestination.SETTINGS -> Icons.Default.Settings
+}
+
+internal fun topLevelDestinationForRoute(route: String?): AppDestination = when {
+    route == AppDestination.HOME.route -> AppDestination.HOME
+    route?.startsWith("home/") == true -> AppDestination.HOME
+    route?.startsWith(AppDestination.CHALLENGE.route) == true -> AppDestination.CHALLENGE
+    route == AppDestination.RECORDS.route -> AppDestination.RECORDS
+    route == AppDestination.ACHIEVEMENTS.route -> AppDestination.ACHIEVEMENTS
+    route?.startsWith(AppDestination.SETTINGS.route) == true -> AppDestination.SETTINGS
+    else -> AppDestination.HOME
+}
+
+fun canonicalGameRoute(route: String?): String = when (route) {
+    "match", AppDestination.CHALLENGE.route -> AppDestination.CHALLENGE.route
+    "rank", "${AppDestination.CHALLENGE.route}/rank" -> "${AppDestination.CHALLENGE.route}/rank"
+    "league", "${AppDestination.CHALLENGE.route}/weekly-group" -> "${AppDestination.CHALLENGE.route}/weekly-group"
+    "season", "${AppDestination.CHALLENGE.route}/monthly-record" -> "${AppDestination.CHALLENGE.route}/monthly-record"
+    AppDestination.ACHIEVEMENTS.route -> AppDestination.ACHIEVEMENTS.route
+    AppDestination.RECORDS.route -> AppDestination.RECORDS.route
+    AppDestination.SETTINGS.route -> AppDestination.SETTINGS.route
+    else -> AppDestination.HOME.route
 }

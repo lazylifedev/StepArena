@@ -2,6 +2,7 @@ package com.lazyapps.steparena.game
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.database.StepArenaDatabase
 import com.lazyapps.steparena.core.database.entity.*
 import com.lazyapps.steparena.core.database.model.DataQuality
@@ -9,13 +10,16 @@ import java.time.*
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOf
 
 interface GameRepository {
     fun observePlayerProfile(): Flow<GamePlayerProfileEntity>
     fun observeTodayMatch(): Flow<DailyMatchEntity?>
     fun observeRecentMatches(limit: Int): Flow<List<DailyMatchEntity>>
     fun observeCurrentLeague(): Flow<WeeklyLeagueEntity?>
+    fun observeCurrentLeagueParticipants(): Flow<List<WeeklyLeagueParticipantEntity>>
     fun observeCurrentSeason(): Flow<GameSeasonEntity?>
     fun observeAchievements(): Flow<List<AchievementUnlockEntity>>
     fun observeNotificationEvents(): Flow<List<GameNotificationEventEntity>>
@@ -53,8 +57,15 @@ class LocalGameRepository(
 
     override fun observePlayerProfile() = database.gamePlayerProfile().observe().filterNotNull()
     override fun observeTodayMatch() = database.dailyMatches().observe(today.toString(), zone.id)
+    fun observeMatch(date: LocalDate, zoneId: ZoneId) =
+        database.dailyMatches().observe(date.toString(), zoneId.id)
     override fun observeRecentMatches(limit: Int) = database.dailyMatches().recent(limit)
     override fun observeCurrentLeague() = database.weeklyLeagues().observeCurrent()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    override fun observeCurrentLeagueParticipants() = observeCurrentLeague().flatMapLatest { league ->
+        league?.let { database.weeklyLeagueParticipants().observeForLeague(it.id) }
+            ?: flowOf(emptyList())
+    }
     override fun observeCurrentSeason() = database.gameSeasons().observeCurrent()
     override fun observeAchievements() = database.achievementUnlocks().observeAll()
     override fun observeNotificationEvents() = database.gameNotificationEvents().observeAll()
@@ -71,14 +82,16 @@ class LocalGameRepository(
         GameNotificationDispatcher(context, database, clock, notificationConfig).dispatchPending()
     }
 
-    override suspend fun ensureTodayMatch() = database.withTransaction {
+    override suspend fun ensureTodayMatch() = ensureMatch(today, zone)
+
+    suspend fun ensureMatch(targetDate: LocalDate, targetZone: ZoneId) = database.withTransaction {
         val now = clock.millis()
         val profileDao = database.gamePlayerProfile()
         val profile = profileDao.get() ?: GamePlayerProfileEntity(
             createdAtEpochMillis = now, updatedAtEpochMillis = now,
         ).also { profileDao.upsert(it) }
         ensureSeason(now, profile)
-        val date = today.toString()
+        val date = targetDate.toString()
         val rank = RankSystem.definition(profile.rating)
         val recent = database.daily().recentNow(28)
         val median = recent.map { it.steps }.sorted().let { values ->
@@ -86,14 +99,14 @@ class LocalGameRepository(
         }
         val opponent = opponentGenerator.generate(
             OpponentGenerationInput(
-                installationId, seasonId(today), today, rank, median,
+                installationId, seasonId(targetDate), targetDate, rank, median,
                 profile.currentLossStreak, profile.beginnerMatchesRemaining > 0,
             ),
         )
         database.dailyMatches().insert(
             DailyMatchEntity(
-                id = "daily-${seasonId(today)}-$date-${zone.id.hashCode()}",
-                localDate = date, zoneId = zone.id, seasonId = seasonId(today),
+                id = "daily-${seasonId(targetDate)}-$date-${targetZone.id.hashCode()}",
+                localDate = date, zoneId = targetZone.id, seasonId = seasonId(targetDate),
                 matchType = MatchType.DAILY, status = MatchStatus.ACTIVE, outcome = null,
                 opponentId = opponent.id, opponentName = opponent.displayName,
                 opponentAvatarKey = opponent.avatarKey, opponentRankTier = opponent.rankTier,
@@ -107,11 +120,13 @@ class LocalGameRepository(
                 createdAtEpochMillis = now, updatedAtEpochMillis = now,
             ),
         )
-        database.dailyMatches().getForDate(date, zone.id)?.let { active ->
+        database.dailyMatches().getForDate(date, targetZone.id)?.let { active ->
             if (active.status == MatchStatus.ACTIVE) {
-                val summary = competitiveSummary(database.daily().get(date, zone.id))
-                database.dailyMatches().update(
-                    active.copy(
+                val summary = competitiveSummary(
+                    database.daily().get(date, targetZone.id),
+                    database.competitiveIntegritySegments().forDate(date, targetZone.id),
+                )
+                val desired = active.copy(
                         totalUserSteps = summary.totalSteps,
                         eligibleUserSteps = summary.eligibleSteps,
                         restrictedUserSteps = summary.restrictedSteps,
@@ -119,8 +134,10 @@ class LocalGameRepository(
                         restrictionReasons = summary.reasons.joinToString(",") { it.name },
                         competitiveQuality = summary.quality,
                         updatedAtEpochMillis = now,
-                    ),
-                )
+                    )
+                if (desired.copy(updatedAtEpochMillis = active.updatedAtEpochMillis) != active) {
+                    database.dailyMatches().update(desired)
+                }
             }
         }
         rebuildLeague(now)
@@ -136,7 +153,10 @@ class LocalGameRepository(
         val match = dao.get(id) ?: return@withTransaction
         if (match.status != MatchStatus.ACTIVE || match.ratingAfter != null) return@withTransaction
         val daily = database.daily().get(match.localDate, match.zoneId)
-        val steps = competitiveSummary(daily)
+        val steps = competitiveSummary(
+            daily,
+            database.competitiveIntegritySegments().forDate(match.localDate, match.zoneId),
+        )
         val result = outcome(
             steps.eligibleSteps, match.opponentTargetSteps,
             steps.quality == CompetitiveStepQuality.EXCLUDED,
@@ -192,9 +212,9 @@ class LocalGameRepository(
             GameNotificationType.MATCH_RESULT,
             match.id,
             "match:${match.id}",
-            "対戦結果",
-            "${match.opponentName}との対戦は${result.name}でした",
-            "match",
+            context.getString(R.string.notification_challenge_result_title),
+            context.getString(R.string.notification_challenge_result_text, result.notificationName()),
+            "challenge",
             now,
         )
         val beforeRank = RankSystem.definition(profile.rating)
@@ -204,24 +224,15 @@ class LocalGameRepository(
                 GameNotificationType.PROMOTION,
                 match.id,
                 "promotion:${match.id}:${afterRank.displayName}",
-                "ランク昇格",
-                "${beforeRank.displayName}から${afterRank.displayName}へ昇格しました",
-                "rank",
+                context.getString(R.string.notification_rank_updated_title),
+                context.getString(
+                    R.string.notification_rank_updated_text,
+                    beforeRank.displayName,
+                    afterRank.displayName,
+                ),
+                "challenge/rank",
                 now,
             )
-        }
-    }
-
-    private fun competitiveSummary(daily: DailyActivityRecordEntity?): CompetitiveStepSummary {
-        if (daily == null) return stepCalculator.calculate(CompetitiveStepInput())
-        val recovered = daily.unclassifiedSteps.coerceAtMost(daily.steps)
-        val measured = (daily.steps - recovered).coerceAtLeast(0)
-        return when (daily.stepsQuality) {
-            DataQuality.MEASURED -> stepCalculator.calculate(CompetitiveStepInput(measured = daily.steps))
-            DataQuality.RECOVERED -> stepCalculator.calculate(CompetitiveStepInput(recovered = daily.steps))
-            DataQuality.ESTIMATED -> stepCalculator.calculate(CompetitiveStepInput(estimated = daily.steps))
-            DataQuality.UNKNOWN -> stepCalculator.calculate(CompetitiveStepInput(unknown = daily.steps))
-            DataQuality.MIXED -> stepCalculator.calculate(CompetitiveStepInput(measured, recovered))
         }
     }
 
@@ -235,27 +246,68 @@ class LocalGameRepository(
         }
         val existingId = "league-$start-${zone.id.hashCode()}"
         if (database.weeklyLeagues().get(existingId)?.status == LeagueStatus.FINALIZED) return
-        val names = listOf("You", "Aoi", "Ren", "Sora", "Hina", "Riku", "Yui", "Kai", "Mio", "Nao")
-        val ranked = LeagueRanking.rank(names.mapIndexed { index, name ->
+        val profile = database.gamePlayerProfile().get()
+        val participantSeeds = listOf(
+            Triple(
+                "player",
+                publicDisplayName(profile?.displayName, context.getString(R.string.game_you)),
+                "local_player",
+            ),
+            Triple("npc-1", context.getString(R.string.partner_asahi), "asahi"),
+            Triple("npc-2", context.getString(R.string.partner_komorebi), "komorebi"),
+            Triple("npc-3", context.getString(R.string.partner_soyokaze), "soyokaze"),
+            Triple("npc-4", context.getString(R.string.partner_hinata), "hinata"),
+            Triple("npc-5", context.getString(R.string.partner_michikusa), "michikusa"),
+            Triple("npc-6", context.getString(R.string.partner_aozora), "aozora"),
+            Triple("npc-7", context.getString(R.string.partner_kawabe), "kawabe"),
+            Triple("npc-8", context.getString(R.string.partner_tsukimi), "tsukimi"),
+            Triple("npc-9", context.getString(R.string.partner_nagisa), "nagisa"),
+        )
+        val ranked = LeagueRanking.rank(participantSeeds.mapIndexed { index, seed ->
             LeagueParticipant(
-                id = if (index == 0) "player" else "npc-$index",
-                name = name,
+                id = seed.first,
+                name = seed.second,
                 points = if (index == 0) points else (start.hashCode() + index * 7).mod(22),
                 eligibleSteps = if (index == 0) recent.sumOf { it.eligibleUserSteps }
                     else (start.hashCode().toLong() + index * 13L).mod(50_000L),
             )
         })
-        val participants = ranked.joinToString(prefix = "[", postfix = "]") {
-            """{"id":"${it.id}","name":"${it.name}","points":${it.points},"steps":${it.eligibleSteps}}"""
-        }
         val userRank = ranked.indexOfFirst { it.id == "player" } + 1
-        database.weeklyLeagues().upsert(
-            WeeklyLeagueEntity(
+        val leagueDao = database.weeklyLeagues()
+        val existingLeague = leagueDao.get(existingId)
+        val desiredLeague = WeeklyLeagueEntity(
                 existingId, start.toString(), start.plusDays(6).toString(),
                 zone.id, LeagueStatus.ACTIVE, points, userRank,
-                participants, null, now, now,
-            ),
-        )
+                "[]", null, existingLeague?.createdAtEpochMillis ?: now, now,
+            )
+        if (existingLeague == null ||
+            desiredLeague.copy(updatedAtEpochMillis = existingLeague.updatedAtEpochMillis) != existingLeague
+        ) {
+            leagueDao.upsert(desiredLeague)
+        }
+        val participantDao = database.weeklyLeagueParticipants()
+        val existingParticipants = participantDao.getForLeague(existingId).associateBy { it.participantId }
+        val desiredParticipants = ranked.mapIndexed { index, participant ->
+                val seed = participantSeeds.first { it.first == participant.id }
+                WeeklyLeagueParticipantEntity(
+                    leagueId = existingId,
+                    participantId = participant.id,
+                    displayName = participant.name,
+                    avatarKey = seed.third,
+                    points = participant.points,
+                    eligibleSteps = participant.eligibleSteps,
+                    rank = index + 1,
+                    isLocalPlayer = participant.id == "player",
+                    generatedLocally = true,
+                    createdAtEpochMillis = existingParticipants[participant.id]?.createdAtEpochMillis ?: now,
+                    updatedAtEpochMillis = now,
+                )
+            }
+        val changedParticipants = desiredParticipants.filter { desired ->
+            val existing = existingParticipants[desired.participantId]
+            existing == null || desired.copy(updatedAtEpochMillis = existing.updatedAtEpochMillis) != existing
+        }
+        if (changedParticipants.isNotEmpty()) participantDao.upsertAll(changedParticipants)
     }
 
     override suspend fun finalizeMatch(id: String) = finalize(id)
@@ -273,7 +325,9 @@ class LocalGameRepository(
                 val band = LeagueRanking.resultBand(rank)
                 createNotification(
                     GameNotificationType.WEEKLY_LEAGUE, current.id, "league:${current.id}",
-                    "週間リーグ確定", "最終順位は${rank}位（${band.name}）でした", "league", now,
+                    context.getString(R.string.notification_weekly_group_title),
+                    context.getString(R.string.notification_weekly_group_text, rank),
+                    "challenge/weekly-group", now,
                 )
             }
         }
@@ -320,7 +374,9 @@ class LocalGameRepository(
                 )
                 createNotification(
                     GameNotificationType.SEASON, current.id, "season:${current.id}",
-                    "シーズン確定", "${current.id}シーズンの結果が確定しました", "season", now,
+                    context.getString(R.string.notification_monthly_record_title),
+                    context.getString(R.string.notification_monthly_record_text),
+                    "challenge/monthly-record", now,
                 )
             }
         }
@@ -331,24 +387,35 @@ class LocalGameRepository(
         val now = clock.millis()
         val daily = database.daily().recentNow(40)
         val finalizedMatches = database.dailyMatches().recentNow(50).filter { it.status == MatchStatus.FINALIZED }
+        val todayDaily = database.daily().get(today.toString(), zone.id)
+        val todayEligible = competitiveSummary(
+            todayDaily,
+            database.competitiveIntegritySegments().forDate(today.toString(), zone.id),
+            stepCalculator,
+        ).eligibleSteps
         val measuredDays = daily.filter { it.stepsQuality != DataQuality.UNKNOWN && it.steps > 0 }
         val definitions = buildList {
-            val bestEligibleDaily = finalizedMatches.maxOfOrNull { it.eligibleUserSteps } ?: 0
+            val bestEligibleDaily = maxOf(
+                finalizedMatches.maxOfOrNull { it.eligibleUserSteps } ?: 0,
+                todayEligible,
+            )
             if (bestEligibleDaily >= 1_000) add("first_1000_steps" to bestEligibleDaily)
             if (consecutiveDays(measuredDays.map { it.localDate }) >= 3) add("three_day_streak" to 3L)
             if (consecutiveDays(measuredDays.map { it.localDate }) >= 7) add("seven_day_streak" to 7L)
             if (profile.wins >= 1) add("first_win" to profile.wins.toLong())
             if (profile.bestWinStreak >= 3) add("three_wins" to profile.bestWinStreak.toLong())
             if (profile.bestWinStreak >= 5) add("five_wins" to profile.bestWinStreak.toLong())
-            if (bestEligibleDaily >= 10_000) add("daily_10000_steps" to bestEligibleDaily)
+            if (shouldUnlockDailyTenThousand(bestEligibleDaily)) {
+                add("daily_10000_steps" to bestEligibleDaily)
+            }
             if (bestEligibleDaily >= 20_000) add("daily_20000_steps" to bestEligibleDaily)
             if (profile.rankTier != RankTier.BRONZE) add("silver_promotion" to profile.rating.toLong())
             if (finalizedMatches.count { it.seasonId == seasonId(today) } >= 10) {
                 add("season_10_matches" to finalizedMatches.count { it.seasonId == seasonId(today) }.toLong())
             }
-            val noRecovery = daily.filter { it.unclassifiedSteps == 0L && it.stepsQuality == DataQuality.MEASURED }
+            val noRecovery = daily.filter { it.externalRecoveredSteps == 0L && it.stepsQuality == DataQuality.MEASURED }
             if (consecutiveDays(noRecovery.map { it.localDate }) >= 7) add("seven_days_no_recovery" to 7L)
-            if (daily.any { it.stepsQuality == DataQuality.RECOVERED || it.stepsQuality == DataQuality.MIXED }) {
+            if (daily.any { it.externalRecoveredSteps > 0 }) {
                 add("gap_recovery_success" to 1L)
             }
         }
@@ -359,7 +426,8 @@ class LocalGameRepository(
             if (inserted != -1L) {
                 createNotification(
                     GameNotificationType.ACHIEVEMENT, id, "achievement:$id",
-                    "実績解除", achievementTitle(id), "achievements", now,
+                    context.getString(R.string.notification_achievement_title),
+                    achievementTitle(id), "achievements", now,
                 )
             }
         }
@@ -404,20 +472,63 @@ class LocalGameRepository(
         return best
     }
 
-    private fun achievementTitle(id: String) = mapOf(
-        "first_1000_steps" to "初回1,000歩",
-        "three_day_streak" to "3日連続計測",
-        "seven_day_streak" to "7日連続計測",
-        "first_win" to "初勝利",
-        "three_wins" to "3連勝",
-        "five_wins" to "5連勝",
-        "daily_10000_steps" to "1日10,000歩",
-        "daily_20000_steps" to "1日20,000歩",
-        "silver_promotion" to "Silver昇格",
-        "season_10_matches" to "1シーズン10試合",
-        "seven_days_no_recovery" to "補完なし7日連続",
-        "gap_recovery_success" to "欠測補完成功",
-    )[id] ?: id
+    private fun achievementTitle(id: String): String {
+        return GameNotificationPresentation.achievementTitle(id, context::getString)
+    }
+
+    private fun MatchOutcome.notificationName() =
+        GameNotificationPresentation.matchOutcomeName(this, context::getString)
 
     private fun seasonId(date: LocalDate) = "%04d-%02d".format(date.year, date.monthValue)
 }
+
+internal fun competitiveSummary(
+    daily: DailyActivityRecordEntity?,
+    integritySegments: List<CompetitiveIntegritySegmentEntity> = emptyList(),
+    calculator: CompetitiveStepCalculator = CompetitiveStepCalculator(),
+): CompetitiveStepSummary {
+    if (daily == null) return calculator.calculate(CompetitiveStepInput())
+    val steps = daily.steps.coerceAtLeast(0)
+    val recovered = daily.externalRecoveredSteps.coerceAtLeast(0)
+    val classifiedTotal = saturatedNonNegativeSum(integritySegments.map { it.totalSteps }).coerceAtMost(steps)
+    val unclassifiedMeasured = (steps - classifiedTotal).coerceAtLeast(0)
+    val rawEligible = saturatedNonNegativeSum(integritySegments.map { it.eligibleSteps })
+    val rawRestricted = saturatedNonNegativeSum(integritySegments.map { it.restrictedSteps })
+    val rawExcluded = saturatedNonNegativeSum(integritySegments.map { it.excludedSteps })
+    val scaled = if (rawEligible == 0L && rawRestricted == 0L && rawExcluded == 0L) {
+        listOf(classifiedTotal, 0L, 0L)
+    } else largestRemainder(classifiedTotal, listOf(rawExcluded, rawRestricted, rawEligible))
+    val integrityExcluded = scaled[0]
+    val integrityRestricted = scaled[1]
+    val integrityEligible = scaled[2]
+    val integrityReasons = integritySegments.flatMap { segment ->
+        segment.reasons.split(',').mapNotNull { reason ->
+            runCatching { CompetitiveStepRestrictionReason.valueOf(reason) }.getOrNull()
+        }
+    }.toSet()
+    val input = when (daily.stepsQuality) {
+        DataQuality.MEASURED -> CompetitiveStepInput(
+            measured = unclassifiedMeasured + integrityEligible,
+            recovered = recovered,
+            integrityRestricted = integrityRestricted,
+            integrityExcluded = integrityExcluded,
+            integrityReasons = integrityReasons,
+        )
+        DataQuality.RECOVERED -> CompetitiveStepInput(recovered = safeStepSum(steps, recovered))
+        DataQuality.ESTIMATED -> CompetitiveStepInput(estimated = steps, recovered = recovered)
+        DataQuality.UNKNOWN -> CompetitiveStepInput(unknown = steps, recovered = recovered)
+        DataQuality.MIXED -> CompetitiveStepInput(measured = steps, recovered = recovered)
+    }
+    return calculator.calculate(input)
+}
+
+private fun safeStepSum(first: Long, second: Long): Long =
+    if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
+
+private fun saturatedNonNegativeSum(values: Iterable<Long>): Long =
+    values.fold(0L) { total, value ->
+        val safeValue = value.coerceAtLeast(0)
+        if (Long.MAX_VALUE - total < safeValue) Long.MAX_VALUE else total + safeValue
+    }
+
+internal fun shouldUnlockDailyTenThousand(eligibleSteps: Long): Boolean = eligibleSteps >= 10_000

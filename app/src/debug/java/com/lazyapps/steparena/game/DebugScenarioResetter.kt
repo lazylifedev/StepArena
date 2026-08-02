@@ -64,6 +64,7 @@ class RoomDebugScenarioResetter(
         )
         val GAME_TABLES = listOf(
             "daily_matches",
+            "weekly_league_participants",
             "weekly_leagues",
             "game_seasons",
             "achievement_unlocks",

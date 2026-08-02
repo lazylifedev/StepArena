@@ -56,6 +56,12 @@ speed quality rather than inventing active time.
 # Phase 4: 欠測補完
 
 自前 Step Counter を正本とし、Health Connect は明示された gap だけを補完する。
+
+## 歩幅の自動推定
+
+歩幅の自動推定は `DefaultStepLengthEstimator` と同じ `身長(cm) × 0.415` を使用する。
+画面では小数第1位までを目安として表示し、距離計算では丸める前のメートル値を使用する。
+自動推定を無効にした後の新規記録には、利用者が保存した手動歩幅を使用する。
 外部レコードは origin と ID/fingerprint を保持し、同一区間・同一レコードの二重加算を防ぐ。
 品質は直接利用可能なら `RECOVERED`、配分を含む場合は `MIXED`/`ESTIMATED`、
 判断不能なら `UNKNOWN` とする。明示停止区間は既定で補完しない。

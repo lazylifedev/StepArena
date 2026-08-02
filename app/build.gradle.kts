@@ -28,6 +28,19 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "environment"
+    productFlavors {
+        create("production") {
+            dimension = "environment"
+        }
+        create("qa") {
+            dimension = "environment"
+            applicationIdSuffix = ".qa"
+            versionNameSuffix = "-qa"
+            resValue("string", "app_name", "StepArena QA")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -44,9 +57,16 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
     sourceSets {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+}
+
+androidComponents {
+    beforeVariants(selector().withFlavor("environment" to "production")) { variantBuilder ->
+        variantBuilder.enableAndroidTest = false
     }
 }
 
@@ -74,6 +94,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation("androidx.compose.material:material-icons-extended")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.work.testing)

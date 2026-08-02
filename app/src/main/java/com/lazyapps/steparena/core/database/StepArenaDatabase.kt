@@ -22,6 +22,11 @@ import com.lazyapps.steparena.core.database.entity.TrackingGapRecordEntity
 import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEntity
 import com.lazyapps.steparena.core.database.entity.*
 import com.lazyapps.steparena.core.database.dao.*
+import java.time.Instant
+import java.time.LocalDate
+import java.time.Duration
+import java.time.ZoneId
+import java.math.BigInteger
 
 @Database(
     entities = [
@@ -34,11 +39,13 @@ import com.lazyapps.steparena.core.database.dao.*
         GamePlayerProfileEntity::class,
         DailyMatchEntity::class,
         WeeklyLeagueEntity::class,
+        WeeklyLeagueParticipantEntity::class,
         GameSeasonEntity::class,
         AchievementUnlockEntity::class,
         GameNotificationEventEntity::class,
+        CompetitiveIntegritySegmentEntity::class,
     ],
-    version = 5,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(ActivityConverters::class)
@@ -52,9 +59,11 @@ abstract class StepArenaDatabase : RoomDatabase() {
     abstract fun gamePlayerProfile(): GamePlayerProfileDao
     abstract fun dailyMatches(): DailyMatchDao
     abstract fun weeklyLeagues(): WeeklyLeagueDao
+    abstract fun weeklyLeagueParticipants(): WeeklyLeagueParticipantDao
     abstract fun gameSeasons(): GameSeasonDao
     abstract fun achievementUnlocks(): AchievementUnlockDao
     abstract fun gameNotificationEvents(): GameNotificationEventDao
+    abstract fun competitiveIntegritySegments(): CompetitiveIntegritySegmentDao
 
     companion object {
         const val PRODUCTION_DATABASE_NAME = "step_arena.db"
@@ -65,7 +74,17 @@ abstract class StepArenaDatabase : RoomDatabase() {
 
         fun build(context: Context, name: String): StepArenaDatabase =
             Room.databaseBuilder(context.applicationContext, StepArenaDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
+                )
                 .build()
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -147,6 +166,174 @@ abstract class StepArenaDatabase : RoomDatabase() {
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_game_notification_events_deduplicationKey` " +
                         "ON `game_notification_events` (`deduplicationKey`)",
                 )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE activity_processing_state ADD COLUMN activityRepairVersion INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE game_player_profile ADD COLUMN displayName TEXT")
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `weekly_league_participants` (
+                        `leagueId` TEXT NOT NULL, `participantId` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL, `avatarKey` TEXT NOT NULL,
+                        `points` INTEGER NOT NULL, `eligibleSteps` INTEGER NOT NULL,
+                        `rank` INTEGER NOT NULL, `isLocalPlayer` INTEGER NOT NULL,
+                        `generatedLocally` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`leagueId`, `participantId`))""",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_weekly_league_participants_leagueId` " +
+                        "ON `weekly_league_participants` (`leagueId`)",
+                )
+                migrateLegacyLeagueParticipants(db)
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `competitive_integrity_segments` (
+                        `id` TEXT NOT NULL, `localDate` TEXT NOT NULL, `zoneId` TEXT NOT NULL,
+                        `startedAtEpochMillis` INTEGER NOT NULL, `endedAtEpochMillis` INTEGER NOT NULL,
+                        `totalSteps` INTEGER NOT NULL, `eligibleSteps` INTEGER NOT NULL,
+                        `restrictedSteps` INTEGER NOT NULL, `excludedSteps` INTEGER NOT NULL,
+                        `assessment` TEXT NOT NULL, `reasons` TEXT NOT NULL,
+                        `classifierVersion` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`))""",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_competitive_integrity_segments_localDate_zoneId` ON `competitive_integrity_segments` (`localDate`, `zoneId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_competitive_integrity_segments_startedAtEpochMillis` ON `competitive_integrity_segments` (`startedAtEpochMillis`)")
+            }
+        }
+
+        /**
+         * Legacy unclassifiedSteps was documented and presented as external recovery.
+         * Existing values therefore migrate to externalRecoveredSteps. Counter long-gap
+         * deltas are separated into unallocatedMeasuredSteps for all new writes.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE daily_activity_records ADD COLUMN externalRecoveredSteps INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_activity_records ADD COLUMN unallocatedMeasuredSteps INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = unclassifiedSteps")
+            }
+        }
+
+        /** Reclassify only legacy steps that have an auditable external record. */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE activity_processing_state ADD COLUMN legacyOriginRepairVersion INTEGER NOT NULL DEFAULT 0")
+                val daily = mutableMapOf<String, Triple<String, Long, Long>>()
+                db.query("SELECT localDate, zoneId, unclassifiedSteps, unallocatedMeasuredSteps FROM daily_activity_records").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val key = "${cursor.getString(0)}|${cursor.getString(1)}"
+                        daily[key] = Triple(cursor.getString(1), cursor.getLong(2).coerceAtLeast(0), cursor.getLong(3).coerceAtLeast(0))
+                    }
+                }
+                val proven = mutableMapOf<String, Long>()
+                db.query("""SELECT p.startedAtEpochMillis, p.endedAtEpochMillis, p.appliedSteps,
+                    g.startedAtEpochMillis, g.endedAtEpochMillis, g.zoneId
+                    FROM processed_external_step_records p
+                    JOIN tracking_gap_records g ON g.id = p.gapId
+                    WHERE p.gapId IS NOT NULL AND p.gapId != ''""").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val start = Instant.ofEpochMilli(cursor.getLong(0))
+                        val end = Instant.ofEpochMilli(cursor.getLong(1)).let { if (it.isAfter(start)) it else start.plusMillis(1) }
+                        val zone = ZoneId.of(cursor.getString(5))
+                        val applied = cursor.getLong(2).coerceAtLeast(0)
+                        val first = start.atZone(zone).toLocalDate()
+                        val last = end.minusNanos(1).atZone(zone).toLocalDate()
+                        val dates = generateSequence(first) { date -> date.takeIf { it.isBefore(last) }?.plusDays(1) }.toList()
+                        val durations = dates.map { date ->
+                            val dayStart = date.atStartOfDay(zone).toInstant()
+                            val dayEnd = date.plusDays(1).atStartOfDay(zone).toInstant()
+                            Duration.between(maxOf(start, dayStart), minOf(end, dayEnd)).toMillis().coerceAtLeast(0)
+                        }
+                        val allocations = allocateMigrationSteps(applied, durations)
+                        dates.zip(allocations).forEach { (date, amount) ->
+                            val key = "$date|${zone.id}"
+                            if (key in daily) proven[key] = safeAdd(proven[key] ?: 0, amount)
+                        }
+                    }
+                }
+                daily.forEach { (key, value) ->
+                    val legacy = value.second
+                    val external = minOf(legacy, proven[key] ?: 0)
+                    val legacyRemainder = (legacy - external).coerceAtLeast(0)
+                    val unallocated = safeAdd(value.third, legacyRemainder)
+                    val split = key.split('|', limit = 2)
+                    db.execSQL("UPDATE daily_activity_records SET externalRecoveredSteps = ?, unallocatedMeasuredSteps = ? WHERE localDate = ? AND zoneId = ?",
+                        arrayOf(external, unallocated, split[0], split[1]))
+                }
+                db.execSQL("UPDATE activity_processing_state SET legacyOriginRepairVersion = 1 WHERE key = 'sensor'")
+            }
+        }
+
+        private fun safeAdd(first: Long, second: Long): Long =
+            if (Long.MAX_VALUE - first < second) Long.MAX_VALUE else first + second
+
+        private fun allocateMigrationSteps(total: Long, weights: List<Long>): List<Long> {
+            val denominator = weights.fold(BigInteger.ZERO) { acc, value -> acc + value.toBigInteger() }
+            if (denominator == BigInteger.ZERO) return List(weights.size) { 0L }
+            val safeTotal = total.coerceAtLeast(0).toBigInteger()
+            val floors = weights.map { safeTotal * it.toBigInteger() / denominator }
+            var remaining = (safeTotal - floors.fold(BigInteger.ZERO) { acc, value -> acc + value }).toLong()
+            val order = weights.indices.sortedWith(compareByDescending<Int> {
+                safeTotal * weights[it].toBigInteger() % denominator
+            }.thenBy { it })
+            val result = floors.map { it.toLong() }.toMutableList()
+            for (index in order) {
+                if (remaining == 0L) break
+                result[index]++
+                remaining--
+            }
+            return result
+        }
+
+        private fun migrateLegacyLeagueParticipants(db: SupportSQLiteDatabase) {
+            db.query(
+                "SELECT id, participantsJson, createdAtEpochMillis, updatedAtEpochMillis FROM weekly_leagues",
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val leagueId = cursor.getString(0)
+                    val createdAt = cursor.getLong(2)
+                    val updatedAt = cursor.getLong(3)
+                    val participants = runCatching { org.json.JSONArray(cursor.getString(1)) }
+                        .getOrNull() ?: continue
+                    for (index in 0 until participants.length()) {
+                        val participant = participants.optJSONObject(index) ?: continue
+                        val participantId = participant.optString("id").takeIf { it.isNotBlank() } ?: continue
+                        val local = participantId == "player"
+                        val storedName = participant.optString("name").ifBlank { "参加者" }
+                        val displayName = if (local && storedName == "You") "あなた" else storedName
+                        db.execSQL(
+                            """INSERT OR REPLACE INTO weekly_league_participants
+                                (leagueId,participantId,displayName,avatarKey,points,eligibleSteps,rank,
+                                isLocalPlayer,generatedLocally,createdAtEpochMillis,updatedAtEpochMillis)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                            arrayOf(
+                                leagueId,
+                                participantId,
+                                displayName,
+                                participant.optString("avatarKey", participantId),
+                                participant.optInt("points", 0),
+                                participant.optLong("steps", 0L),
+                                index + 1,
+                                if (local) 1 else 0,
+                                1,
+                                createdAt,
+                                updatedAt,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }

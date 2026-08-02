@@ -21,7 +21,7 @@ import java.time.LocalTime
 data class GameNotificationConfig(
     val preferences: String = "game_notifications",
     val channelId: String = "game_results",
-    val channelName: String = "ゲーム結果",
+    val channelName: String? = null,
     val group: String? = null,
     val titlePrefix: String = "",
     val requestCodeSalt: Int = 0,
@@ -81,10 +81,10 @@ class GameNotificationDispatcher(
         if (Build.VERSION.SDK_INT >= 26) {
             val channel = NotificationChannel(
                 config.channelId,
-                config.channelName,
+                config.channelName ?: context.getString(R.string.notification_channel_challenge_records),
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "対戦結果、昇格、実績、リーグ、シーズンのお知らせ"
+                description = context.getString(R.string.notification_channel_challenge_records_description)
                 enableVibration(false)
             }
             context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)

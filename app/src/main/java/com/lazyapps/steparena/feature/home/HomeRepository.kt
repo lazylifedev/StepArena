@@ -1,5 +1,6 @@
 package com.lazyapps.steparena.feature.home
 
+import com.lazyapps.steparena.activity.DailyStepGoal
 import com.lazyapps.steparena.core.model.ActivityMetrics
 import com.lazyapps.steparena.core.model.DailyMatch
 import com.lazyapps.steparena.core.model.DataReliability
@@ -20,7 +21,7 @@ class DemoHomeRepository : HomeRepository {
         rank = RankStatus(RankTier.GOLD, division = 2, points = 1_840, pointsToNextRank = 660),
         metrics = ActivityMetrics(
             steps = 7_420,
-            goalSteps = 10_000,
+            goalSteps = DailyStepGoal.DEFAULT,
             distanceMeters = 5_630.0,
             durationSeconds = 4_980,
             caloriesKcal = 286.0,

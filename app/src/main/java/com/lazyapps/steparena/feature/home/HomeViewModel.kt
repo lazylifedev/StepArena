@@ -12,11 +12,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.Instant
 import com.lazyapps.steparena.service.tracking.StepTrackingService
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.tracking.TrackingStatus as PersistentTrackingStatus
 import com.lazyapps.steparena.core.model.*
-import java.time.Instant
 import com.lazyapps.steparena.app.StepArenaApplication
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -32,7 +33,11 @@ class HomeViewModel(
     private val trackingRepository = TrackingStateRepository(application)
     private val activityRepository = (application as StepArenaApplication).activityRepository
     private val gameRepository = (application as StepArenaApplication).gameRepository
-    private val appClock = (application as StepArenaApplication).clock
+    private val recoverySettingsRepository =
+        (application as StepArenaApplication).recoverySettingsRepository
+    private val dailyStepGoalRepository =
+        (application as StepArenaApplication).dailyStepGoalRepository
+    private val currentLocalDay = (application as StepArenaApplication).currentLocalDayProvider.current
     private val isolatedScenario = (application as StepArenaApplication).isolatedScenario
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -58,56 +63,85 @@ class HomeViewModel(
 
     private fun observeTracking() {
         viewModelScope.launch {
-            combine(
+            val trackingAndRecovery = combine(
                 trackingRepository.state,
+                recoverySettingsRepository.settings,
+                dailyStepGoalRepository.goalSteps,
+            ) { tracking, recovery, goalSteps -> Triple(tracking, recovery, goalSteps) }
+            combine(
+                trackingAndRecovery,
                 activityRepository.observeActiveManualSession(),
                 gameRepository.observePlayerProfile(),
-                gameRepository.observeTodayMatch(),
+                currentLocalDay.flatMapLatest {
+                    gameRepository.observeMatch(it.date, it.zoneId)
+                },
                 gameRepository.observeCurrentLeague(),
-            ) { tracking, manual, profile, match, league ->
-                HomeSources(tracking, manual, profile, match, league)
-            }.flatMapLatest { sources ->
-                activityRepository.observeToday(
-                    java.time.LocalDate.now(appClock),
-                    appClock.zone,
-                ).map { daily ->
-                    sources to daily
+            ) { trackingRecovery, manual, profile, match, league ->
+                HomeSources(
+                    trackingRecovery.first,
+                    manual,
+                    profile,
+                    match,
+                    league,
+                    trackingRecovery.second.healthConnectEnabled,
+                    trackingRecovery.third,
+                )
+            }.combine(currentLocalDay) { sources, day -> sources to day }
+                .flatMapLatest { (sources, day) ->
+                activityRepository.observeToday(day.date, day.zoneId).map { daily ->
+                    Triple(sources, day, daily)
                 }
-            }.collect { (sources, daily) ->
+            }.collect { (sources, day, daily) ->
                 val tracking = sources.tracking
                 val manual = sources.manual
+                val measuredToday = daily?.steps ?: 0
                 val status = when (tracking.trackingStatus) {
                     PersistentTrackingStatus.TRACKING, PersistentTrackingStatus.RESTARTED ->
-                        TrackingStatus.ACTIVE
+                        if (hasFreshTrackingHeartbeat(tracking, Instant.now())) {
+                            TrackingStatus.ACTIVE
+                        } else {
+                            TrackingStatus.MAY_BE_STOPPED
+                        }
                     PersistentTrackingStatus.PERMISSION_REQUIRED ->
                         TrackingStatus.PERMISSION_REQUIRED
                     PersistentTrackingStatus.BATTERY_RESTRICTED ->
                         TrackingStatus.BATTERY_SETTING_REQUIRED
                     PersistentTrackingStatus.SERVICE_HEARTBEAT_STALE,
-                    PersistentTrackingStatus.SENSOR_DATA_STALE -> TrackingStatus.MAY_BE_STOPPED
+                    PersistentTrackingStatus.SENSOR_DATA_STALE,
+                    PersistentTrackingStatus.ERROR -> TrackingStatus.MAY_BE_STOPPED
                     else -> TrackingStatus.NOT_STARTED
                 }
                 _uiState.update {
                     it.copy(
                         content = HomeContent.Ready(
                             realSnapshot(
-                                steps = daily?.steps ?: tracking.accumulatedTodaySteps,
+                                steps = measuredToday,
                                 status = status,
                                 lastHealthyAt = tracking.lastSensorEventAt,
                                 distanceMeters = daily?.distanceMeters,
                                 durationSeconds = daily?.walkingDurationSeconds,
                                 calories = daily?.estimatedCaloriesKcal,
                                 speedKmh = daily?.averageWalkingSpeedKmh,
-                                reliability = when (daily?.stepsQuality) {
+                                reliability = when {
+                                    (daily?.externalRecoveredSteps ?: 0) > 0 ->
+                                        DataReliability.PARTLY_RECOVERED
+                                    !sources.recoveryEnabled && measuredToday > 0 ->
+                                        DataReliability.COMPLETE
+                                    else -> when (daily?.stepsQuality) {
                                     DataQuality.RECOVERED, DataQuality.MIXED ->
                                         DataReliability.PARTLY_RECOVERED
                                     DataQuality.ESTIMATED -> DataReliability.PARTLY_ESTIMATED
                                     DataQuality.MEASURED -> DataReliability.COMPLETE
                                     else -> DataReliability.NO_DATA
+                                    }
                                 },
                                 profile = sources.profile,
                                 gameMatch = sources.match,
                                 gameLeague = sources.league,
+                                recoveredSteps = if (sources.recoveryEnabled) {
+                                    daily?.externalRecoveredSteps ?: 0
+                                } else 0,
+                                goalSteps = sources.goalSteps,
                             ),
                         ),
                         motionLevel = motionRepository.read(),
@@ -127,6 +161,8 @@ class HomeViewModel(
                         },
                         trackingUiStatus = tracking.trackingStatus,
                         sensorSupported = tracking.trackingStatus != PersistentTrackingStatus.SENSOR_UNSUPPORTED,
+                        localDate = day.date,
+                        zoneId = day.zoneId,
                     )
                 }
             }
@@ -209,6 +245,8 @@ class HomeViewModel(
         profile: com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity,
         gameMatch: com.lazyapps.steparena.core.database.entity.DailyMatchEntity?,
         gameLeague: com.lazyapps.steparena.core.database.entity.WeeklyLeagueEntity?,
+        recoveredSteps: Long,
+        goalSteps: Int,
     ) = HomeSnapshot(
         rank = RankStatus(
             when (profile.rankTier) {
@@ -226,8 +264,8 @@ class HomeViewModel(
                 ) + 1)?.minimumRating?.minus(profile.rating)?.coerceAtLeast(0) ?: 0,
         ),
         metrics = ActivityMetrics(
-            steps.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            10_000,
+            (steps + recoveredSteps).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            goalSteps,
             distanceMeters ?: 0.0,
             durationSeconds ?: 0,
             calories ?: 0.0,
@@ -236,7 +274,7 @@ class HomeViewModel(
         trackingStatus = status,
         lastHealthyAt = lastHealthyAt,
         match = DailyMatch(
-            gameMatch?.opponentName ?: "準備中",
+            gameMatch?.opponentName.orEmpty(),
             gameMatch?.let { steps.toFloat().div(it.opponentTargetSteps.coerceAtLeast(1)).coerceIn(0f, 1f) } ?: 0f,
             gameMatch?.let {
                 val now = java.time.ZonedDateTime.now()
@@ -255,6 +293,8 @@ class HomeViewModel(
         reliability = reliability,
         isOffline = false,
         metricsAvailable = reliability != DataReliability.NO_DATA,
+        recoveredSteps = recoveredSteps,
+        measuredSteps = steps,
     )
 
     private data class HomeSources(
@@ -263,5 +303,17 @@ class HomeViewModel(
         val profile: com.lazyapps.steparena.core.database.entity.GamePlayerProfileEntity,
         val match: com.lazyapps.steparena.core.database.entity.DailyMatchEntity?,
         val league: com.lazyapps.steparena.core.database.entity.WeeklyLeagueEntity?,
+        val recoveryEnabled: Boolean,
+        val goalSteps: Int,
     )
+}
+
+internal fun hasFreshTrackingHeartbeat(
+    state: com.lazyapps.steparena.tracking.StepTrackingState,
+    now: Instant,
+): Boolean {
+    if (!state.trackingRequested) return false
+    val heartbeat = state.lastHeartbeatAt ?: return false
+    val age = Duration.between(heartbeat, now)
+    return !age.isNegative && age <= Duration.ofMinutes(10)
 }

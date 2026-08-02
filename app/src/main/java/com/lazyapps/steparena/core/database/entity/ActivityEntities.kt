@@ -6,6 +6,7 @@ import androidx.room.PrimaryKey
 import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.core.database.model.WalkingSessionStatus
 import com.lazyapps.steparena.core.database.model.WalkingSessionType
+import com.lazyapps.steparena.game.CompetitiveIntegrityAssessment
 
 @Entity(
     tableName = "hourly_activity_records",
@@ -55,6 +56,10 @@ data class DailyActivityRecordEntity(
     val steps: Long,
     val unclassifiedSteps: Long,
     val unclassifiedStepsQuality: DataQuality,
+    /** External provider additions (for example Health Connect), never Counter deltas. */
+    val externalRecoveredSteps: Long = unclassifiedSteps,
+    /** Counter-measured steps included in [steps] but not safely attributable to an hour. */
+    val unallocatedMeasuredSteps: Long = 0,
     val distanceMeters: Double?,
     val walkingDurationSeconds: Long?,
     val estimatedCaloriesKcal: Double?,
@@ -120,4 +125,26 @@ data class ActivityProcessingStateEntity(
     val lastDetectorEventEpochMillis: Long?,
     val lastWalkingEventEpochMillis: Long?,
     val updatedAtEpochMillis: Long,
+    val activityRepairVersion: Int = 0,
+    val legacyOriginRepairVersion: Int = 0,
+)
+
+@Entity(
+    tableName = "competitive_integrity_segments",
+    indices = [Index(value = ["localDate", "zoneId"]), Index("startedAtEpochMillis")],
+)
+data class CompetitiveIntegritySegmentEntity(
+    @PrimaryKey val id: String,
+    val localDate: String,
+    val zoneId: String,
+    val startedAtEpochMillis: Long,
+    val endedAtEpochMillis: Long,
+    val totalSteps: Long,
+    val eligibleSteps: Long,
+    val restrictedSteps: Long,
+    val excludedSteps: Long,
+    val assessment: CompetitiveIntegrityAssessment,
+    val reasons: String,
+    val classifierVersion: Int,
+    val createdAtEpochMillis: Long,
 )

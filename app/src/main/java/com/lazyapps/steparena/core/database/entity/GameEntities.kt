@@ -8,6 +8,7 @@ import com.lazyapps.steparena.game.*
 @Entity(tableName = "game_player_profile")
 data class GamePlayerProfileEntity(
     @PrimaryKey val id: String = "local_player",
+    val displayName: String? = null,
     val rating: Int = 1_000,
     val rankTier: RankTier = RankTier.BRONZE,
     val rankDivision: Int? = 3,
@@ -70,6 +71,25 @@ data class WeeklyLeagueEntity(
     val userRank: Int?,
     val participantsJson: String,
     val finalizedAtEpochMillis: Long?,
+    val createdAtEpochMillis: Long,
+    val updatedAtEpochMillis: Long,
+)
+
+@Entity(
+    tableName = "weekly_league_participants",
+    primaryKeys = ["leagueId", "participantId"],
+    indices = [Index("leagueId")],
+)
+data class WeeklyLeagueParticipantEntity(
+    val leagueId: String,
+    val participantId: String,
+    val displayName: String,
+    val avatarKey: String,
+    val points: Int,
+    val eligibleSteps: Long,
+    val rank: Int,
+    val isLocalPlayer: Boolean,
+    val generatedLocally: Boolean,
     val createdAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
 )

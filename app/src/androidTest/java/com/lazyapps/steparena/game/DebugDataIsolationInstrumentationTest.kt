@@ -22,6 +22,7 @@ class DebugDataIsolationInstrumentationTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        assertEquals(QA_APPLICATION_ID, context.packageName)
         context.deleteDatabase(PRODUCTION_NAME)
         context.deleteDatabase(DebugStepArenaApplication.DEBUG_DATABASE_NAME)
         production = StepArenaDatabase.build(context, PRODUCTION_NAME)
@@ -62,12 +63,20 @@ class DebugDataIsolationInstrumentationTest {
     private fun insertSentinels(database: StepArenaDatabase, rating: Int, wins: Int, steps: Int) {
         val sql = database.openHelper.writableDatabase
         sql.execSQL(
-            """INSERT INTO game_player_profile VALUES
-                ('local_player',$rating,'BRONZE',3,7,$wins,0,0,0,1,1,0,0,'WIN',1,1)""",
+            """INSERT INTO game_player_profile
+                (id,displayName,rating,rankTier,rankDivision,totalMatches,wins,losses,draws,
+                noContests,currentWinStreak,bestWinStreak,currentLossStreak,
+                beginnerMatchesRemaining,lastOutcome,createdAtEpochMillis,updatedAtEpochMillis)
+                VALUES ('local_player',NULL,$rating,'BRONZE',3,7,$wins,0,0,0,1,1,0,0,'WIN',1,1)""",
         )
         sql.execSQL(
-            """INSERT INTO daily_activity_records VALUES
-                ('$DATE|$ZONE','$DATE','$ZONE',$steps,0,'UNKNOWN',$steps*0.7,3600,10.0,3.0,
+            """INSERT INTO daily_activity_records
+                (id,localDate,zoneId,steps,unclassifiedSteps,unclassifiedStepsQuality,
+                externalRecoveredSteps,unallocatedMeasuredSteps,distanceMeters,walkingDurationSeconds,
+                estimatedCaloriesKcal,averageWalkingSpeedKmh,stepsQuality,distanceQuality,durationQuality,
+                caloriesQuality,speedQuality,activeHourCount,walkingSessionCount,finalized,
+                finalizedAtEpochMillis,createdAtEpochMillis,updatedAtEpochMillis) VALUES
+                ('$DATE|$ZONE','$DATE','$ZONE',$steps,0,'UNKNOWN',0,0,$steps*0.7,3600,10.0,3.0,
                 'MEASURED','ESTIMATED','MEASURED','ESTIMATED','ESTIMATED',
                 1,0,0,NULL,1,1)""",
         )
@@ -96,6 +105,7 @@ class DebugDataIsolationInstrumentationTest {
         }
 
     private companion object {
+        const val QA_APPLICATION_ID = "com.lazyapps.steparena.qa"
         const val PRODUCTION_NAME = "step_arena_isolation_production_test.db"
         const val DATE = "2026-07-29"
         const val ZONE = "Asia/Tokyo"

@@ -5,7 +5,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +25,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,11 +49,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.R
 import com.lazyapps.steparena.core.designsystem.component.AnimatedMetricValue
@@ -47,7 +71,6 @@ import com.lazyapps.steparena.core.designsystem.component.LeagueSummaryCard
 import com.lazyapps.steparena.core.designsystem.component.LoadingState
 import com.lazyapps.steparena.core.designsystem.component.MatchCard
 import com.lazyapps.steparena.core.designsystem.component.MetricCard
-import com.lazyapps.steparena.core.designsystem.component.PrimaryActionButton
 import com.lazyapps.steparena.core.designsystem.component.RankBadge
 import com.lazyapps.steparena.core.designsystem.component.RankProgressBar
 import com.lazyapps.steparena.core.designsystem.component.SectionHeader
@@ -57,8 +80,8 @@ import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaColors
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaMotion
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
-import com.lazyapps.steparena.core.model.DataReliability
 import com.lazyapps.steparena.core.model.HomeSnapshot
+import com.lazyapps.steparena.core.model.DataReliability
 import com.lazyapps.steparena.core.model.MatchOutcome
 import com.lazyapps.steparena.core.model.RankTier
 import com.lazyapps.steparena.core.model.TrackingStatus
@@ -68,7 +91,8 @@ import com.lazyapps.steparena.core.units.ActivityFormatter
 import com.lazyapps.steparena.core.units.DistanceUnit
 import com.lazyapps.steparena.core.units.SpeedUnit
 import java.text.NumberFormat
-import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
 
 object HomeTestTags {
@@ -77,6 +101,10 @@ object HomeTestTags {
     const val STOP_TRACKING_BUTTON = "stop_tracking_button"
     const val MANUAL_SESSION = "manual_session"
     const val TRACKING_STATUS = "tracking_status"
+    const val HEALTH_BREAKDOWN = "health_breakdown"
+    const val HEALTH_SHEET = "health_sheet"
+    const val WALKING_INFO = "walking_info"
+    const val WALKING_INFO_SHEET = "walking_info_sheet"
     const val MATCH_CARD = "match_card"
     const val BOTTOM_REACH_MARKER = "home_bottom_marker"
 }
@@ -121,11 +149,15 @@ private fun HomeReadyContent(
     modifier: Modifier,
 ) {
     val locale = LocalConfiguration.current.locales[0]
+    val resources = LocalResources.current
     val numberFormat = remember(locale) { NumberFormat.getIntegerInstance(locale) }
     val goalProgress = ActivityCalculations.goalProgress(snapshot.metrics.steps, snapshot.metrics.goalSteps)
     var cardsVisible by remember(snapshot) { mutableStateOf(uiState.motionLevel == MotionLevel.OFF) }
     var matchExpanded by rememberSaveable { mutableStateOf(false) }
     var showStopConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showHealthBreakdown by rememberSaveable { mutableStateOf(false) }
+    var showWalkingInfo by rememberSaveable { mutableStateOf(false) }
+    var showTrackingDetails by rememberSaveable { mutableStateOf(false) }
     val entranceDuration = motionDuration(uiState.motionLevel)
 
     LaunchedEffect(snapshot, uiState.motionLevel) { cardsVisible = true }
@@ -141,65 +173,46 @@ private fun HomeReadyContent(
         verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.md),
     ) {
         item {
-            Column {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    stringResource(R.string.home_title),
+                    remember(locale, uiState.zoneId) {
+                        DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL)
+                            .withLocale(locale)
+                    }.format(uiState.localDate),
                     modifier = Modifier.semantics { heading() },
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = StepArenaColors.CyanSoft,
-                )
-                Text(
-                    stringResource(R.string.home_subtitle),
+                    style = MaterialTheme.typography.labelLarge,
                     color = StepArenaColors.TextSecondary,
                 )
             }
         }
         item {
-            TrackingPanel(snapshot, locale, uiState.motionLevel)
+            StepsPanel(
+                snapshot = snapshot,
+                goalProgress = goalProgress,
+                numberFormat = numberFormat,
+                motionLevel = uiState.motionLevel,
+                onHealthClick = { showHealthBreakdown = true },
+            )
         }
         item {
-            StepsPanel(snapshot, goalProgress, numberFormat, uiState.motionLevel)
-        }
-        item {
-            uiState.manualSession?.let { manual ->
-                GlassSurface(
-                    Modifier.fillMaxWidth().testTag(HomeTestTags.MANUAL_SESSION),
-                ) {
-                    Text("計測中", color = StepArenaColors.Emerald)
-                    Text(
-                        "開始 ${StepArenaTimeFormatter.time(
-                            java.time.Instant.ofEpochMilli(manual.startedAtEpochMillis),
-                            ZoneId.systemDefault(),
-                            locale,
-                            true,
-                        )}",
-                    )
-                    Text("セッション ${numberFormat.format(manual.steps)}歩")
-                    Text(
-                        "${ActivityFormatter.distance(manual.distanceMeters, DistanceUnit.KILOMETER, locale)}・" +
-                            ActivityFormatter.duration(manual.elapsedSeconds),
-                    )
-                }
-            }
-        }
-        item {
-            PrimaryActionButton(
-                text = when (uiState.sessionState) {
-                    SessionState.TRACKING_STOPPED -> "歩数計測を開始"
-                    SessionState.TRACKING -> "散歩を開始"
-                    SessionState.MANUAL_WALK -> "散歩を終了"
-                },
+            TrackingPanel(
+                snapshot = snapshot,
+                motionLevel = uiState.motionLevel,
                 onClick = {
-                    when (uiState.sessionState) {
-                        SessionState.TRACKING_STOPPED -> onAction(HomeAction.StartSession)
-                        SessionState.TRACKING -> onAction(HomeAction.StartManualWalk)
-                        SessionState.MANUAL_WALK -> uiState.manualSession?.let {
-                            onAction(HomeAction.EndManualWalk(it.id))
-                        }
+                    if (snapshot.trackingStatus == TrackingStatus.ACTIVE) {
+                        showTrackingDetails = true
+                    } else {
+                        onAction(HomeAction.OpenDiagnostics)
                     }
                 },
-                enabled = uiState.sensorSupported,
-                modifier = Modifier.testTag(HomeTestTags.START_BUTTON),
+            )
+        }
+        item {
+            WalkingQuickAction(
+                uiState = uiState,
+                numberFormat = numberFormat,
+                onInfoClick = { showWalkingInfo = true },
+                onAction = onAction,
             )
         }
         if (uiState.sessionState != SessionState.TRACKING_STOPPED) {
@@ -207,7 +220,7 @@ private fun HomeReadyContent(
                 TextButton(
                     onClick = { showStopConfirmation = true },
                     modifier = Modifier.testTag(HomeTestTags.STOP_TRACKING_BUTTON),
-                ) { Text("歩数計測を停止") }
+                ) { Text(stringResource(R.string.home_stop_tracking)) }
             }
         }
         item {
@@ -234,7 +247,9 @@ private fun HomeReadyContent(
                     value = snapshot.metrics.durationSeconds.toDouble(),
                     formatter = {
                         if (snapshot.metricsAvailable && it > 0) {
-                            ActivityFormatter.duration(it.toLong())
+                            val duration = ActivityFormatter.duration(it.toLong())
+                            if (snapshot.reliability == DataReliability.COMPLETE) duration
+                            else resources.getString(R.string.records_approximate_value, duration)
                         } else "―"
                     },
                     motionLevel = uiState.motionLevel,
@@ -243,28 +258,15 @@ private fun HomeReadyContent(
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm)) {
-                AnimatedMetricCard(
-                    labelRes = R.string.metric_calories,
-                    value = snapshot.metrics.caloriesKcal,
-                    formatter = {
-                        if (snapshot.metricsAvailable) ActivityFormatter.calories(it, locale) else "―"
-                    },
-                    motionLevel = uiState.motionLevel,
-                    modifier = Modifier.weight(1f),
-                )
-                AnimatedMetricCard(
-                    labelRes = R.string.metric_speed,
-                    value = snapshot.metrics.averageSpeedMetersPerSecond,
-                    formatter = {
-                        if (snapshot.metricsAvailable && it > 0) {
-                            ActivityFormatter.speed(it, SpeedUnit.KILOMETERS_PER_HOUR, locale)
-                        } else "―"
-                    },
-                    motionLevel = uiState.motionLevel,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            AnimatedMetricCard(
+                labelRes = R.string.metric_calories,
+                value = snapshot.metrics.caloriesKcal,
+                formatter = {
+                    if (snapshot.metricsAvailable) ActivityFormatter.calories(it, locale) else "―"
+                },
+                motionLevel = uiState.motionLevel,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         item {
             AnimatedVisibility(
@@ -276,9 +278,17 @@ private fun HomeReadyContent(
             }
         }
         item {
+            val opponentName = if (snapshot.match.opponentName.isBlank()) {
+                stringResource(R.string.match_opponent_preparing)
+            } else {
+                snapshot.match.opponentName
+            }
             MatchCard(
                 title = stringResource(R.string.match_title),
-                opponent = stringResource(R.string.match_opponent, snapshot.match.opponentName),
+                opponent = stringResource(
+                    R.string.match_opponent,
+                    opponentName,
+                ),
                 selfLabel = stringResource(R.string.match_you),
                 opponentLabel = stringResource(R.string.match_rival),
                 selfProgress = snapshot.match.selfProgress,
@@ -314,9 +324,6 @@ private fun HomeReadyContent(
             )
         }
         item {
-            MotionPreview(uiState.motionLevel) { onAction(HomeAction.SetMotion(it)) }
-        }
-        item {
             Spacer(
                 Modifier
                     .fillMaxWidth()
@@ -328,17 +335,40 @@ private fun HomeReadyContent(
     if (showStopConfirmation) {
         AlertDialog(
             onDismissRequest = { showStopConfirmation = false },
-            title = { Text("歩数計測を停止しますか？") },
-            text = { Text("停止中はStepArenaのリアルタイム歩数が更新されません。") },
+            title = { Text(stringResource(R.string.home_stop_confirm_title)) },
+            text = { Text(stringResource(R.string.home_stop_confirm_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     showStopConfirmation = false
                     onAction(HomeAction.StopTracking)
-                }) { Text("停止") }
+                }) { Text(stringResource(R.string.home_stop)) }
             },
             dismissButton = {
-                TextButton(onClick = { showStopConfirmation = false }) { Text("キャンセル") }
+                TextButton(onClick = { showStopConfirmation = false }) { Text(stringResource(R.string.common_cancel)) }
             },
+        )
+    }
+    if (showHealthBreakdown) {
+        HealthBreakdownSheet(
+            snapshot = snapshot,
+            numberFormat = numberFormat,
+            onDismiss = { showHealthBreakdown = false },
+        )
+    }
+    if (showWalkingInfo) {
+        InformationSheet(
+            title = stringResource(R.string.home_walking_record_title),
+            body = stringResource(R.string.home_walking_record_explanation),
+            tag = HomeTestTags.WALKING_INFO_SHEET,
+            onDismiss = { showWalkingInfo = false },
+        )
+    }
+    if (showTrackingDetails) {
+        InformationSheet(
+            title = stringResource(R.string.tracking_active),
+            body = stringResource(R.string.home_tracking_detail),
+            tag = HomeTestTags.TRACKING_STATUS,
+            onDismiss = { showTrackingDetails = false },
         )
     }
 }
@@ -346,39 +376,30 @@ private fun HomeReadyContent(
 @Composable
 private fun TrackingPanel(
     snapshot: HomeSnapshot,
-    locale: Locale,
     motionLevel: MotionLevel,
+    onClick: () -> Unit,
 ) {
-    GlassSurface(Modifier.fillMaxWidth().testTag(HomeTestTags.TRACKING_STATUS)) {
+    val healthy = snapshot.trackingStatus == TrackingStatus.ACTIVE
+    GlassSurface(
+        Modifier
+            .fillMaxWidth()
+            .testTag(HomeTestTags.TRACKING_STATUS)
+            .clickable(onClick = onClick),
+    ) {
         TrackingStatusChip(
-            text = trackingText(snapshot.trackingStatus),
-            isHealthy = snapshot.trackingStatus == TrackingStatus.ACTIVE,
+            text = if (snapshot.trackingStatus == TrackingStatus.MAY_BE_STOPPED) {
+                stringResource(R.string.home_tracking_check)
+            } else {
+                trackingText(snapshot.trackingStatus)
+            },
+            isHealthy = healthy,
             motionLevel = motionLevel,
         )
-        snapshot.lastHealthyAt?.let {
-            Spacer(Modifier.height(StepArenaSpacing.xs))
+        if (!healthy) {
             Text(
-                stringResource(
-                    R.string.last_healthy_time,
-                    StepArenaTimeFormatter.time(
-                        instant = it,
-                        zoneId = ZoneId.systemDefault(),
-                        locale = locale,
-                        use24Hour = true,
-                    ),
-                ),
+                stringResource(R.string.home_tracking_tap_for_details),
                 style = MaterialTheme.typography.bodyMedium,
-                color = StepArenaColors.TextSecondary,
-            )
-        }
-        reliabilityText(snapshot.reliability)?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, color = StepArenaColors.Amber)
-        }
-        if (snapshot.isOffline) {
-            Text(
-                stringResource(R.string.offline_label),
-                style = MaterialTheme.typography.labelLarge,
-                color = StepArenaColors.Amber,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }
@@ -430,18 +451,33 @@ private fun StepsPanel(
     goalProgress: Float,
     numberFormat: NumberFormat,
     motionLevel: MotionLevel,
+    onHealthClick: () -> Unit,
 ) {
+    val healthBreakdownAccessibility = stringResource(
+        R.string.home_health_breakdown_accessibility,
+        numberFormat.format(snapshot.recoveredSteps),
+    )
     GlassSurface(Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.today_steps), color = StepArenaColors.TextSecondary)
         Spacer(Modifier.height(StepArenaSpacing.sm))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             StepProgressRing(
                 progress = goalProgress,
-                description = stringResource(
-                    R.string.goal_progress,
-                    numberFormat.format(snapshot.metrics.goalSteps),
-                    (goalProgress * 100).toInt(),
-                ),
+                description = if (snapshot.recoveredSteps > 0) {
+                    stringResource(
+                        R.string.home_steps_accessibility_with_health,
+                        numberFormat.format(snapshot.metrics.steps),
+                        numberFormat.format(snapshot.measuredSteps),
+                        numberFormat.format(snapshot.recoveredSteps),
+                        (goalProgress * 100).toInt(),
+                    )
+                } else {
+                    stringResource(
+                        R.string.home_steps_accessibility,
+                        numberFormat.format(snapshot.metrics.steps),
+                        (goalProgress * 100).toInt(),
+                    )
+                },
                 modifier = Modifier.size(220.dp),
                 motionLevel = motionLevel,
             ) {
@@ -459,6 +495,38 @@ private fun StepsPanel(
                         stringResource(R.string.steps_value, ""),
                         color = StepArenaColors.TextSecondary,
                     )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Smartphone, null, Modifier.size(16.dp))
+                            Text(
+                                numberFormat.format(snapshot.measuredSteps),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = StepArenaColors.TextSecondary,
+                            )
+                        }
+                        if (snapshot.recoveredSteps > 0) {
+                            Row(
+                                modifier = Modifier
+                                    .testTag(HomeTestTags.HEALTH_BREAKDOWN)
+                                    .clickable(onClick = onHealthClick)
+                                    .semantics {
+                                        role = Role.Button
+                                        contentDescription = healthBreakdownAccessibility
+                                    },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Default.HealthAndSafety, null, Modifier.size(16.dp))
+                            Text(
+                                    "+${numberFormat.format(snapshot.recoveredSteps)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                    color = StepArenaColors.CyanSoft,
+                            )
+                        }
+                    }
+                    }
                     Text(
                         stringResource(
                             R.string.goal_progress_compact,
@@ -488,6 +556,151 @@ private fun StepsPanel(
 }
 
 @Composable
+private fun WalkingQuickAction(
+    uiState: HomeUiState,
+    numberFormat: NumberFormat,
+    onInfoClick: () -> Unit,
+    onAction: (HomeAction) -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val manual = uiState.manualSession
+    val active = uiState.sessionState == SessionState.MANUAL_WALK && manual != null
+    val pulse = rememberInfiniteTransition(label = "walkingPulse")
+    val breathing by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = if (active && uiState.motionLevel == MotionLevel.FULL) 1.05f else 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "walkingBreathing",
+    )
+    val action: () -> Unit = {
+        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        when (uiState.sessionState) {
+            SessionState.TRACKING_STOPPED -> onAction(HomeAction.StartSession)
+            SessionState.TRACKING -> onAction(HomeAction.StartManualWalk)
+            SessionState.MANUAL_WALK -> if (manual != null) {
+                onAction(HomeAction.EndManualWalk(manual.id))
+            } else {
+                Unit
+            }
+        }
+    }
+    GlassSurface(
+        Modifier
+            .fillMaxWidth()
+            .testTag(HomeTestTags.START_BUTTON)
+            .scale(if (pressed) 0.98f else breathing)
+            .semantics { role = Role.Button }
+            .clickable(
+                enabled = uiState.sensorSupported,
+                interactionSource = interaction,
+                indication = null,
+                onClick = action,
+            ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.DirectionsWalk,
+                contentDescription = null,
+                tint = if (active) StepArenaColors.Emerald else StepArenaColors.CyanSoft,
+                modifier = Modifier.size(36.dp),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = StepArenaSpacing.sm)
+                    .then(if (active) Modifier.testTag(HomeTestTags.MANUAL_SESSION) else Modifier),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (active) {
+                    Text(ActivityFormatter.duration(manual!!.elapsedSeconds), style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        stringResource(R.string.home_manual_steps, numberFormat.format(manual.steps)),
+                        color = StepArenaColors.TextSecondary,
+                    )
+                } else {
+                    Text(
+                        if (uiState.sessionState == SessionState.TRACKING_STOPPED) {
+                            stringResource(R.string.home_start_tracking)
+                        } else {
+                            stringResource(R.string.home_walking_record_title)
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+            }
+            Icon(
+                if (active) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                contentDescription = if (active) {
+                    stringResource(R.string.home_end_walk)
+                } else {
+                    stringResource(R.string.home_start_walk)
+                },
+                tint = StepArenaColors.CyanSoft,
+                modifier = Modifier.size(36.dp),
+            )
+            IconButton(
+                onClick = onInfoClick,
+                modifier = Modifier.testTag(HomeTestTags.WALKING_INFO),
+            ) {
+                Icon(Icons.Default.Info, stringResource(R.string.home_show_information))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HealthBreakdownSheet(
+    snapshot: HomeSnapshot,
+    numberFormat: NumberFormat,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag(HomeTestTags.HEALTH_SHEET)) {
+        Column(
+            Modifier.fillMaxWidth().padding(StepArenaSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.md),
+        ) {
+            Text(stringResource(R.string.today_steps), style = MaterialTheme.typography.headlineMedium)
+            BreakdownRow(stringResource(R.string.home_measured_label), numberFormat.format(snapshot.measuredSteps))
+            BreakdownRow(
+                stringResource(R.string.home_health_connect_label),
+                "+${numberFormat.format(snapshot.recoveredSteps)}",
+            )
+            BreakdownRow(stringResource(R.string.home_total_label), numberFormat.format(snapshot.metrics.steps))
+            Text(stringResource(R.string.home_health_connect_detail), color = StepArenaColors.TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun BreakdownRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label)
+        Text(value, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InformationSheet(title: String, body: String, tag: String, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag(tag)) {
+        Column(
+            Modifier.fillMaxWidth().padding(StepArenaSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm),
+        ) {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            Text(body, color = StepArenaColors.TextSecondary)
+        }
+    }
+}
+
+@Composable
 private fun AnimatedMetricCard(
     labelRes: Int,
     value: Double,
@@ -508,31 +721,6 @@ private fun AnimatedMetricCard(
         value = formatter(animated.toDouble()),
         modifier = modifier.fillMaxWidth(),
     )
-}
-
-@Composable
-private fun MotionPreview(level: MotionLevel, onSelected: (MotionLevel) -> Unit) {
-    GlassSurface(Modifier.fillMaxWidth()) {
-        SectionHeader(stringResource(R.string.motion_preview_title))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.xs),
-        ) {
-            MotionLevel.entries.forEach { option ->
-                FilterChip(
-                    selected = level == option,
-                    onClick = { onSelected(option) },
-                    label = { Text(motionName(option)) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Text(
-            stringResource(R.string.motion_preview_notice),
-            style = MaterialTheme.typography.bodyMedium,
-            color = StepArenaColors.TextSecondary,
-        )
-    }
 }
 
 @Composable
@@ -558,14 +746,6 @@ private fun rankName(tier: RankTier): String = stringResource(
 )
 
 @Composable
-private fun reliabilityText(reliability: DataReliability): String? = when (reliability) {
-    DataReliability.COMPLETE -> null
-    DataReliability.PARTLY_ESTIMATED -> stringResource(R.string.estimated_data_label)
-    DataReliability.PARTLY_RECOVERED -> stringResource(R.string.recovered_data_label)
-    DataReliability.NO_DATA -> stringResource(R.string.empty_message)
-}
-
-@Composable
 private fun matchSupportingText(snapshot: HomeSnapshot, format: NumberFormat): String =
     when (snapshot.match.outcome) {
         MatchOutcome.WON -> stringResource(R.string.match_won, snapshot.winStreak)
@@ -580,15 +760,6 @@ private fun matchSupportingText(snapshot: HomeSnapshot, format: NumberFormat): S
             )
         }
     }
-
-@Composable
-private fun motionName(level: MotionLevel): String = stringResource(
-    when (level) {
-        MotionLevel.FULL -> R.string.motion_full
-        MotionLevel.REDUCED -> R.string.motion_reduced
-        MotionLevel.OFF -> R.string.motion_off
-    },
-)
 
 private fun motionDuration(level: MotionLevel): Int = when (level) {
     MotionLevel.FULL -> StepArenaMotion.expressive

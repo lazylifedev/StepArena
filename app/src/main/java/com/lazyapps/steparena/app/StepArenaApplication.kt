@@ -2,6 +2,7 @@ package com.lazyapps.steparena.app
 
 import android.app.Application
 import com.lazyapps.steparena.activity.ActivityRepository
+import com.lazyapps.steparena.activity.DailyStepGoalRepository
 import com.lazyapps.steparena.activity.UserProfileRepository
 import com.lazyapps.steparena.core.database.StepArenaDatabase
 import com.lazyapps.steparena.recovery.GapRecoveryRepository
@@ -9,12 +10,15 @@ import com.lazyapps.steparena.recovery.HealthConnectActivityDataSource
 import com.lazyapps.steparena.recovery.RecoverySettingsRepository
 import com.lazyapps.steparena.recovery.TrackingHealthWorker
 import com.lazyapps.steparena.game.LocalGameRepository
+import com.lazyapps.steparena.game.PlayerIdentityRepository
 import com.lazyapps.steparena.game.GameMaintenanceWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Clock
+import com.lazyapps.steparena.release.DataManagementRepository
+import com.lazyapps.steparena.core.time.CurrentLocalDayProvider
 
 interface AppGraph {
     val database: StepArenaDatabase
@@ -34,6 +38,7 @@ open class StepArenaApplication : Application(), AppGraph {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     override val database by lazy { StepArenaDatabase.get(this) }
     val profileRepository by lazy { UserProfileRepository(this) }
+    val dailyStepGoalRepository by lazy { DailyStepGoalRepository(this) }
     override val activityRepository by lazy { ActivityRepository(database, profileRepository) }
     val externalActivityDataSource by lazy { HealthConnectActivityDataSource(this) }
     val recoverySettingsRepository by lazy { RecoverySettingsRepository(this) }
@@ -43,9 +48,14 @@ open class StepArenaApplication : Application(), AppGraph {
             externalActivityDataSource,
             packageName,
             activityRepository,
+            recoverySettingsRepository,
         )
     }
     override val clock: Clock by lazy { Clock.systemDefaultZone() }
+    val playerIdentityRepository by lazy { PlayerIdentityRepository(this, database, clock) }
+    val currentLocalDayProvider by lazy {
+        CurrentLocalDayProvider(this, clock, applicationScope)
+    }
     override val installationId: String? = null
     override val isolatedScenario: Boolean = false
     override val gameRepository by lazy {
@@ -57,7 +67,13 @@ open class StepArenaApplication : Application(), AppGraph {
         super.onCreate()
         scheduleBackgroundWork()
         applicationScope.launch {
+            DataManagementRepository(this@StepArenaApplication).completeInterruptedDeletionIfNeeded()
             gameRepository.runMaintenance()
+        }
+        applicationScope.launch {
+            currentLocalDayProvider.current.collect { day ->
+                gameRepository.ensureMatch(day.date, day.zoneId)
+            }
         }
     }
 

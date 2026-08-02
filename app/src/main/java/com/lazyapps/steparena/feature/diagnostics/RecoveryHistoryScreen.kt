@@ -18,6 +18,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.lazyapps.steparena.R
 import com.lazyapps.steparena.app.StepArenaApplication
 import java.time.Instant
 import java.time.ZoneId
@@ -34,25 +36,28 @@ fun RecoveryHistoryScreen() {
         Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { Text("補完履歴", style = MaterialTheme.typography.headlineMedium) }
-        if (records.isEmpty()) item { Text("補完履歴はありません") }
+        item { Text(stringResource(R.string.recovery_history_title), style = MaterialTheme.typography.headlineMedium) }
+        if (records.isEmpty()) item { Text(stringResource(R.string.recovery_history_empty)) }
         items(records, key = { it.id }) { record ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        "${format(record.startedAtEpochMillis, record.zoneId)} ～ " +
+                        stringResource(
+                            R.string.recovery_history_period,
+                            format(record.startedAtEpochMillis, record.zoneId),
                             format(record.endedAtEpochMillis, record.zoneId),
+                        ),
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    Text("理由: ${record.reason.name}")
-                    Text("状態: ${record.status.name}")
-                    Text("補完: ${record.recoveredSteps}歩 / 未解決: ${record.unresolvedSteps}歩")
-                    Text("品質: ${record.quality.name}")
+                    Text(stringResource(R.string.recovery_history_reason, stringResource(record.reason.labelRes())))
+                    Text(stringResource(R.string.recovery_history_status, stringResource(record.status.labelRes())))
+                    Text(stringResource(R.string.recovery_history_steps, record.recoveredSteps, record.unresolvedSteps))
+                    Text(stringResource(R.string.recovery_history_quality, stringResource(record.quality.labelRes())))
                     Text(
                         if (record.externalOriginsJson.isNullOrBlank()) {
-                            "データ元: なし"
+                            stringResource(R.string.recovery_history_source_none)
                         } else {
-                            "データ元: 外部アプリ（詳細 ${record.externalOriginsJson}）"
+                            stringResource(R.string.recovery_history_source_external)
                         },
                     )
                     if (record.status in setOf(
@@ -67,7 +72,7 @@ fun RecoveryHistoryScreen() {
                             onClick = {
                                 scope.launch { app.gapRecoveryRepository.recover(record.id) }
                             },
-                        ) { Text("Health Connectから補完を試す") }
+                        ) { Text(stringResource(R.string.recovery_history_retry)) }
                     }
                 }
             }

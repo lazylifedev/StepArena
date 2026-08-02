@@ -243,3 +243,29 @@ SOV41（Android 11）でDebugシナリオA〜E、DAO/Migration/Instrumentation/C
 - シナリオE: 通知候補3件、同日再処理後もdeduplication key 3/3
 - 通常DBはrating 1,000、勝数0、歩数0、DailyMatch 1、通知0、実績0のまま不変
 - 物理歩行、画面OFF、距離・カロリー・速度、バッテリー最適化は未検証
+
+## Phase 6待ちゲート（2026-07-29）
+
+SOV41でのオンボーディング、SAF ZIP、ゲーム初期化、全削除、TalkBack、200%文字、
+force-stop、`am crash`再試験はPhase 6実装後に実施する。未実施項目を合格扱いしない。
+20～100歩／約1,000歩の物理歩行とHealth Connect実Providerは引き続き本番公開前ゲート。
+
+### Phase 6実行結果
+
+- SOV41 / Android 11へDebug APKをinstallし、アプリデータ削除後のcold startを確認。
+- Landscape（rotation 3）でオンボーディング1/5、見出し、本文、「次へ」が表示され、操作領域は126dp相当。
+- `connectedDebugAndroidTest`は25件中18件前後まで進行後、Composeテストホスト消失
+  (`No compose hierarchies found`) が試行ごとに別Homeテストへ移動して再現。全件合格扱いにしない。
+- 既存の停止警告テストは画面外要素へscrollしてから検証するよう到達性を修正。
+- TalkBack、200%文字、データエクスポート、ゲーム初期化、全削除、force-stop、`am crash`の
+  Phase 6手動シナリオは未完了。
+
+### Phase 6.1 Compose安定化再試験
+
+- 日時: 2026-07-29、SOV41 / Android 11。
+- Composeホストをテストごとの新規ActivityScenarioへ統一し、RESUMED確認後に
+  `setContent`するよう修正。
+- グループ別6分類はすべて3/3成功。全25件も3/3成功。
+- 最終`connectedDebugAndroidTest`は25/25成功。
+- ZIP、ゲーム初期化、全削除、削除中復旧、TalkBack、200%文字、
+  Phase 6としてのLandscape、force-stop、`am crash`は未実施のため未合格。

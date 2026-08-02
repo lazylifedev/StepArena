@@ -1,5 +1,6 @@
 package com.lazyapps.steparena.feature.settings
 
+import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,12 +22,14 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.health.connect.client.PermissionController
 import com.lazyapps.steparena.app.StepArenaApplication
 import kotlinx.coroutines.launch
 import android.content.Intent
 import androidx.core.net.toUri
 import com.lazyapps.steparena.recovery.HealthConnectAvailability
+import com.lazyapps.steparena.R
 
 @Composable
 fun RecoverySettingsScreen() {
@@ -52,17 +55,12 @@ fun RecoverySettingsScreen() {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Health Connect と計測復旧", style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.recovery_settings_title), style = MaterialTheme.typography.headlineMedium)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "StepArenaが停止していた時間の歩数を補うため、" +
-                        "Health Connectの歩数データを読み取ります。",
-                )
-                Text(
-                    "Health Connectの使用は任意です。許可しなくても通常の歩数計測は利用できます。",
-                )
-                Text("利用可能性: ${availability.name}")
+                Text(stringResource(R.string.recovery_settings_explanation))
+                Text(stringResource(R.string.recovery_settings_optional))
+                Text(stringResource(R.string.recovery_settings_availability, stringResource(availability.labelRes())))
                 Button(
                     onClick = {
                         if (availability == HealthConnectAvailability.AVAILABLE) {
@@ -86,42 +84,51 @@ fun RecoverySettingsScreen() {
                 ) {
                     Text(
                         if (availability == HealthConnectAvailability.AVAILABLE) {
-                            "歩数の読取権限を確認"
+                            stringResource(R.string.recovery_settings_check_permission)
                         } else {
-                            "Health Connectを確認"
+                            stringResource(R.string.recovery_settings_check_provider)
                         },
                     )
                 }
             }
         }
         RecoverySwitch(
-            "Health Connect補完を使用",
+            R.string.recovery_settings_enable,
             settings.healthConnectEnabled,
         ) { update { old -> old.copy(healthConnectEnabled = it) } }
-        RecoverySwitch("自動補完", settings.automaticRecovery) {
+        RecoverySwitch(R.string.recovery_settings_automatic, settings.automaticRecovery) {
             update { old -> old.copy(automaticRecovery = it) }
         }
-        RecoverySwitch("補完前に確認", settings.confirmBeforeRecovery) {
+        RecoverySwitch(R.string.recovery_settings_confirm, settings.confirmBeforeRecovery) {
             update { old -> old.copy(confirmBeforeRecovery = it) }
         }
-        RecoverySwitch("計測停止警告", settings.trackingStopWarnings) {
+        RecoverySwitch(R.string.recovery_settings_warning, settings.trackingStopWarnings) {
             update { old -> old.copy(trackingStopWarnings = it) }
         }
-        RecoverySwitch("明示停止区間を補完", settings.recoverExplicitStops) {
+        RecoverySwitch(R.string.recovery_settings_explicit_stop, settings.recoverExplicitStops) {
             update { old -> old.copy(recoverExplicitStops = it) }
         }
     }
 }
 
 @Composable
-private fun RecoverySwitch(label: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
+private fun RecoverySwitch(@StringRes labelRes: Int, checked: Boolean, onChecked: (Boolean) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         androidx.compose.foundation.layout.Row(
             Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(label, Modifier.weight(1f))
+            Text(stringResource(labelRes), Modifier.weight(1f))
             Switch(checked = checked, onCheckedChange = onChecked)
         }
     }
+}
+
+@StringRes
+private fun HealthConnectAvailability.labelRes(): Int = when (this) {
+    HealthConnectAvailability.AVAILABLE -> R.string.health_connect_available
+    HealthConnectAvailability.UPDATE_REQUIRED -> R.string.health_connect_update_required
+    HealthConnectAvailability.PROVIDER_NOT_INSTALLED -> R.string.health_connect_not_installed
+    HealthConnectAvailability.NOT_SUPPORTED -> R.string.health_connect_not_supported
+    HealthConnectAvailability.UNKNOWN -> R.string.health_connect_unknown
 }

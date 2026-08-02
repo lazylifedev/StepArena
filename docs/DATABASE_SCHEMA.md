@@ -49,3 +49,8 @@ Debugビルドの隔離シナリオは同じRoom schema v5を
 `step_arena_debug_game.db`として開く。productionの`step_arena.db`とはファイル、
 接続、全テーブルが別であり、schema versionやproduction EntityへDebug列は追加しない。
 Debug resetは隔離DBだけをclearし、production DBへDELETEを発行しない。
+
+## Phase 6
+
+データ使用状況、エクスポート、ゲームのみ初期化、全削除は既存12テーブルで実現するため、
+schema versionは5を維持する。新規Entity、Migration 5→6、`6.json`は追加しない。

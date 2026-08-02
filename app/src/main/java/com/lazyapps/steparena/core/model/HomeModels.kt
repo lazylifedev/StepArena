@@ -47,6 +47,8 @@ data class HomeSnapshot(
     val reliability: DataReliability,
     val isOffline: Boolean,
     val metricsAvailable: Boolean = true,
+    val recoveredSteps: Long = 0,
+    val measuredSteps: Long = metrics.steps.toLong(),
 )
 
 enum class TrackingStatus {

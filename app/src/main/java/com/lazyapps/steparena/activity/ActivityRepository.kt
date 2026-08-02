@@ -6,6 +6,7 @@ import com.lazyapps.steparena.core.database.entity.ActivityProcessingStateEntity
 import com.lazyapps.steparena.core.database.entity.DailyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.HourlyActivityRecordEntity
 import com.lazyapps.steparena.core.database.entity.WalkingSessionEntity
+import com.lazyapps.steparena.core.database.entity.CompetitiveIntegritySegmentEntity
 import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.core.database.model.WalkingSessionStatus
 import com.lazyapps.steparena.core.database.model.WalkingSessionType
@@ -19,6 +20,15 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 import java.util.UUID
+import com.lazyapps.steparena.game.CompetitiveIntegrityClassifier
+import com.lazyapps.steparena.game.CompetitiveIntegrityInput
+import com.lazyapps.steparena.game.allocateCompetitiveDays
+
+data class PersistedActivityUpdate(
+    val localDate: LocalDate,
+    val zoneId: ZoneId,
+    val officialDailySteps: Long,
+)
 
 class ActivityRepository(
     private val database: StepArenaDatabase,
@@ -28,14 +38,18 @@ class ActivityRepository(
     private val policy: WalkingDetectionPolicy = WalkingDetectionPolicy(),
     private val durationCalculator: WalkingDurationCalculator =
         WalkingDurationCalculator(policy.activeGapThresholdSeconds),
+    private val integrityClassifier: CompetitiveIntegrityClassifier = CompetitiveIntegrityClassifier(),
 ) {
     private val writer = Mutex()
     private val detectorEvents = ArrayDeque<Instant>()
+    private var learnedCadenceStepsPerMinute: Double? = null
 
     fun observeToday(date: LocalDate, zoneId: ZoneId) =
         database.daily().observeDate(date.toString(), zoneId.id)
     fun observeHours(date: LocalDate, zoneId: ZoneId) =
         database.hourly().observeDate(date.toString(), zoneId.id)
+    suspend fun officialDailySteps(date: LocalDate, zoneId: ZoneId): Long =
+        database.daily().get(date.toString(), zoneId.id)?.steps ?: 0
     fun observeSessions() = database.sessions().observeAll()
     fun observeActiveManualSession() = database.sessions().observeActiveManual()
     suspend fun currentManualSession() = database.sessions().active(true)
@@ -96,8 +110,7 @@ class ActivityRepository(
                 zoneId,
                 profile,
                 at,
-                addedUnclassifiedSteps = steps,
-                addedQuality = DataQuality.RECOVERED,
+                addedExternalRecoveredSteps = steps,
             )
         }
     }
@@ -110,47 +123,104 @@ class ActivityRepository(
         bootSessionId: String,
         trackingServiceSessionId: String?,
         recovered: Boolean,
-    ) = writer.withLock {
-        if (delta <= 0) return@withLock
+        detectorAvailable: Boolean = false,
+    ): PersistedActivityUpdate? = writer.withLock {
+        if (delta <= 0) return@withLock null
+        val localDate = at.atZone(zoneId).toLocalDate()
         val profile = profileRepository.current()
-        database.withTransaction {
+        val persisted = database.withTransaction {
             val processing = database.processingState().get()
+            if ((processing?.activityRepairVersion ?: 0) < ACTIVITY_REPAIR_VERSION) {
+                repairImplausibleActivity(profile, at)
+            }
             if (
                 processing?.lastCounterValue == sensorValue &&
                 processing.lastBootSessionId == bootSessionId
-            ) return@withTransaction
+            ) return@withTransaction false
 
             val previousAt = processing?.lastEventEpochMillis?.let(Instant::ofEpochMilli)
             val longGap = previousAt != null && Duration.between(previousAt, at).toHours() >= 2
-            val quality = when {
-                recovered || longGap -> DataQuality.RECOVERED
-                detectorEvents.isEmpty() -> DataQuality.ESTIMATED
-                else -> DataQuality.MIXED
-            }
             val consumedDetectors = detectorEvents
                 .filter { previousAt == null || !it.isBefore(previousAt) }
                 .filter { !it.isAfter(at) }
                 .take(delta.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
             val allocations = allocate(delta, previousAt, at, zoneId, longGap, consumedDetectors)
-            val addedDuration = if (consumedDetectors.isNotEmpty()) {
-                durationCalculator.fromDetectorEvents(consumedDetectors)
-            } else {
-                durationCalculator.fromCounterEvents(previousAt, at)
+            val durationResult = durationCalculator.calculate(
+                delta, consumedDetectors, previousAt, at, recovered || longGap,
+                learnedCadenceStepsPerMinute,
+            )
+            val integrity = integrityClassifier.classify(
+                CompetitiveIntegrityInput(
+                    steps = delta,
+                    startedAt = previousAt,
+                    endedAt = at,
+                    detectorEvents = consumedDetectors.size,
+                    detectorAvailable = detectorAvailable,
+                    bootSessionChanged = processing?.lastBootSessionId != null &&
+                        processing.lastBootSessionId != bootSessionId,
+                    recoveredOrLongGap = recovered || longGap,
+                    recentCadences = listOfNotNull(learnedCadenceStepsPerMinute),
+                ),
+            )
+            val segmentAllocations = if (allocations.isEmpty()) {
+                // A long gap cannot be placed on a clock timeline. Keep it visible as
+                // unallocated instead of pretending that it belongs to eventAt's day.
+                mapOf(HourBucket.of(at, zoneId) to delta)
+            } else allocations
+            val reasonText = integrity.reasons.joinToString(",") { it.name }
+            val grouped = segmentAllocations.entries.groupBy { it.key.date to it.key.zone }
+            val groupedEntries = grouped.entries.toList()
+            val groupWeights = groupedEntries.map { it.value.sumOf { entry -> entry.value } }
+            val dayAllocations = allocateCompetitiveDays(
+                groupWeights, integrity.eligibleSteps, integrity.restrictedSteps, integrity.excludedSteps,
+            )
+            groupedEntries.forEachIndexed { groupIndex, (dayAndZone, entries) ->
+                val daySteps = entries.sumOf { it.value }
+                val total = daySteps
+                val allocation = dayAllocations[groupIndex]
+                val eligible = allocation.eligible
+                val restricted = allocation.restricted
+                val excluded = allocation.excluded
+                database.competitiveIntegritySegments().upsert(
+                    CompetitiveIntegritySegmentEntity(
+                        id = "integrity-$bootSessionId-${at.toEpochMilli()}-${sensorValue}-${dayAndZone.first}-${dayAndZone.second}-$groupIndex",
+                        localDate = dayAndZone.first.toString(), zoneId = dayAndZone.second.id,
+                        startedAtEpochMillis = entries.minOf { it.key.start.toEpochMilli() },
+                        endedAtEpochMillis = entries.maxOf { it.key.end.toEpochMilli() }.coerceAtMost(at.toEpochMilli()),
+                        totalSteps = total, eligibleSteps = eligible,
+                        restrictedSteps = restricted, excludedSteps = excluded,
+                        assessment = integrity.assessment, reasons = reasonText,
+                        classifierVersion = integrity.classifierVersion, createdAtEpochMillis = at.toEpochMilli(),
+                    ),
+                )
             }
+            if (durationResult.quality == DataQuality.MEASURED) {
+                durationResult.cadenceStepsPerMinute
+                    ?.takeIf { it in WalkingDurationCalculator.MIN_CADENCE..WalkingDurationCalculator.MAX_CADENCE }
+                    ?.let { cadence ->
+                        learnedCadenceStepsPerMinute = learnedCadenceStepsPerMinute
+                            ?.let { previous -> previous * 0.75 + cadence * 0.25 } ?: cadence
+                    }
+            }
+            val durationQuality = durationResult.quality
+            val durationAllocations = allocateByStepRatio(durationResult.totalSeconds, allocations)
             allocations.forEach { (bucket, steps) ->
-                val bucketDuration = if (allocations.size == 1) addedDuration else 0
-                upsertHour(bucket, steps, at, profile, quality, bucketDuration)
+                upsertHour(
+                    bucket, steps, at, profile, durationQuality,
+                    durationAllocations[bucket] ?: 0,
+                    consumedDetectors.count { HourBucket.of(it, zoneId) == bucket },
+                )
             }
             splitManualSessionAtDateBoundary(at, zoneId, profile, trackingServiceSessionId)
             val manual = database.sessions().active(true)
             if (manual != null) {
                 updateManualSession(
-                    manual, delta, at, profile, quality, addedDuration, consumedDetectors.size,
+                    manual, delta, at, profile, durationQuality, durationResult.totalSeconds, consumedDetectors.size,
                 )
             } else {
                 updateAutoSession(
-                    delta, at, zoneId, profile, quality, trackingServiceSessionId,
-                    addedDuration, consumedDetectors.size,
+                    delta, at, zoneId, profile, durationQuality, trackingServiceSessionId,
+                    durationResult.totalSeconds, consumedDetectors.size,
                 )
             }
             val affectedDays = allocations.keys.map { it.date to it.zone }.toSet()
@@ -160,8 +230,7 @@ class ActivityRepository(
                     zoneId,
                     profile,
                     at,
-                    addedUnclassifiedSteps = delta,
-                    addedQuality = DataQuality.RECOVERED,
+                    addedUnallocatedMeasuredSteps = delta,
                 )
             } else {
                 affectedDays.forEach { (date, zone) ->
@@ -180,10 +249,14 @@ class ActivityRepository(
                         ?: processing?.lastDetectorEventEpochMillis,
                     lastWalkingEventEpochMillis = at.toEpochMilli(),
                     updatedAtEpochMillis = at.toEpochMilli(),
+                    activityRepairVersion = ACTIVITY_REPAIR_VERSION,
                 ),
             )
             repeat(consumedDetectors.size) { detectorEvents.removeFirstOrNull() }
+            true
         }
+        if (!persisted) return@withLock null
+        PersistedActivityUpdate(localDate, zoneId, officialDailySteps(localDate, zoneId))
     }
 
     suspend fun finishSession(id: String?, at: Instant) = writer.withLock {
@@ -264,8 +337,9 @@ class ActivityRepository(
         addedSteps: Long,
         eventAt: Instant,
         profile: UserBodyProfile,
-        quality: DataQuality,
+        durationQuality: DataQuality,
         addedDurationSeconds: Long,
+        detectorEventCount: Int,
     ) {
         val old = database.hourly().byId(bucket.id)
         val steps = (old?.steps ?: 0) + addedSteps
@@ -292,18 +366,18 @@ class ActivityRepository(
                 walkingDurationSeconds = duration,
                 estimatedCaloriesKcal = calories?.kcal,
                 averageWalkingSpeedKmh = speed,
-                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, quality)),
+                // Step Counter deltas are measured steps. Duration estimation must not
+                // downgrade or otherwise alter the independent step-quality dimension.
+                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, DataQuality.MEASURED)),
                 distanceQuality = DataQuality.ESTIMATED,
-                durationQuality = if (duration == 0L) DataQuality.UNKNOWN else quality,
+                durationQuality = if (duration == 0L) DataQuality.UNKNOWN else durationQuality,
                 caloriesQuality = calories?.quality ?: DataQuality.UNKNOWN,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 firstActivityAtEpochMillis = first.toEpochMilli(),
                 lastActivityAtEpochMillis = last.toEpochMilli(),
-                sensorEventCount = (old?.sensorEventCount ?: 0) + 1,
-                recoveredSteps = (old?.recoveredSteps ?: 0) +
-                    if (quality == DataQuality.RECOVERED) addedSteps else 0,
-                estimatedSteps = (old?.estimatedSteps ?: 0) +
-                    if (quality == DataQuality.ESTIMATED || quality == DataQuality.MIXED) addedSteps else 0,
+                sensorEventCount = (old?.sensorEventCount ?: 0) + detectorEventCount,
+                recoveredSteps = old?.recoveredSteps ?: 0,
+                estimatedSteps = old?.estimatedSteps ?: 0,
                 appliedStepLengthMeters = stepLength.meters,
                 appliedWeightKg = profile.weightKg ?: DistanceCalorieEstimator.DEFAULT_WEIGHT_KG,
                 calorieFormulaVersion = 1,
@@ -313,24 +387,88 @@ class ActivityRepository(
         )
     }
 
+    private fun allocateByStepRatio(
+        total: Long,
+        steps: Map<HourBucket, Long>,
+    ): Map<HourBucket, Long> {
+        if (steps.isEmpty()) return emptyMap()
+        val totalSteps = steps.values.sum().coerceAtLeast(1)
+        var remaining = total
+        val result = linkedMapOf<HourBucket, Long>()
+        steps.entries.forEachIndexed { index, (bucket, bucketSteps) ->
+            val share = if (index == steps.size - 1) remaining else total * bucketSteps / totalSteps
+            result[bucket] = share
+            remaining -= share
+        }
+        return result
+    }
+
+    private suspend fun repairImplausibleActivity(profile: UserBodyProfile, at: Instant) {
+        val affected = linkedSetOf<Pair<LocalDate, ZoneId>>()
+        database.hourly().all().forEach { hour ->
+            if (hour.steps < WalkingDurationCalculator.MIN_STEPS_FOR_CADENCE_CHECK) return@forEach
+            val oldDuration = hour.walkingDurationSeconds ?: 0
+            val cadence = if (oldDuration > 0) hour.steps * 60.0 / oldDuration else Double.POSITIVE_INFINITY
+            if (oldDuration > 0 && cadence in
+                WalkingDurationCalculator.MIN_CADENCE..WalkingDurationCalculator.MAX_CADENCE
+            ) return@forEach
+            val duration = durationCalculator.estimateSeconds(hour.steps)
+            val distance = hour.steps * hour.appliedStepLengthMeters
+            val speed = WalkingSpeedCalculator.movingKmh(distance, duration)
+            val calories = calorieEstimator.estimate(profile.weightKg, distance, duration, speed)
+            database.hourly().upsert(
+                hour.copy(
+                    distanceMeters = distance,
+                    walkingDurationSeconds = duration,
+                    estimatedCaloriesKcal = calories?.kcal,
+                    averageWalkingSpeedKmh = speed,
+                    durationQuality = DataQuality.ESTIMATED,
+                    caloriesQuality = calories?.quality ?: DataQuality.UNKNOWN,
+                    speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
+                    updatedAtEpochMillis = at.toEpochMilli(),
+                ),
+            )
+            affected += LocalDate.parse(hour.localDate) to ZoneId.of(hour.zoneId)
+        }
+        affected.forEach { (date, zone) -> rebuildDay(date, zone, profile, at) }
+    }
+
+    private companion object {
+        const val ACTIVITY_REPAIR_VERSION = 1
+    }
+
     private suspend fun rebuildDay(
         date: LocalDate,
         zone: ZoneId,
         profile: UserBodyProfile,
         at: Instant,
-        addedUnclassifiedSteps: Long = 0,
-        addedQuality: DataQuality? = null,
+        addedExternalRecoveredSteps: Long = 0,
+        addedUnallocatedMeasuredSteps: Long = 0,
     ) {
         val hours = database.hourly().forDate(date.toString(), zone.id)
         val old = database.daily().get(date.toString(), zone.id)
-        val unclassified = (old?.unclassifiedSteps ?: 0) + addedUnclassifiedSteps
-        val unclassifiedQuality = mergeQuality(
-            listOfNotNull(old?.unclassifiedStepsQuality, addedQuality)
-                .filterNot { it == DataQuality.UNKNOWN },
-        )
-        val steps = hours.sumOf { it.steps } + unclassified
-        val distance = hours.mapNotNull { it.distanceMeters }.takeIf { it.isNotEmpty() }?.sum()
-        val duration = hours.mapNotNull { it.walkingDurationSeconds }.takeIf { it.isNotEmpty() }?.sum()
+        val externalRecovered = (old?.externalRecoveredSteps ?: old?.unclassifiedSteps ?: 0) +
+            addedExternalRecoveredSteps
+        val unallocatedMeasured = (old?.unallocatedMeasuredSteps ?: 0) +
+            addedUnallocatedMeasuredSteps
+        // Daily steps are the sensor-derived source of truth. Recovery remains separate so
+        // it can be explained and can never silently inflate measured activity.
+        val steps = hours.sumOf { it.steps } + unallocatedMeasured
+        val hourlyDistance = hours.mapNotNull { it.distanceMeters }.sum()
+        val hourlyDuration = hours.mapNotNull { it.walkingDurationSeconds }.sum()
+        val estimatedUnallocatedDistance = if (unallocatedMeasured > 0) {
+            unallocatedMeasured * stepLengthEstimator.estimate(profile).meters
+        } else 0.0
+        val estimatedUnallocatedDuration = if (unallocatedMeasured > 0) {
+            durationCalculator.estimateSeconds(
+                unallocatedMeasured,
+                learnedCadenceStepsPerMinute ?: WalkingDurationCalculator.DEFAULT_CADENCE,
+            )
+        } else 0L
+        val distance = (hourlyDistance + estimatedUnallocatedDistance)
+            .takeIf { steps > 0 }
+        val duration = (hourlyDuration + estimatedUnallocatedDuration)
+            .takeIf { steps > 0 }
         val calories = calorieEstimator.estimate(profile.weightKg, distance, duration, null)?.kcal
         val speed = WalkingSpeedCalculator.movingKmh(distance, duration)
         val now = at.toEpochMilli()
@@ -340,18 +478,27 @@ class ActivityRepository(
                 localDate = date.toString(),
                 zoneId = zone.id,
                 steps = steps,
-                unclassifiedSteps = unclassified,
+                // Retained as a schema-compatibility mirror through v9. New code reads the
+                // explicit fields below and never mixes Counter gaps with external recovery.
+                unclassifiedSteps = externalRecovered,
+                unclassifiedStepsQuality = if (externalRecovered > 0) {
+                    DataQuality.RECOVERED
+                } else DataQuality.UNKNOWN,
+                externalRecoveredSteps = externalRecovered,
+                unallocatedMeasuredSteps = unallocatedMeasured,
                 distanceMeters = distance,
                 walkingDurationSeconds = duration,
                 estimatedCaloriesKcal = calories,
                 averageWalkingSpeedKmh = speed,
                 stepsQuality = mergeQuality(
                     hours.map { it.stepsQuality } +
-                        listOf(unclassifiedQuality).filterNot { it == DataQuality.UNKNOWN },
+                        listOf(DataQuality.MEASURED).takeIf { unallocatedMeasured > 0 }.orEmpty(),
                 ),
-                unclassifiedStepsQuality = unclassifiedQuality,
                 distanceQuality = if (distance == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
-                durationQuality = mergeQuality(hours.map { it.durationQuality }),
+                durationQuality = mergeQuality(
+                    hours.map { it.durationQuality } +
+                        listOf(DataQuality.ESTIMATED).takeIf { unallocatedMeasured > 0 }.orEmpty(),
+                ),
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 activeHourCount = hours.count { it.steps > 0 },
@@ -369,7 +516,7 @@ class ActivityRepository(
         at: Instant,
         zone: ZoneId,
         profile: UserBodyProfile,
-        quality: DataQuality,
+        durationQuality: DataQuality,
         trackingServiceSessionId: String?,
         addedDurationSeconds: Long,
         detectorCount: Int,
@@ -400,9 +547,9 @@ class ActivityRepository(
                 averageElapsedSpeedKmh = WalkingSpeedCalculator.movingKmh(distance, elapsed),
                 sessionType = WalkingSessionType.AUTO_DETECTED,
                 status = WalkingSessionStatus.ACTIVE,
-                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, quality)),
+                stepsQuality = mergeQuality(listOfNotNull(old?.stepsQuality, DataQuality.MEASURED)),
                 distanceQuality = DataQuality.ESTIMATED,
-                durationQuality = if (active >= 60) quality else DataQuality.UNKNOWN,
+                durationQuality = if (active > 0) durationQuality else DataQuality.UNKNOWN,
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 trackingServiceSessionId = trackingServiceSessionId,
@@ -410,10 +557,8 @@ class ActivityRepository(
                 pausedSinceEpochMillis = null,
                 isManual = false,
                 detectorEventCount = (old?.detectorEventCount ?: 0) + detectorCount,
-                estimatedStepCount = (old?.estimatedStepCount ?: 0) +
-                    if (quality == DataQuality.ESTIMATED || quality == DataQuality.MIXED) delta else 0,
-                recoveredStepCount = (old?.recoveredStepCount ?: 0) +
-                    if (quality == DataQuality.RECOVERED) delta else 0,
+                estimatedStepCount = old?.estimatedStepCount ?: 0,
+                recoveredStepCount = old?.recoveredStepCount ?: 0,
                 createdAtEpochMillis = old?.createdAtEpochMillis ?: at.toEpochMilli(),
                 updatedAtEpochMillis = at.toEpochMilli(),
             ),
@@ -467,7 +612,7 @@ class ActivityRepository(
         delta: Long,
         at: Instant,
         profile: UserBodyProfile,
-        quality: DataQuality,
+        durationQuality: DataQuality,
         addedDurationSeconds: Long,
         detectorCount: Int,
     ) {
@@ -489,18 +634,16 @@ class ActivityRepository(
                 averageMovingSpeedKmh = speed,
                 averageElapsedSpeedKmh = WalkingSpeedCalculator.movingKmh(distance, elapsed),
                 status = WalkingSessionStatus.ACTIVE,
-                stepsQuality = mergeQuality(listOf(old.stepsQuality, quality)),
+                stepsQuality = mergeQuality(listOf(old.stepsQuality, DataQuality.MEASURED)),
                 distanceQuality = DataQuality.ESTIMATED,
-                durationQuality = if (active >= 60) quality else DataQuality.UNKNOWN,
+                durationQuality = if (active > 0) durationQuality else DataQuality.UNKNOWN,
                 caloriesQuality = if (calories == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 speedQuality = if (speed == null) DataQuality.UNKNOWN else DataQuality.ESTIMATED,
                 lastWalkingEventAtEpochMillis = at.toEpochMilli(),
                 pausedSinceEpochMillis = null,
                 detectorEventCount = old.detectorEventCount + detectorCount,
-                estimatedStepCount = old.estimatedStepCount +
-                    if (quality in setOf(DataQuality.ESTIMATED, DataQuality.MIXED)) delta else 0,
-                recoveredStepCount = old.recoveredStepCount +
-                    if (quality == DataQuality.RECOVERED) delta else 0,
+                estimatedStepCount = old.estimatedStepCount,
+                recoveredStepCount = old.recoveredStepCount,
                 updatedAtEpochMillis = at.toEpochMilli(),
             ),
         )

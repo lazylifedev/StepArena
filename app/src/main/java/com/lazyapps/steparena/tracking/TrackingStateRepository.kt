@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.core.DataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -16,13 +17,18 @@ import java.time.LocalDate
 
 private val Context.trackingDataStore by preferencesDataStore("step_tracking")
 
-class TrackingStateRepository(private val context: Context) {
-    val state: Flow<StepTrackingState> = context.trackingDataStore.data.map(::decode)
+class TrackingStateRepository(
+    private val dataStore: DataStore<Preferences>,
+) {
+    constructor(context: Context) : this(context.trackingDataStore)
+
+    val state: Flow<StepTrackingState> = dataStore.data.map(::decode)
 
     suspend fun current(): StepTrackingState = state.first()
+    suspend fun clear() { dataStore.edit { it.clear() } }
     suspend fun update(transform: (StepTrackingState) -> StepTrackingState): StepTrackingState {
         var result = StepTrackingState()
-        context.trackingDataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             result = transform(decode(preferences))
             encode(preferences, result)
         }
@@ -30,7 +36,7 @@ class TrackingStateRepository(private val context: Context) {
     }
 
     suspend fun saveDailySummary(summary: DailyStepSummary) {
-        context.trackingDataStore.edit {
+        dataStore.edit {
             it[Keys.DAILY_DATE] = summary.localDate.toString()
             it[Keys.DAILY_ZONE] = summary.zoneId
             it[Keys.DAILY_STEPS] = summary.steps
@@ -39,7 +45,7 @@ class TrackingStateRepository(private val context: Context) {
     }
 
     suspend fun lastDailySummary(): DailyStepSummary? {
-        val p = context.trackingDataStore.data.first()
+        val p = dataStore.data.first()
         val date = p[Keys.DAILY_DATE] ?: return null
         return DailyStepSummary(
             localDate = LocalDate.parse(date),
@@ -59,6 +65,11 @@ class TrackingStateRepository(private val context: Context) {
         currentLocalDate = runCatching { LocalDate.parse(p[Keys.DATE]) }.getOrDefault(LocalDate.now()),
         currentZoneId = p[Keys.ZONE] ?: java.time.ZoneId.systemDefault().id,
         lastSensorEventAt = instant(p[Keys.LAST_SENSOR]),
+        previousSensorValue = p[Keys.PREVIOUS_VALUE],
+        lastStepIncreaseAt = instant(p[Keys.LAST_INCREASE]),
+        stepCounterRegistered = p[Keys.COUNTER_REGISTERED] ?: false,
+        stepDetectorRegistered = p[Keys.DETECTOR_REGISTERED] ?: false,
+        serviceRunning = p[Keys.SERVICE_RUNNING] ?: false,
         lastHeartbeatAt = instant(p[Keys.HEARTBEAT]),
         lastServiceStartedAt = instant(p[Keys.STARTED]),
         lastServiceStoppedAt = instant(p[Keys.STOPPED]),
@@ -66,6 +77,12 @@ class TrackingStateRepository(private val context: Context) {
         sessionId = p[Keys.SESSION],
         onboardingStep = p[Keys.ONBOARDING_STEP] ?: 0,
         onboardingComplete = p[Keys.ONBOARDING_COMPLETE] ?: false,
+        onboardingVersion = p[Keys.ONBOARDING_VERSION] ?: 0,
+        trackingExplanationSeen = p[Keys.TRACKING_EXPLANATION] ?: false,
+        notificationExplanationSeen = p[Keys.NOTIFICATION_EXPLANATION] ?: false,
+        healthConnectExplanationSeen = p[Keys.HEALTH_EXPLANATION] ?: false,
+        gameRulesExplanationSeen = p[Keys.GAME_EXPLANATION] ?: false,
+        privacyPolicyVersionSeen = p[Keys.PRIVACY_VERSION] ?: 0,
         batteryGuidanceAcknowledged = p[Keys.BATTERY_ACK] ?: false,
         notificationGuidanceAcknowledged = p[Keys.NOTIFICATION_ACK] ?: false,
         needsReview = p[Keys.NEEDS_REVIEW] ?: false,
@@ -84,6 +101,11 @@ class TrackingStateRepository(private val context: Context) {
         p[Keys.DATE] = s.currentLocalDate.toString()
         p[Keys.ZONE] = s.currentZoneId
         nullable(p, Keys.LAST_SENSOR, s.lastSensorEventAt?.toEpochMilli())
+        nullable(p, Keys.PREVIOUS_VALUE, s.previousSensorValue)
+        nullable(p, Keys.LAST_INCREASE, s.lastStepIncreaseAt?.toEpochMilli())
+        p[Keys.COUNTER_REGISTERED] = s.stepCounterRegistered
+        p[Keys.DETECTOR_REGISTERED] = s.stepDetectorRegistered
+        p[Keys.SERVICE_RUNNING] = s.serviceRunning
         nullable(p, Keys.HEARTBEAT, s.lastHeartbeatAt?.toEpochMilli())
         nullable(p, Keys.STARTED, s.lastServiceStartedAt?.toEpochMilli())
         nullable(p, Keys.STOPPED, s.lastServiceStoppedAt?.toEpochMilli())
@@ -91,6 +113,12 @@ class TrackingStateRepository(private val context: Context) {
         nullable(p, Keys.SESSION, s.sessionId)
         p[Keys.ONBOARDING_STEP] = s.onboardingStep
         p[Keys.ONBOARDING_COMPLETE] = s.onboardingComplete
+        p[Keys.ONBOARDING_VERSION] = s.onboardingVersion
+        p[Keys.TRACKING_EXPLANATION] = s.trackingExplanationSeen
+        p[Keys.NOTIFICATION_EXPLANATION] = s.notificationExplanationSeen
+        p[Keys.HEALTH_EXPLANATION] = s.healthConnectExplanationSeen
+        p[Keys.GAME_EXPLANATION] = s.gameRulesExplanationSeen
+        p[Keys.PRIVACY_VERSION] = s.privacyPolicyVersionSeen
         p[Keys.BATTERY_ACK] = s.batteryGuidanceAcknowledged
         p[Keys.NOTIFICATION_ACK] = s.notificationGuidanceAcknowledged
         p[Keys.NEEDS_REVIEW] = s.needsReview
@@ -123,6 +151,11 @@ class TrackingStateRepository(private val context: Context) {
         val DATE = stringPreferencesKey("local_date")
         val ZONE = stringPreferencesKey("zone_id")
         val LAST_SENSOR = longPreferencesKey("last_sensor_at")
+        val PREVIOUS_VALUE = longPreferencesKey("previous_sensor_value")
+        val LAST_INCREASE = longPreferencesKey("last_step_increase_at")
+        val COUNTER_REGISTERED = booleanPreferencesKey("step_counter_registered")
+        val DETECTOR_REGISTERED = booleanPreferencesKey("step_detector_registered")
+        val SERVICE_RUNNING = booleanPreferencesKey("service_running")
         val HEARTBEAT = longPreferencesKey("heartbeat_at")
         val STARTED = longPreferencesKey("service_started_at")
         val STOPPED = longPreferencesKey("service_stopped_at")
@@ -130,6 +163,12 @@ class TrackingStateRepository(private val context: Context) {
         val SESSION = stringPreferencesKey("session_id")
         val ONBOARDING_STEP = intPreferencesKey("onboarding_step")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val ONBOARDING_VERSION = intPreferencesKey("onboarding_version")
+        val TRACKING_EXPLANATION = booleanPreferencesKey("tracking_explanation_seen")
+        val NOTIFICATION_EXPLANATION = booleanPreferencesKey("notification_explanation_seen")
+        val HEALTH_EXPLANATION = booleanPreferencesKey("health_connect_explanation_seen")
+        val GAME_EXPLANATION = booleanPreferencesKey("game_rules_explanation_seen")
+        val PRIVACY_VERSION = intPreferencesKey("privacy_policy_version_seen")
         val BATTERY_ACK = booleanPreferencesKey("battery_guidance_ack")
         val NOTIFICATION_ACK = booleanPreferencesKey("notification_guidance_ack")
         val NEEDS_REVIEW = booleanPreferencesKey("needs_review")

@@ -12,3 +12,7 @@ Phase 5 の対戦相手は実在ユーザーではなく、端末内で決定論
 - Debugシナリオの歩数、試合、rating、リーグ、シーズン、実績は隔離DBだけを変更する。
 - Debug installationIdは`step-arena-debug-scenario`で固定し、同じ日付・Zone・rankなら
   初期化後も同じNPCを生成する。production installationIdは読み書きしない。
+
+Phase 6の「ゲーム進行だけ初期化」はPlayerProfile、DailyMatch、WeeklyLeague、Season、
+Achievement、ゲーム通知イベントだけを削除し、歩数、時間別・日次記録、散歩セッション、
+Health Connect補完、身体プロフィール、計測設定を保持する。二段階確認を必須とする。
