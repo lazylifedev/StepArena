@@ -10,7 +10,6 @@ import com.lazyapps.steparena.tracking.TrackingStateRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import com.lazyapps.steparena.app.DebugStepArenaApplication
@@ -51,7 +50,7 @@ class DebugFakeSensorReceiver : BroadcastReceiver() {
                         sessionId = null,
                     )
                 }
-                send(context, intent.getFloatExtra(EXTRA_VALUE, 0f))
+                send(context, intent.getFloatExtra(EXTRA_VALUE, 0f), keepFakeMode = true)
             }
             COMMAND_STOP -> {
                 val session = TrackingStateRepository(context).current().sessionId
@@ -94,13 +93,15 @@ class DebugFakeSensorReceiver : BroadcastReceiver() {
                 send(context, (current + intent.getLongExtra(EXTRA_STEPS, 1L)).toFloat())
             }
             COMMAND_SEQUENCE -> {
-                var value = intent.getLongExtra(EXTRA_BASELINE, 0L)
-                send(context, value.toFloat())
-                repeat(intent.getIntExtra(EXTRA_COUNT, 1).coerceIn(1, 1_000)) {
-                    delay(intent.getLongExtra(EXTRA_INTERVAL_MS, 250L).coerceIn(10L, 60_000L))
-                    value += intent.getLongExtra(EXTRA_STEPS, 1L)
-                    send(context, value.toFloat())
-                }
+                val count = intent.getIntExtra(EXTRA_COUNT, 1).coerceIn(1, 1_000)
+                sendSequence(
+                    context = context,
+                    baseline = intent.getLongExtra(EXTRA_BASELINE, 0L),
+                    count = count,
+                    steps = intent.getLongExtra(EXTRA_STEPS, 1L),
+                    intervalMillis = intent.getLongExtra(EXTRA_INTERVAL_MS, 250L)
+                        .coerceIn(10L, 60_000L),
+                )
             }
             COMMAND_RESET -> send(context, intent.getFloatExtra(EXTRA_VALUE, 0f))
             COMMAND_DATE_CHANGE -> {
@@ -122,12 +123,32 @@ class DebugFakeSensorReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun send(context: Context, value: Float) {
+    private fun send(context: Context, value: Float, keepFakeMode: Boolean = false) {
         ContextCompat.startForegroundService(
             context,
             Intent(context, StepTrackingService::class.java)
                 .setAction(StepTrackingService.debugAction())
-                .putExtra(StepTrackingService.debugValueExtra(), value),
+                .putExtra(StepTrackingService.debugValueExtra(), value)
+                .putExtra(StepTrackingService.debugKeepFakeModeExtra(), keepFakeMode),
+        )
+    }
+
+    private fun sendSequence(
+        context: Context,
+        baseline: Long,
+        count: Int,
+        steps: Long,
+        intervalMillis: Long,
+    ) {
+        ContextCompat.startForegroundService(
+            context,
+            Intent(context, StepTrackingService::class.java)
+                .setAction(StepTrackingService.debugAction())
+                .putExtra(StepTrackingService.debugValueExtra(), baseline.toFloat())
+                .putExtra(StepTrackingService.debugKeepFakeModeExtra(), true)
+                .putExtra(StepTrackingService.debugSequenceCountExtra(), count)
+                .putExtra(StepTrackingService.debugSequenceStepsExtra(), steps)
+                .putExtra(StepTrackingService.debugSequenceIntervalExtra(), intervalMillis),
         )
     }
 

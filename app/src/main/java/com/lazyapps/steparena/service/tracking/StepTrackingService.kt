@@ -171,6 +171,10 @@ class StepTrackingService : Service(), SensorEventListener {
         if (BuildConfig.DEBUG && intent?.action == debugAction()) {
             promote(NotificationModel(0, null, getString(R.string.notification_status_preparing)))
             val value = intent.getFloatExtra(debugValueExtra(), Float.NaN)
+            val keepFakeMode = intent.getBooleanExtra(debugKeepFakeModeExtra(), false)
+            val sequenceCount = intent.getIntExtra(debugSequenceCountExtra(), 0)
+            val sequenceSteps = intent.getLongExtra(debugSequenceStepsExtra(), 1L)
+            val sequenceInterval = intent.getLongExtra(debugSequenceIntervalExtra(), 10L)
             scope.launch {
                 val accepted = serializeStateUpdate {
                     if (setupStarted.compareAndSet(false, true)) {
@@ -209,13 +213,24 @@ class StepTrackingService : Service(), SensorEventListener {
                     }
                 } ?: false
                 if (!accepted) return@launch
-                val completed = CompletableDeferred<Unit>()
-                sensorSamples.send(SensorSample.Counter(value, Instant.now(), completed))
-                completed.await()
+                var sequenceValue = value
+                repeat(sequenceCount + 1) { index ->
+                    if (index > 0) {
+                        delay(sequenceInterval)
+                        sequenceValue += sequenceSteps.toFloat()
+                    }
+                    val completed = CompletableDeferred<Unit>()
+                    sensorSamples.send(SensorSample.Counter(sequenceValue, Instant.now(), completed))
+                    completed.await()
+                }
                 serializeStateUpdate {
-                    fakeSensorMode = false
-                    logEvent("fake_sensor_disabled", detail = "intent_completed")
-                    if (!stepCounterRegistered && state.trackingRequested) restoreAndRegister()
+                    if (keepFakeMode) {
+                        logEvent("fake_sensor_retained", detail = "sequence_active")
+                    } else {
+                        fakeSensorMode = false
+                        logEvent("fake_sensor_disabled", detail = "intent_completed")
+                        if (!stepCounterRegistered && state.trackingRequested) restoreAndRegister()
+                    }
                 }
             }
             return START_STICKY
@@ -694,6 +709,18 @@ class StepTrackingService : Service(), SensorEventListener {
         ).joinToString(".")
 
         fun debugValueExtra(): String = listOf("debug", "sensor", "value").joinToString("_")
+
+        fun debugKeepFakeModeExtra(): String =
+            listOf("debug", "keep", "fake", "mode").joinToString("_")
+
+        fun debugSequenceCountExtra(): String =
+            listOf("debug", "sequence", "count").joinToString("_")
+
+        fun debugSequenceStepsExtra(): String =
+            listOf("debug", "sequence", "steps").joinToString("_")
+
+        fun debugSequenceIntervalExtra(): String =
+            listOf("debug", "sequence", "interval").joinToString("_")
     }
 }
 

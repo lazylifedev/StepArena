@@ -22,6 +22,8 @@ import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import com.lazyapps.steparena.core.model.*
 import com.lazyapps.steparena.feature.game.ChallengeTestTags
+import com.lazyapps.steparena.feature.game.ChallengeScreen
+import com.lazyapps.steparena.feature.game.ChallengeUiState
 import com.lazyapps.steparena.test.awaitResumedHost
 import org.junit.Before
 import org.junit.Rule
@@ -225,9 +227,21 @@ class HomeScreenTest {
 
     @Test fun bottomNavigation_opensLocalMatch() {
         composeRule.setContent {
-            StepArenaTheme { StepArenaApp(readyState, {}) }
+            StepArenaTheme {
+                StepArenaApp(
+                    homeUiState = readyState,
+                    onHomeAction = {},
+                    challengeContent = {
+                        ChallengeScreen(
+                            state = ChallengeUiState(),
+                            motionLevel = MotionLevel.OFF,
+                        )
+                    },
+                )
+            }
         }
-        composeRule.onNodeWithText("チャレンジ").performClick()
+        composeRule.onNodeWithTag("bottom_navigation_challenge").performClick()
+        composeRule.onNodeWithTag(ChallengeTestTags.CONTENT).assertIsDisplayed()
         composeRule.onNodeWithTag(ChallengeTestTags.INFO).assertDoesNotExist()
         composeRule.onNodeWithText("毎日の歩数を、端末内で", substring = true)
             .assertDoesNotExist()

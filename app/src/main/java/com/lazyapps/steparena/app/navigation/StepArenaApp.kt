@@ -79,6 +79,7 @@ fun StepArenaApp(
     environmentBanner: String? = null,
     onReplayOnboarding: () -> Unit = {},
     onAllDataDeleted: () -> Unit = {},
+    challengeContent: (@Composable () -> Unit)? = null,
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selectedRoute = backStackEntry?.destination?.route ?: AppDestination.HOME.route
@@ -152,7 +153,8 @@ fun StepArenaApp(
                     )
                 }
                 composable(AppDestination.CHALLENGE.route) {
-                    ArenaScreen(ArenaPage.CHALLENGE, homeUiState.motionLevel)
+                    challengeContent?.invoke()
+                        ?: ArenaScreen(ArenaPage.CHALLENGE, homeUiState.motionLevel)
                 }
                 composable(
                     route = "${AppDestination.CHALLENGE.route}/{page}",
