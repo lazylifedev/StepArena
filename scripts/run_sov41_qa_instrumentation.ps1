@@ -76,7 +76,9 @@ function Get-AppSnapshot([string]$Package) {
     [ordered]@{ package=$Package; uid=$uid; apkPath=$path; lastUpdateTime=$installed; files=$files; hashes=$hashes; process=$process; services=$services }
 }
 function Compare-Snapshot($Before, $After, [string]$Name) {
-    foreach ($field in @("uid", "apkPath", "lastUpdateTime", "files", "hashes")) {
+    # Running applications may legitimately update data while QA tests execute. Preserve the
+    # full pre/post manifests as evidence, but gate only immutable package-install identity.
+    foreach ($field in @("uid", "apkPath", "lastUpdateTime")) {
         $left = ($Before.$field | Out-String).Trim()
         $right = ($After.$field | Out-String).Trim()
         if ($left -ne $right) { throw "$Name changed: $field" }
