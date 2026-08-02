@@ -8,20 +8,25 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-class Phase7415RepairReceiver : BroadcastReceiver() {
+class Phase7415dTimestampRepairReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != ACTION) return
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = Phase7415Repair.execute(
+                val result = Phase7415dTimestampRepair.execute(
                     context,
                     intent.getStringExtra("repairId").orEmpty(),
                     intent.getStringExtra("manifestSha").orEmpty(),
                 )
-                Log.i("Phase7415Repair", "status=${result.status} fingerprint=${result.fingerprint}")
-            } catch (t: Throwable) {
-                Log.e("Phase7415Repair", "Repair rejected", t)
-            } finally { pending.finish() }
+                Log.i("Phase7415dRepair", "status=${result.status} after=${result.afterFingerprint}")
+            } finally {
+                pending.finish()
+            }
         }
+    }
+
+    companion object {
+        const val ACTION = "com.lazyapps.steparena.debug.PHASE_7_4_15D_TIMESTAMP_REPAIR"
     }
 }

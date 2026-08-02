@@ -12,11 +12,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.Instant
 import com.lazyapps.steparena.service.tracking.StepTrackingService
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.tracking.TrackingStatus as PersistentTrackingStatus
 import com.lazyapps.steparena.core.model.*
-import java.time.Instant
 import com.lazyapps.steparena.app.StepArenaApplication
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -96,7 +97,11 @@ class HomeViewModel(
                 val measuredToday = daily?.steps ?: 0
                 val status = when (tracking.trackingStatus) {
                     PersistentTrackingStatus.TRACKING, PersistentTrackingStatus.RESTARTED ->
-                        TrackingStatus.ACTIVE
+                        if (hasFreshTrackingHeartbeat(tracking, Instant.now())) {
+                            TrackingStatus.ACTIVE
+                        } else {
+                            TrackingStatus.MAY_BE_STOPPED
+                        }
                     PersistentTrackingStatus.PERMISSION_REQUIRED ->
                         TrackingStatus.PERMISSION_REQUIRED
                     PersistentTrackingStatus.BATTERY_RESTRICTED ->
@@ -301,4 +306,14 @@ class HomeViewModel(
         val recoveryEnabled: Boolean,
         val goalSteps: Int,
     )
+}
+
+internal fun hasFreshTrackingHeartbeat(
+    state: com.lazyapps.steparena.tracking.StepTrackingState,
+    now: Instant,
+): Boolean {
+    if (!state.trackingRequested) return false
+    val heartbeat = state.lastHeartbeatAt ?: return false
+    val age = Duration.between(heartbeat, now)
+    return !age.isNegative && age <= Duration.ofMinutes(10)
 }

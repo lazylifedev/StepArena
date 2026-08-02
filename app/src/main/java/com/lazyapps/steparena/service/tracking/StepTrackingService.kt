@@ -90,6 +90,7 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
+        TrackingServiceProcessRegistry.serviceAlive = true
         NotificationStepPreviewDiagnostics.clear()
         repository = TrackingStateRepository(applicationContext)
         diagnosticLog = DiagnosticLogRepository(applicationContext)
@@ -333,7 +334,6 @@ class StepTrackingService : Service(), SensorEventListener {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
             while (true) {
-                delay(HEARTBEAT_INTERVAL_MILLIS)
                 serializeStateUpdate {
                     if (!state.trackingRequested) return@serializeStateUpdate
                     val heartbeat = Instant.now()
@@ -341,6 +341,7 @@ class StepTrackingService : Service(), SensorEventListener {
                     logEvent("heartbeat")
                     updateNotificationIfNeeded(heartbeat, force = true)
                 }
+                delay(HEARTBEAT_INTERVAL_MILLIS)
             }
         }
         sessionTimeoutJob?.cancel()
@@ -493,6 +494,7 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     override fun onDestroy() {
+        TrackingServiceProcessRegistry.serviceAlive = false
         stateUpdates.destroy()
         sensorManager.unregisterListener(this)
         sensorSamples.close()

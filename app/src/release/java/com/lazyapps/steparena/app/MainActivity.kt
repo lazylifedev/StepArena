@@ -27,6 +27,7 @@ import com.lazyapps.steparena.game.GameNotificationDispatcher
 import com.lazyapps.steparena.app.navigation.canonicalGameRoute
 import kotlinx.coroutines.launch
 import com.lazyapps.steparena.release.ONBOARDING_VERSION
+import com.lazyapps.steparena.service.tracking.TrackingServiceReconciler
 
 class MainActivity : ComponentActivity() {
     private var trackingState by mutableStateOf(StepTrackingState())
@@ -131,6 +132,13 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        lifecycleScope.launch {
+            TrackingServiceReconciler(applicationContext).reconcileForeground()
         }
     }
 

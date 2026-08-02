@@ -13,11 +13,11 @@
             </intent-filter>
         </receiver>
         <receiver
-            android:name=".repair.Phase7415RepairReceiver"
+            android:name=".repair.Phase7415dTimestampRepairReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.lazyapps.steparena.debug.PHASE_7_4_15_REPAIR" />
+                <action android:name="com.lazyapps.steparena.debug.PHASE_7_4_15D_TIMESTAMP_REPAIR" />
             </intent-filter>
         </receiver>
     </application>

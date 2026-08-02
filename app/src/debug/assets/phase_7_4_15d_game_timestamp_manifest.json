@@ -1,0 +1,11 @@
+{
+  "repairId": "phase-7.4.15d-sov41-game-timestamps",
+  "packageName": "com.lazyapps.steparena",
+  "source": "SOV41_20260802_172340_QV7209CF25_PHASE_7_4_15B_PRE_REPAIR",
+  "targets": [
+    {"table":"daily_matches","key":{"id":"daily-2026-08-2026-08-02--1660747039"},"column":"updatedAtEpochMillis","before":1785659058540,"after":1785654238578},
+    {"table":"weekly_league_participants","key":{"leagueId":"league-2026-07-27--1660747039"},"column":"updatedAtEpochMillis","before":1785659058736,"after":1785654238657,"expectedRows":10},
+    {"table":"weekly_leagues","key":{"id":"league-2026-07-27--1660747039"},"column":"createdAtEpochMillis","before":1785659058736,"after":1785654238657},
+    {"table":"weekly_leagues","key":{"id":"league-2026-07-27--1660747039"},"column":"updatedAtEpochMillis","before":1785659058736,"after":1785654238657}
+  ]
+}

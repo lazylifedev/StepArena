@@ -126,8 +126,7 @@ class LocalGameRepository(
                     database.daily().get(date, targetZone.id),
                     database.competitiveIntegritySegments().forDate(date, targetZone.id),
                 )
-                database.dailyMatches().update(
-                    active.copy(
+                val desired = active.copy(
                         totalUserSteps = summary.totalSteps,
                         eligibleUserSteps = summary.eligibleSteps,
                         restrictedUserSteps = summary.restrictedSteps,
@@ -135,8 +134,10 @@ class LocalGameRepository(
                         restrictionReasons = summary.reasons.joinToString(",") { it.name },
                         competitiveQuality = summary.quality,
                         updatedAtEpochMillis = now,
-                    ),
-                )
+                    )
+                if (desired.copy(updatedAtEpochMillis = active.updatedAtEpochMillis) != active) {
+                    database.dailyMatches().update(desired)
+                }
             }
         }
         rebuildLeague(now)
@@ -272,18 +273,21 @@ class LocalGameRepository(
             )
         })
         val userRank = ranked.indexOfFirst { it.id == "player" } + 1
-        database.weeklyLeagues().upsert(
-            WeeklyLeagueEntity(
+        val leagueDao = database.weeklyLeagues()
+        val existingLeague = leagueDao.get(existingId)
+        val desiredLeague = WeeklyLeagueEntity(
                 existingId, start.toString(), start.plusDays(6).toString(),
                 zone.id, LeagueStatus.ACTIVE, points, userRank,
-                "[]", null, now, now,
-            ),
-        )
+                "[]", null, existingLeague?.createdAtEpochMillis ?: now, now,
+            )
+        if (existingLeague == null ||
+            desiredLeague.copy(updatedAtEpochMillis = existingLeague.updatedAtEpochMillis) != existingLeague
+        ) {
+            leagueDao.upsert(desiredLeague)
+        }
         val participantDao = database.weeklyLeagueParticipants()
         val existingParticipants = participantDao.getForLeague(existingId).associateBy { it.participantId }
-        participantDao.deleteForLeague(existingId)
-        participantDao.upsertAll(
-            ranked.mapIndexed { index, participant ->
+        val desiredParticipants = ranked.mapIndexed { index, participant ->
                 val seed = participantSeeds.first { it.first == participant.id }
                 WeeklyLeagueParticipantEntity(
                     leagueId = existingId,
@@ -298,8 +302,12 @@ class LocalGameRepository(
                     createdAtEpochMillis = existingParticipants[participant.id]?.createdAtEpochMillis ?: now,
                     updatedAtEpochMillis = now,
                 )
-            },
-        )
+            }
+        val changedParticipants = desiredParticipants.filter { desired ->
+            val existing = existingParticipants[desired.participantId]
+            existing == null || desired.copy(updatedAtEpochMillis = existing.updatedAtEpochMillis) != existing
+        }
+        if (changedParticipants.isNotEmpty()) participantDao.upsertAll(changedParticipants)
     }
 
     override suspend fun finalizeMatch(id: String) = finalize(id)
