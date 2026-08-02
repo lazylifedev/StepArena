@@ -191,7 +191,10 @@ class StepTrackingService : Service(), SensorEventListener {
                             promote(NotificationModel(officialSteps, state.lastSensorEventAt, getString(R.string.notification_status_tracking)))
                             startHeartbeat()
                         }
-                    } else if (state.sessionId == null) {
+                    } else {
+                        // The debug bridge can reset the repository before sending a new
+                        // sequence. Re-read it inside the same serialization boundary so an
+                        // already-running service cannot apply the new raw value to stale local state.
                         state = repository.current()
                     }
                     if (!state.trackingRequested) {
