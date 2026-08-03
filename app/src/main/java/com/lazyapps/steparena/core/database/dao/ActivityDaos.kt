@@ -11,6 +11,7 @@ import com.lazyapps.steparena.core.database.entity.TrackingGapRecordEntity
 import com.lazyapps.steparena.core.database.entity.ProcessedExternalStepRecordEntity
 import com.lazyapps.steparena.core.database.entity.CompetitiveIntegritySegmentEntity
 import com.lazyapps.steparena.recovery.TrackingGapStatus
+import com.lazyapps.steparena.game.CompetitiveIntegrityAssessment
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -105,6 +106,11 @@ interface CompetitiveIntegritySegmentDao {
     @Upsert suspend fun upsert(record: CompetitiveIntegritySegmentEntity)
     @Query("SELECT * FROM competitive_integrity_segments WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): CompetitiveIntegritySegmentEntity?
+    @Query("""UPDATE competitive_integrity_segments SET eligibleSteps = :eligible, restrictedSteps = :restricted,
+        excludedSteps = :excluded, assessment = :assessment, reasons = :reasons, classifierVersion = :classifierVersion
+        WHERE id = :id""")
+    suspend fun updateClassification(id: String, eligible: Long, restricted: Long, excluded: Long,
+        assessment: CompetitiveIntegrityAssessment, reasons: String, classifierVersion: Int): Int
     @Query("SELECT * FROM competitive_integrity_segments WHERE localDate = :date AND zoneId = :zone ORDER BY startedAtEpochMillis")
     suspend fun forDate(date: String, zone: String): List<CompetitiveIntegritySegmentEntity>
     @Query("SELECT * FROM competitive_integrity_segments WHERE localDate = :date AND zoneId = :zone ORDER BY startedAtEpochMillis")

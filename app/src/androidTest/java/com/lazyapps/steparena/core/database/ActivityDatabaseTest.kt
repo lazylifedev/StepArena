@@ -201,6 +201,29 @@ class ActivityDatabaseTest {
         assertEquals(3, integrity.classifierVersion)
     }
 
+    @Test fun counterFirstMultipleMotionWindowsAccumulateAndDuplicateFinishIsIdempotent() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        database.processingState().upsert(ActivityProcessingStateEntity(
+            lastCounterValue = 1_000, lastEventEpochMillis = start.toEpochMilli(), lastZoneId = zone.id,
+            lastBootSessionId = "boot", activeAutoSessionId = null, activeManualSessionId = null,
+            lastDetectorEventEpochMillis = null, lastWalkingEventEpochMillis = start.toEpochMilli(),
+            updatedAtEpochMillis = start.toEpochMilli(), activityRepairVersion = 1))
+        repeat(100) { index -> repository.recordDetector(DetectorEvidence(
+            start.plusMillis(index * 500L), evidenceWindowId = when { index < 30 -> "a"; index < 50 -> "b"; else -> null })) }
+        repository.recordCounterDelta(1_100, 100, start.plusSeconds(60), zone, "boot", "service",
+            recovered = false, detectorAvailable = true, motionSensorAvailable = true)
+        assertEquals(1, repository.applyMotionEvidence("a", MotionEvidenceAssessment.SHAKE_CONFIRMED, .9).integritySegmentsUpdated)
+        assertEquals(1, repository.applyMotionEvidence("b", MotionEvidenceAssessment.SHAKE_SUSPECTED, .8).integritySegmentsUpdated)
+        assertEquals(0, repository.applyMotionEvidence("a", MotionEvidenceAssessment.WALK_LIKE, .9).integritySegmentsUpdated)
+        val integrity = database.competitiveIntegritySegments().forDate("2026-07-29", zone.id).single()
+        assertEquals(listOf(100L, 50L, 20L, 30L), listOf(integrity.totalSteps, integrity.eligibleSteps,
+            integrity.restrictedSteps, integrity.excludedSteps))
+        assertEquals("DEVICE_SHAKE_CONFIRMED,DEVICE_SHAKE_SUSPECTED", integrity.reasons)
+    }
+
     private suspend fun assertCounterAndDurationQuality(
         detectorCount: Int,
         expectedDurationQuality: DataQuality,

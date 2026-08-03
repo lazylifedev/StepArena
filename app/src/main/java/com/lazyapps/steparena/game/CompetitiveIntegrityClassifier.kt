@@ -56,6 +56,48 @@ data class CompetitiveIntegrityResult(
     val classifierVersion: Int,
 )
 
+data class CompetitiveAllocation(
+    val eligibleSteps: Long,
+    val restrictedSteps: Long,
+    val excludedSteps: Long,
+    val assessment: CompetitiveIntegrityAssessment,
+    val reasons: Set<CompetitiveIntegrityReason>,
+    val classifierVersion: Int,
+)
+
+data class ResolvedMotionAllocation(
+    val windowId: String,
+    val assignedSteps: Long,
+    val assessment: MotionEvidenceAssessment,
+)
+
+fun finalizePendingMotionClassification(
+    totalSteps: Long,
+    base: CompetitiveAllocation,
+    windows: List<ResolvedMotionAllocation>,
+): CompetitiveIntegrityResult {
+    val total = totalSteps.coerceAtLeast(0)
+    val confirmed = windows.filter { it.assessment == MotionEvidenceAssessment.SHAKE_CONFIRMED }
+        .sumOf { it.assignedSteps.coerceAtLeast(0) }.coerceAtMost(total)
+    val suspected = windows.filter { it.assessment == MotionEvidenceAssessment.SHAKE_SUSPECTED }
+        .sumOf { it.assignedSteps.coerceAtLeast(0) }.coerceAtMost(total)
+    val excluded = maxOf(base.excludedSteps.coerceIn(0, total), confirmed)
+    val remaining = total - excluded
+    val restricted = maxOf(base.restrictedSteps.coerceIn(0, remaining), suspected.coerceAtMost(remaining))
+    val eligible = total - excluded - restricted
+    val reasons = base.reasons + buildSet {
+        if (confirmed > 0) add(CompetitiveIntegrityReason.DEVICE_SHAKE_CONFIRMED)
+        if (suspected > 0) add(CompetitiveIntegrityReason.DEVICE_SHAKE_SUSPECTED)
+    }
+    val assessment = when {
+        total > 0 && excluded == total -> CompetitiveIntegrityAssessment.EXCLUDED
+        excluded > 0 -> CompetitiveIntegrityAssessment.REVIEW
+        restricted > 0 -> CompetitiveIntegrityAssessment.LIMITED
+        else -> base.assessment
+    }
+    return CompetitiveIntegrityResult(assessment, total, eligible, restricted, excluded, reasons, base.classifierVersion)
+}
+
 class CompetitiveIntegrityClassifier(
     private val thresholds: CompetitiveIntegrityThresholds = CompetitiveIntegrityThresholds(),
 ) {

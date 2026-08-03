@@ -26,6 +26,10 @@ import com.lazyapps.steparena.game.DetectorEvidence
 import com.lazyapps.steparena.game.MotionEvidenceAssessment
 import com.lazyapps.steparena.game.allocateCompetitiveDays
 import com.lazyapps.steparena.game.CompetitiveIntegrityAssessment
+import com.lazyapps.steparena.game.CompetitiveIntegrityReason
+import com.lazyapps.steparena.game.CompetitiveAllocation
+import com.lazyapps.steparena.game.ResolvedMotionAllocation
+import com.lazyapps.steparena.game.finalizePendingMotionClassification
 
 data class PersistedActivityUpdate(
     val localDate: LocalDate,
@@ -36,8 +40,16 @@ data class PersistedActivityUpdate(
 private data class PendingMotionAllocation(
     val windowId: String,
     val segmentId: String,
-    val assignedDetectorCount: Int,
+    val assignedSteps: Long,
+    val createdAtEpochMillis: Long,
 )
+
+private data class PendingSegmentClassification(
+    val base: CompetitiveAllocation,
+    val windows: MutableMap<String, ResolvedMotionAllocation> = linkedMapOf(),
+)
+
+data class MotionEvidenceApplyResult(val queuedEventsUpdated: Int, val pendingAllocationsResolved: Int, val integritySegmentsUpdated: Int)
 
 class ActivityRepository(
     private val database: StepArenaDatabase,
@@ -52,6 +64,7 @@ class ActivityRepository(
     private val writer = Mutex()
     private val detectorEvents = ArrayDeque<DetectorEvidence>()
     private val pendingMotionAllocations = ArrayDeque<PendingMotionAllocation>()
+    private val pendingSegmentClassifications = mutableMapOf<String, PendingSegmentClassification>()
     private var learnedCadenceStepsPerMinute: Double? = null
 
     fun observeToday(date: LocalDate, zoneId: ZoneId) =
@@ -109,41 +122,56 @@ class ActivityRepository(
         }
     }
 
-    suspend fun applyMotionEvidence(windowId: String, assessment: MotionEvidenceAssessment, confidence: Double) =
+    suspend fun applyMotionEvidence(windowId: String, assessment: MotionEvidenceAssessment, confidence: Double): MotionEvidenceApplyResult =
         writer.withLock {
-            database.withTransaction {
+            var resolved = 0
+            var segmentsUpdated = 0
+            val stateSnapshot = pendingSegmentClassifications.mapValues { (_, state) ->
+                PendingSegmentClassification(state.base, LinkedHashMap(state.windows))
+            }
+            try {
+                database.withTransaction {
                 val pending = pendingMotionAllocations.filter { it.windowId == windowId }
                 pending.forEach { allocation ->
                     val segment = database.competitiveIntegritySegments().byId(allocation.segmentId)
                         ?: return@forEach
-                    val assigned = allocation.assignedDetectorCount.toLong().coerceAtMost(segment.totalSteps)
-                    val restricted = if (assessment == MotionEvidenceAssessment.SHAKE_SUSPECTED) assigned else 0L
-                    val excluded = if (assessment == MotionEvidenceAssessment.SHAKE_CONFIRMED) assigned else 0L
-                    database.competitiveIntegritySegments().upsert(
-                        segment.copy(
-                            eligibleSteps = segment.totalSteps - restricted - excluded,
-                            restrictedSteps = restricted,
-                            excludedSteps = excluded,
-                            assessment = when (assessment) {
-                                MotionEvidenceAssessment.SHAKE_CONFIRMED -> CompetitiveIntegrityAssessment.EXCLUDED
-                                MotionEvidenceAssessment.SHAKE_SUSPECTED -> CompetitiveIntegrityAssessment.LIMITED
-                                else -> CompetitiveIntegrityAssessment.TRUSTED
-                            },
-                            reasons = if (assessment == MotionEvidenceAssessment.SHAKE_CONFIRMED) "SHAKE_CONFIRMED"
-                            else if (assessment == MotionEvidenceAssessment.SHAKE_SUSPECTED) "SHAKE_SUSPECTED" else "",
-                            classifierVersion = segment.classifierVersion,
-                        ),
-                    )
+                    val state = pendingSegmentClassifications.getOrPut(segment.id) {
+                        PendingSegmentClassification(CompetitiveAllocation(segment.eligibleSteps, segment.restrictedSteps,
+                            segment.excludedSteps, segment.assessment, parseReasons(segment.reasons), segment.classifierVersion))
+                    }
+                    state.windows.putIfAbsent(windowId, ResolvedMotionAllocation(windowId, allocation.assignedSteps, assessment))
+                    val result = finalizePendingMotionClassification(segment.totalSteps, state.base, state.windows.values.toList())
+                    check(database.competitiveIntegritySegments().updateClassification(segment.id, result.eligibleSteps,
+                        result.restrictedSteps, result.excludedSteps, result.assessment,
+                        result.reasons.joinToString(",") { it.name }, result.classifierVersion) == 1)
+                    check(database.competitiveIntegritySegments().byId(segment.id)?.totalSteps == segment.totalSteps)
+                    resolved++
+                    segmentsUpdated++
                 }
-                pendingMotionAllocations.removeAll { it.windowId == windowId }
+                }
+            } catch (failure: Throwable) {
+                pendingSegmentClassifications.clear()
+                pendingSegmentClassifications.putAll(stateSnapshot)
+                throw failure
             }
+            pendingMotionAllocations.removeAll { it.windowId == windowId }
             val updated = detectorEvents.map { event ->
                 if (event.evidenceWindowId == windowId) event.copy(assessment = assessment, confidence = confidence)
                 else event
             }
             detectorEvents.clear()
             detectorEvents.addAll(updated)
+            MotionEvidenceApplyResult(updated.count { it.evidenceWindowId == windowId }, resolved, segmentsUpdated)
         }
+
+    suspend fun clearPendingMotionAllocations() = writer.withLock {
+        pendingMotionAllocations.clear()
+        pendingSegmentClassifications.clear()
+    }
+
+    private fun parseReasons(value: String): Set<CompetitiveIntegrityReason> = value.split(',').mapNotNull {
+        runCatching { CompetitiveIntegrityReason.valueOf(it.trim()) }.getOrNull()
+    }.toSet()
 
     suspend fun recordExternalRecoveredSteps(
         steps: Long,
@@ -179,6 +207,12 @@ class ActivityRepository(
         val profile = profileRepository.current()
         val persisted = database.withTransaction {
             val processing = database.processingState().get()
+            if (processing != null && (processing.lastBootSessionId != bootSessionId ||
+                    processing.lastZoneId != zoneId.id ||
+                    processing.lastEventEpochMillis?.let { Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate() } != localDate)) {
+                pendingMotionAllocations.clear()
+                pendingSegmentClassifications.clear()
+            }
             if ((processing?.activityRepairVersion ?: 0) < ACTIVITY_REPAIR_VERSION) {
                 repairImplausibleActivity(profile, at)
             }
@@ -258,13 +292,17 @@ class ActivityRepository(
                         classifierVersion = integrity.classifierVersion, createdAtEpochMillis = at.toEpochMilli(),
                     ),
                 )
-                consumedDetectors.groupBy { it.evidenceWindowId }
+                consumedDetectors.filter { event ->
+                    val bucket = HourBucket.of(event.at, dayAndZone.second)
+                    bucket.date == dayAndZone.first && bucket.zone == dayAndZone.second
+                }.groupBy { it.evidenceWindowId }
                     .filterKeys { it != null }
                     .forEach { (windowId, events) ->
                         pendingMotionAllocations.addLast(
-                            PendingMotionAllocation(windowId!!, segmentId, events.size),
+                            PendingMotionAllocation(windowId!!, segmentId, events.size.toLong().coerceAtMost(total), at.toEpochMilli()),
                         )
                     }
+                trimPending(at.toEpochMilli())
             }
             if (durationResult.quality == DataQuality.MEASURED) {
                 durationResult.cadenceStepsPerMinute
@@ -329,6 +367,18 @@ class ActivityRepository(
         }
         if (!persisted) return@withLock null
         PersistedActivityUpdate(localDate, zoneId, officialDailySteps(localDate, zoneId))
+    }
+
+    private fun trimPending(now: Long) {
+        val cutoff = now - 3_600_000L
+        while (pendingMotionAllocations.firstOrNull()?.createdAtEpochMillis?.let { it < cutoff } == true ||
+            pendingMotionAllocations.size > 1_024) pendingMotionAllocations.removeFirstOrNull()
+        while (pendingMotionAllocations.map { it.windowId }.distinct().size > 256) {
+            val oldestWindow = pendingMotionAllocations.firstOrNull()?.windowId ?: break
+            pendingMotionAllocations.removeAll { it.windowId == oldestWindow }
+        }
+        val liveSegments = pendingMotionAllocations.map { it.segmentId }.toSet()
+        pendingSegmentClassifications.keys.retainAll(liveSegments)
     }
 
     suspend fun finishSession(id: String?, at: Instant) = writer.withLock {

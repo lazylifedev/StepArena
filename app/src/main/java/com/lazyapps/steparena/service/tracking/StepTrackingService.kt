@@ -53,6 +53,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
@@ -597,6 +598,7 @@ class StepTrackingService : Service(), SensorEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun stopTracking(reason: TrackingStopReason) {
+        activityRepository.clearPendingMotionAllocations()
         motionFinishJob?.cancel()
         motionMaximumJob?.cancel()
         motionCapture.reset()
@@ -633,6 +635,7 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         TrackingServiceProcessRegistry.serviceAlive = false
+        runBlocking { activityRepository.clearPendingMotionAllocations() }
         stateUpdates.destroy()
         motionFinishJob?.cancel()
         motionMaximumJob?.cancel()
