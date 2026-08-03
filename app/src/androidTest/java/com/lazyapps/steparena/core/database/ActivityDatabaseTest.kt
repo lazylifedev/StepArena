@@ -9,6 +9,8 @@ import com.lazyapps.steparena.core.database.entity.ActivityProcessingStateEntity
 import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.activity.ActivityRepository
 import com.lazyapps.steparena.activity.UserProfileRepository
+import com.lazyapps.steparena.game.DetectorEvidence
+import com.lazyapps.steparena.game.MotionEvidenceAssessment
 import com.lazyapps.steparena.core.database.model.WalkingSessionStatus
 import java.time.Instant
 import java.time.ZoneId
@@ -160,6 +162,43 @@ class ActivityDatabaseTest {
 
     @Test fun counterMeasuredStepsKeepMeasuredDurationIndependent() = runBlocking {
         assertCounterAndDurationQuality(98, DataQuality.MEASURED)
+    }
+
+    @Test fun motionEvidenceRestrictsCompetitionButPreservesEveryActivityStore() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        database.processingState().upsert(
+            ActivityProcessingStateEntity(
+                lastCounterValue = 1_000, lastEventEpochMillis = start.toEpochMilli(), lastZoneId = zone.id,
+                lastBootSessionId = "boot", activeAutoSessionId = null, activeManualSessionId = null,
+                lastDetectorEventEpochMillis = null, lastWalkingEventEpochMillis = start.toEpochMilli(),
+                updatedAtEpochMillis = start.toEpochMilli(), activityRepairVersion = 1,
+            ),
+        )
+        repeat(100) { index ->
+            val assessment = when {
+                index < 30 -> MotionEvidenceAssessment.SHAKE_CONFIRMED
+                index < 50 -> MotionEvidenceAssessment.SHAKE_SUSPECTED
+                else -> MotionEvidenceAssessment.WALK_LIKE
+            }
+            repository.recordDetector(DetectorEvidence(start.plusMillis(index * 500L), assessment, 0.9))
+        }
+        repository.recordCounterDelta(
+            sensorValue = 1_100, delta = 100, at = start.plusSeconds(60), zoneId = zone,
+            bootSessionId = "boot", trackingServiceSessionId = "service", recovered = false,
+            detectorAvailable = true, motionSensorAvailable = true,
+        )
+        val integrity = database.competitiveIntegritySegments().forDate("2026-07-29", zone.id).single()
+        assertEquals(100L, database.daily().get("2026-07-29", zone.id)?.steps)
+        assertEquals(100L, database.hourly().forDate("2026-07-29", zone.id).sumOf { it.steps })
+        assertEquals(100L, database.sessions().active(false)?.steps)
+        assertEquals(100L, integrity.totalSteps)
+        assertEquals(50L, integrity.eligibleSteps)
+        assertEquals(20L, integrity.restrictedSteps)
+        assertEquals(30L, integrity.excludedSteps)
+        assertEquals(3, integrity.classifierVersion)
     }
 
     private suspend fun assertCounterAndDurationQuality(

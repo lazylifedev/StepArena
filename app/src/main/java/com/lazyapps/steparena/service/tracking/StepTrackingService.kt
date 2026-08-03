@@ -25,6 +25,8 @@ import com.lazyapps.steparena.app.MainActivity
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.activity.ActivityRepository
 import com.lazyapps.steparena.activity.DailyStepGoal
+import com.lazyapps.steparena.game.DetectorEvidence
+import com.lazyapps.steparena.game.MotionSample
 import com.lazyapps.steparena.tracking.BootSession
 import com.lazyapps.steparena.tracking.DailyStepSummary
 import com.lazyapps.steparena.tracking.DiagnosticLogEntry
@@ -32,6 +34,8 @@ import com.lazyapps.steparena.tracking.DiagnosticLogRepository
 import com.lazyapps.steparena.tracking.NotificationUpdatePolicy
 import com.lazyapps.steparena.tracking.NotificationStepPreview
 import com.lazyapps.steparena.tracking.NotificationStepPreviewDiagnostics
+import com.lazyapps.steparena.tracking.MotionCaptureDiagnosticSnapshot
+import com.lazyapps.steparena.tracking.MotionCaptureDiagnostics
 import com.lazyapps.steparena.tracking.StepCounter
 import com.lazyapps.steparena.tracking.StepEventResult
 import com.lazyapps.steparena.tracking.StepTrackingState
@@ -78,7 +82,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private var fakeSensorMode = false
     private var stepCounterRegistered = false
     private var stepDetectorRegistered = false
-    private val sensorSamples = Channel<SensorSample>(Channel.UNLIMITED)
+    private val sensorSamples = Channel<SensorSample>(SENSOR_CHANNEL_CAPACITY)
     private var sensorConsumerJob: Job? = null
     private val sensorEventClock = RealtimeSensorEventClock()
     private var sessionTimeoutJob: Job? = null
@@ -87,6 +91,14 @@ class StepTrackingService : Service(), SensorEventListener {
     private val previewExpiryLock = Any()
     private var manualStartRequested = false
     private var dailyStepGoal = DailyStepGoal.DEFAULT
+    private val motionCapture = MotionCaptureController()
+    private var motionFinishJob: Job? = null
+    private var motionMaximumJob: Job? = null
+    private var gyroscopeSensor: Sensor? = null
+    private var accelerationSensor: Sensor? = null
+    private var accelerometerFallback = false
+    private val gravity = FloatArray(3)
+    private var motionSensorsRegistered = false
 
     override fun onCreate() {
         super.onCreate()
@@ -98,6 +110,16 @@ class StepTrackingService : Service(), SensorEventListener {
         val goalRepository = (application as StepArenaApplication).dailyStepGoalRepository
         dailyStepGoal = goalRepository.current()
         sensorManager = getSystemService(SensorManager::class.java)
+        MotionCaptureDiagnostics.update(
+            MotionCaptureDiagnosticSnapshot(
+                gyroscopeAvailable = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null,
+                accelerationMode = when {
+                    sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION) != null -> "LINEAR_ACCELERATION"
+                    sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null -> "ACCELEROMETER_FALLBACK"
+                    else -> "UNAVAILABLE"
+                },
+            ),
+        )
         createNotificationChannel()
         scope.launch {
             goalRepository.goalSteps.collect { goalSteps ->
@@ -363,6 +385,27 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         val eventAt = sensorEventClock.toInstant(event.timestamp)
+        when (event.sensor.type) {
+            Sensor.TYPE_GYROSCOPE -> {
+                motionCapture.addGyroscope(event.toMotionSample())
+                return
+            }
+            Sensor.TYPE_LINEAR_ACCELERATION -> {
+                motionCapture.addLinearAcceleration(event.toMotionSample())
+                return
+            }
+            Sensor.TYPE_ACCELEROMETER -> if (accelerometerFallback) {
+                val alpha = 0.8f
+                val linear = FloatArray(3) { index ->
+                    gravity[index] = alpha * gravity[index] + (1f - alpha) * event.values[index]
+                    event.values[index] - gravity[index]
+                }
+                motionCapture.addLinearAcceleration(
+                    MotionSample(event.timestamp, linear[0], linear[1], linear[2]),
+                )
+                return
+            }
+        }
         if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
             sensorSamples.trySend(SensorSample.Detector(eventAt))
             return
@@ -379,9 +422,89 @@ class StepTrackingService : Service(), SensorEventListener {
         publishNotificationPreview(notificationPreview.onDetector(localDate, eventAt))
         updateNotificationIfNeeded(eventAt, force = dateChanged)
         ensurePreviewExpiryJob()
-        activityRepository.recordDetector(eventAt)
+        val captureStarted = !motionCapture.isCapturing()
+        val windowId = motionCapture.onDetector(eventAt)
+        activityRepository.recordDetector(DetectorEvidence(at = eventAt, evidenceWindowId = windowId))
+        registerMotionSensors()
+        motionFinishJob?.cancel()
+        motionFinishJob = scope.launch {
+            delay(MOTION_CAPTURE_TAIL_MILLIS)
+            serializeStateUpdate { finishMotionCapture() }
+        }
+        if (captureStarted) {
+            motionMaximumJob?.cancel()
+            motionMaximumJob = scope.launch {
+                delay(MOTION_CAPTURE_MAX_MILLIS)
+                motionFinishJob?.cancel()
+                serializeStateUpdate { finishMotionCapture() }
+            }
+        }
         logEvent("step_detector")
     }
+
+    private fun registerMotionSensors() {
+        if (motionSensorsRegistered || !state.trackingRequested) return
+        gyroscopeSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        accelerationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        accelerometerFallback = accelerationSensor == null
+        if (accelerationSensor == null) accelerationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val gyroRegistered = gyroscopeSensor?.let {
+            sensorManager.registerListener(this, it, MOTION_SAMPLE_PERIOD_MICROS)
+        } ?: false
+        val accelerationRegistered = accelerationSensor?.let {
+            sensorManager.registerListener(this, it, MOTION_SAMPLE_PERIOD_MICROS)
+        } ?: false
+        motionSensorsRegistered = gyroRegistered && accelerationRegistered
+        MotionCaptureDiagnostics.update(
+            MotionCaptureDiagnosticSnapshot(
+                gyroscopeAvailable = gyroscopeSensor != null,
+                accelerationMode = when {
+                    accelerationSensor == null -> "UNAVAILABLE"
+                    accelerometerFallback -> "ACCELEROMETER_FALLBACK"
+                    else -> "LINEAR_ACCELERATION"
+                },
+                capturing = motionSensorsRegistered,
+            ),
+        )
+        if (!motionSensorsRegistered) {
+            unregisterMotionSensors()
+        }
+    }
+
+    private suspend fun finishMotionCapture() {
+        val window = motionCapture.finish()
+        motionMaximumJob?.cancel()
+        motionMaximumJob = null
+        unregisterMotionSensors()
+        if (window != null) {
+            activityRepository.applyMotionEvidence(
+                window.id, window.evidence.assessment, window.evidence.confidence,
+            )
+            MotionCaptureDiagnostics.update(
+                MotionCaptureDiagnostics.snapshot.value.copy(
+                    capturing = false,
+                    lastAssessment = window.evidence.assessment,
+                    lastEvaluatedAt = Instant.now(),
+                ),
+            )
+            logEvent("motion_evaluated", detail = window.evidence.assessment.name)
+        }
+    }
+
+    private fun unregisterMotionSensors() {
+        gyroscopeSensor?.let { sensorManager.unregisterListener(this, it) }
+        accelerationSensor?.let { sensorManager.unregisterListener(this, it) }
+        gyroscopeSensor = null
+        accelerationSensor = null
+        accelerometerFallback = false
+        motionSensorsRegistered = false
+        MotionCaptureDiagnostics.clearCapture()
+        gravity.fill(0f)
+    }
+
+    private fun SensorEvent.toMotionSample() = MotionSample(
+        timestamp, values.getOrElse(0) { 0f }, values.getOrElse(1) { 0f }, values.getOrElse(2) { 0f },
+    )
 
     private fun ensurePreviewExpiryJob() {
         synchronized(previewExpiryLock) {
@@ -404,6 +527,10 @@ class StepTrackingService : Service(), SensorEventListener {
         val now = eventAt
         val zone = ZoneId.systemDefault()
         if (state.currentLocalDate != now.atZone(zone).toLocalDate()) {
+            motionFinishJob?.cancel()
+            motionMaximumJob?.cancel()
+            motionCapture.reset()
+            unregisterMotionSensors()
             repository.saveDailySummary(
                 DailyStepSummary(
                     state.currentLocalDate,
@@ -429,6 +556,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 trackingServiceSessionId = state.sessionId,
                 recovered = (result as? StepEventResult.Added)?.unusuallyLarge == true,
                 detectorAvailable = stepDetectorRegistered,
+                motionSensorAvailable = motionSensorsRegistered,
             )
         } else null
         when (result) {
@@ -469,6 +597,10 @@ class StepTrackingService : Service(), SensorEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun stopTracking(reason: TrackingStopReason) {
+        motionFinishJob?.cancel()
+        motionMaximumJob?.cancel()
+        motionCapture.reset()
+        unregisterMotionSensors()
         sensorManager.unregisterListener(this)
         stepCounterRegistered = false
         stepDetectorRegistered = false
@@ -502,6 +634,10 @@ class StepTrackingService : Service(), SensorEventListener {
     override fun onDestroy() {
         TrackingServiceProcessRegistry.serviceAlive = false
         stateUpdates.destroy()
+        motionFinishJob?.cancel()
+        motionMaximumJob?.cancel()
+        motionCapture.reset()
+        unregisterMotionSensors()
         sensorManager.unregisterListener(this)
         sensorSamples.close()
         sensorConsumerJob?.cancel()
@@ -709,6 +845,10 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     companion object {
+        private const val SENSOR_CHANNEL_CAPACITY = 1_024
+        private const val MOTION_SAMPLE_PERIOD_MICROS = 50_000
+        private const val MOTION_CAPTURE_TAIL_MILLIS = 4_000L
+        private const val MOTION_CAPTURE_MAX_MILLIS = 15_000L
         const val ACTION_START = "com.lazyapps.steparena.action.START_TRACKING"
         const val ACTION_STOP = "com.lazyapps.steparena.action.STOP_TRACKING"
         const val ACTION_START_MANUAL_WALK = "com.lazyapps.steparena.action.START_MANUAL_WALK"

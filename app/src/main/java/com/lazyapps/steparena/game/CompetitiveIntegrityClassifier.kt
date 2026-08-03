@@ -14,6 +14,8 @@ enum class CompetitiveIntegrityReason {
     LONG_GAP_INCREMENT,
     REBOOT_OR_RESET,
     IMPOSSIBLE_CADENCE,
+    DEVICE_SHAKE_SUSPECTED,
+    DEVICE_SHAKE_CONFIRMED,
 }
 
 data class CompetitiveIntegrityThresholds(
@@ -26,7 +28,7 @@ data class CompetitiveIntegrityThresholds(
     val regularRhythmMinimumSamples: Int = 5,
     val regularRhythmMaxDeviation: Double = 1.0,
     val dailyEligibleLimit: Long = 30_000,
-    val version: Int = 2,
+    val version: Int = 3,
 )
 
 data class CompetitiveIntegrityInput(
@@ -38,6 +40,10 @@ data class CompetitiveIntegrityInput(
     val bootSessionChanged: Boolean,
     val recoveredOrLongGap: Boolean,
     val recentCadences: List<Double> = emptyList(),
+    val shakeSuspectedDetectorEvents: Int = 0,
+    val shakeConfirmedDetectorEvents: Int = 0,
+    val motionEvaluatedDetectorEvents: Int = 0,
+    val motionSensorAvailable: Boolean = false,
 )
 
 data class CompetitiveIntegrityResult(
@@ -60,6 +66,15 @@ class CompetitiveIntegrityClassifier(
             ?.takeIf { !it.isNegative && !it.isZero }
         val cadence = duration?.toMillis()?.takeIf { it > 0 }?.let { steps * 60_000.0 / it }
         val reasons = linkedSetOf<CompetitiveIntegrityReason>()
+
+        // Motion evidence is intentionally opt-in. Missing sensors or unevaluated
+        // detectors never restrict an otherwise valid Counter delta.
+        if (input.motionSensorAvailable && input.shakeSuspectedDetectorEvents > 0) {
+            reasons += CompetitiveIntegrityReason.DEVICE_SHAKE_SUSPECTED
+        }
+        if (input.motionSensorAvailable && input.shakeConfirmedDetectorEvents > 0) {
+            reasons += CompetitiveIntegrityReason.DEVICE_SHAKE_CONFIRMED
+        }
 
         if (cadence != null && cadence > thresholds.impossibleCadenceStepsPerMinute) {
             reasons += CompetitiveIntegrityReason.IMPOSSIBLE_CADENCE
@@ -94,7 +109,26 @@ class CompetitiveIntegrityClassifier(
         val plausibleSteps = duration?.toMillis()?.let {
             (thresholds.highCadenceStepsPerMinute * it / 60_000.0).toLong().coerceAtLeast(1)
         } ?: thresholds.counterBurstSteps
-        return result(assessment, steps, plausibleSteps, reasons)
+        val base = result(assessment, steps, plausibleSteps, reasons)
+        if (!input.motionSensorAvailable) return base
+        val motionExcluded = input.shakeConfirmedDetectorEvents.coerceAtLeast(0).toLong().coerceAtMost(steps)
+        val afterExcluded = steps - motionExcluded
+        val motionRestricted = input.shakeSuspectedDetectorEvents.coerceAtLeast(0).toLong().coerceAtMost(afterExcluded)
+        val excluded = maxOf(base.excludedSteps, motionExcluded).coerceAtMost(steps)
+        val remaining = steps - excluded
+        val restricted = maxOf(base.restrictedSteps.coerceAtMost(remaining), motionRestricted.coerceAtMost(remaining))
+        val finalAssessment = when {
+            excluded == steps -> CompetitiveIntegrityAssessment.EXCLUDED
+            excluded > 0 -> CompetitiveIntegrityAssessment.REVIEW
+            restricted > 0 -> CompetitiveIntegrityAssessment.LIMITED
+            else -> base.assessment
+        }
+        return base.copy(
+            assessment = finalAssessment,
+            eligibleSteps = steps - excluded - restricted,
+            restrictedSteps = restricted,
+            excludedSteps = excluded,
+        )
     }
 
     private fun isImplausiblyRegular(cadences: List<Double>): Boolean {

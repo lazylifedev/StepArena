@@ -81,6 +81,40 @@ class CompetitiveIntegrityClassifierTest {
         assertTrue(detectorUnsupported.eligibleSteps > 0)
     }
 
+    @Test fun motionAllocationIsExactAndBounded() {
+        val mixed = classifier.classify(motionInput(100, suspected = 20, confirmed = 30, evaluated = 100))
+        assertEquals(50, mixed.eligibleSteps)
+        assertEquals(20, mixed.restrictedSteps)
+        assertEquals(30, mixed.excludedSteps)
+        assertEquals(100, mixed.eligibleSteps + mixed.restrictedSteps + mixed.excludedSteps)
+
+        val over = classifier.classify(motionInput(100, suspected = 50, confirmed = 120, evaluated = 170))
+        assertEquals(0, over.eligibleSteps)
+        assertEquals(0, over.restrictedSteps)
+        assertEquals(100, over.excludedSteps)
+    }
+
+    @Test fun unknownOrMissingMotionSensorDoesNotRestrict() {
+        val partial = classifier.classify(motionInput(100, suspected = 0, confirmed = 0, evaluated = 30))
+        val missing = classifier.classify(motionInput(100, suspected = 20, confirmed = 30, evaluated = 50, available = false))
+        assertEquals(100, partial.eligibleSteps)
+        assertEquals(100, missing.eligibleSteps)
+    }
+
+    private fun motionInput(
+        steps: Long,
+        suspected: Int,
+        confirmed: Int,
+        evaluated: Int,
+        available: Boolean = true,
+    ) = CompetitiveIntegrityInput(
+        steps, end.minusSeconds(60), end, steps.toInt(), true, false, false,
+        shakeSuspectedDetectorEvents = suspected,
+        shakeConfirmedDetectorEvents = confirmed,
+        motionEvaluatedDetectorEvents = evaluated,
+        motionSensorAvailable = available,
+    )
+
     private fun classify(
         steps: Long,
         detectorEvents: Int = steps.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
