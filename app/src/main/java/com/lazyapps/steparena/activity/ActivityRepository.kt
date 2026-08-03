@@ -51,6 +51,12 @@ private data class PendingSegmentClassification(
 
 data class MotionEvidenceApplyResult(val queuedEventsUpdated: Int, val pendingAllocationsResolved: Int, val integritySegmentsUpdated: Int)
 
+data class MotionRepositorySnapshot(
+    val detectorEvents: Int,
+    val pendingAllocations: Int,
+    val pendingSegments: Int,
+)
+
 class ActivityRepository(
     private val database: StepArenaDatabase,
     private val profileRepository: UserProfileRepository,
@@ -164,9 +170,19 @@ class ActivityRepository(
             MotionEvidenceApplyResult(updated.count { it.evidenceWindowId == windowId }, resolved, segmentsUpdated)
         }
 
-    suspend fun clearPendingMotionAllocations() = writer.withLock {
+    suspend fun clearPendingMotionClassifications() = writer.withLock {
         pendingMotionAllocations.clear()
         pendingSegmentClassifications.clear()
+    }
+
+    suspend fun clearAllMotionEvidence() = writer.withLock {
+        detectorEvents.clear()
+        pendingMotionAllocations.clear()
+        pendingSegmentClassifications.clear()
+    }
+
+    suspend fun motionRepositorySnapshot() = writer.withLock {
+        MotionRepositorySnapshot(detectorEvents.size, pendingMotionAllocations.size, pendingSegmentClassifications.size)
     }
 
     private fun parseReasons(value: String): Set<CompetitiveIntegrityReason> = value.split(',').mapNotNull {
@@ -207,8 +223,11 @@ class ActivityRepository(
         val profile = profileRepository.current()
         val persisted = database.withTransaction {
             val processing = database.processingState().get()
-            if (processing != null && (processing.lastBootSessionId != bootSessionId ||
-                    processing.lastZoneId != zoneId.id ||
+            if (processing != null && processing.lastBootSessionId != bootSessionId) {
+                detectorEvents.clear()
+                pendingMotionAllocations.clear()
+                pendingSegmentClassifications.clear()
+            } else if (processing != null && (processing.lastZoneId != zoneId.id ||
                     processing.lastEventEpochMillis?.let { Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate() } != localDate)) {
                 pendingMotionAllocations.clear()
                 pendingSegmentClassifications.clear()
@@ -294,9 +313,10 @@ class ActivityRepository(
                 )
                 consumedDetectors.filter { event ->
                     val bucket = HourBucket.of(event.at, dayAndZone.second)
-                    bucket.date == dayAndZone.first && bucket.zone == dayAndZone.second
+                    bucket.date == dayAndZone.first && bucket.zone == dayAndZone.second &&
+                        event.evidenceWindowId != null &&
+                        event.assessment == MotionEvidenceAssessment.UNKNOWN
                 }.groupBy { it.evidenceWindowId }
-                    .filterKeys { it != null }
                     .forEach { (windowId, events) ->
                         pendingMotionAllocations.addLast(
                             PendingMotionAllocation(windowId!!, segmentId, events.size.toLong().coerceAtMost(total), at.toEpochMilli()),

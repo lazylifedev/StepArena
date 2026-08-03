@@ -210,6 +210,7 @@ class StepTrackingService : Service(), SensorEventListener {
                         publishNotificationPreview(notificationPreview.reset(officialSteps, debugDate))
                         if (state.trackingRequested) {
                             val now = Instant.now()
+                            val startsNewSession = state.sessionId == null
                             state = repository.update {
                                 it.copy(
                                     trackingStatus = TrackingStatus.TRACKING,
@@ -217,6 +218,7 @@ class StepTrackingService : Service(), SensorEventListener {
                                     sessionId = it.sessionId ?: UUID.randomUUID().toString(),
                                 )
                             }
+                            if (startsNewSession) activityRepository.clearAllMotionEvidence()
                             promote(
                                 NotificationModel(
                                     NotificationContent.Tracking(officialSteps, dailyStepGoal.toLong()),
@@ -281,11 +283,13 @@ class StepTrackingService : Service(), SensorEventListener {
             notificationPreview.reset(officialSteps, restoreDate),
         )
         if (!state.trackingRequested) {
+            activityRepository.clearAllMotionEvidence()
             stopSelf()
             return
         }
         val now = Instant.now()
         val previousExit = applicationContext.readPreviousExit()
+        val startsNewSession = state.sessionId == null
         state = repository.update {
             it.copy(
                 trackingStatus = TrackingStatus.STARTING,
@@ -299,6 +303,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 },
             )
         }
+        if (startsNewSession) activityRepository.clearAllMotionEvidence()
         logEvent("service_restore", detail = previousExit?.summary)
         val permissionGranted = ContextCompat.checkSelfPermission(
             this, Manifest.permission.ACTIVITY_RECOGNITION,
@@ -320,6 +325,7 @@ class StepTrackingService : Service(), SensorEventListener {
                     serviceRunning = false,
                 )
             }
+            activityRepository.clearAllMotionEvidence()
             logEvent("sensor_registration_blocked", detail = status.name)
             stopSelf()
             return
@@ -545,6 +551,7 @@ class StepTrackingService : Service(), SensorEventListener {
         val bootSession = BootSession.current(applicationContext)
         val previousState = state
         val result = counter.accept(raw, previousState, now, zone, bootSession)
+        if (result is StepEventResult.Reset) activityRepository.clearAllMotionEvidence()
         state = recoverStatusOnCounterEvent(previousState, result, raw)
         val delta = (result as? StepEventResult.Added)?.delta
         val persistedUpdate = if (delta != null) {
@@ -598,7 +605,7 @@ class StepTrackingService : Service(), SensorEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun stopTracking(reason: TrackingStopReason) {
-        activityRepository.clearPendingMotionAllocations()
+        activityRepository.clearAllMotionEvidence()
         motionFinishJob?.cancel()
         motionMaximumJob?.cancel()
         motionCapture.reset()
@@ -635,7 +642,7 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         TrackingServiceProcessRegistry.serviceAlive = false
-        runBlocking { activityRepository.clearPendingMotionAllocations() }
+        runBlocking { activityRepository.clearAllMotionEvidence() }
         stateUpdates.destroy()
         motionFinishJob?.cancel()
         motionMaximumJob?.cancel()
