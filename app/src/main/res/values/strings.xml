@@ -303,6 +303,14 @@
     <string name="diagnostics_step_sensor">歩数センサー</string>
     <string name="diagnostics_foreground_service">Foreground Service</string>
     <string name="diagnostics_sensor_registration">センサー登録</string>
+    <string name="diagnostics_motion_validation">動作確認</string>
+    <string name="diagnostics_gyroscope">ジャイロ</string>
+    <string name="diagnostics_linear_acceleration">直線加速度</string>
+    <string name="diagnostics_motion_capture">動作確認の状態</string>
+    <string name="diagnostics_motion_last_assessment">最終評価</string>
+    <string name="diagnostics_motion_last_evaluated">最終評価時刻</string>
+    <string name="state_collecting">収集中</string>
+    <string name="state_waiting">待機</string>
     <string name="diagnostics_tracking_mode">計測モード</string>
     <string name="diagnostics_last_sensor_received">最終センサー受信</string>
     <string name="diagnostics_last_step_increase">最終歩数増加</string>

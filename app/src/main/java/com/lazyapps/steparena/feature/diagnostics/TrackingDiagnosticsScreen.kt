@@ -30,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.net.toUri
 import com.lazyapps.steparena.tracking.StepTrackingState
 import com.lazyapps.steparena.tracking.NotificationStepPreviewDiagnostics
+import com.lazyapps.steparena.tracking.MotionCaptureDiagnostics
 import com.lazyapps.steparena.tracking.readTrackingDiagnostics
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.recovery.TrackingHealthStatus
@@ -55,6 +56,7 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
     val app = context.applicationContext as StepArenaApplication
     val diagnostics = context.readTrackingDiagnostics()
     val notificationPreview by NotificationStepPreviewDiagnostics.snapshot.collectAsState()
+    val motionDiagnostics by MotionCaptureDiagnostics.snapshot.collectAsState()
     val today = LocalDate.now()
     val zone = ZoneId.systemDefault()
     val daily by app.activityRepository.observeToday(today, zone).collectAsState(initial = null)
@@ -104,6 +106,12 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         DiagnosticRow(R.string.diagnostics_notification, stringResource(if (diagnostics.notificationPermissionGranted) R.string.state_enabled else R.string.state_disabled))
         DiagnosticRow(R.string.diagnostics_step_sensor, stringResource(if (diagnostics.stepSensorAvailable) R.string.state_supported else R.string.state_unsupported))
         DiagnosticRow(R.string.diagnostics_sensor_registration, stringResource(if (state.stepCounterRegistered) R.string.state_registered else R.string.state_not_registered))
+        DiagnosticRow(R.string.diagnostics_motion_validation, stringResource(if (motionDiagnostics.gyroscopeAvailable && motionDiagnostics.accelerationMode != "UNAVAILABLE") R.string.state_supported else R.string.state_unsupported))
+        DiagnosticRow(R.string.diagnostics_gyroscope, stringResource(if (motionDiagnostics.gyroscopeAvailable) R.string.state_supported else R.string.state_unsupported))
+        DiagnosticRow(R.string.diagnostics_linear_acceleration, motionDiagnostics.accelerationMode)
+        DiagnosticRow(R.string.diagnostics_motion_capture, stringResource(if (motionDiagnostics.capturing) R.string.state_collecting else R.string.state_waiting))
+        DiagnosticRow(R.string.diagnostics_motion_last_assessment, motionDiagnostics.lastAssessment.name)
+        DiagnosticRow(R.string.diagnostics_motion_last_evaluated, relativeTime(motionDiagnostics.lastEvaluatedAt, Instant.now()))
         DiagnosticRow(R.string.diagnostics_tracking_mode, stringResource(R.string.state_real_sensor))
         DiagnosticRow(R.string.diagnostics_last_sensor_received, relativeTime(state.lastSensorEventAt, Instant.now()))
         DiagnosticRow(R.string.diagnostics_last_step_increase, relativeTime(state.lastStepIncreaseAt, Instant.now()))
