@@ -67,7 +67,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private val counter = StepCounter()
     private val notificationPolicy = NotificationUpdatePolicy()
     private val notificationPreview = NotificationStepPreview()
-    private val setupStarted = AtomicBoolean(false)
+    private val setupGate = ServiceSetupGate()
     private val stateUpdates = ServiceStateUpdateGate()
     private var state = StepTrackingState()
     private var lastPersistedSteps = 0L
@@ -104,7 +104,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 serializeStateUpdate {
                     val changed = dailyStepGoal != goalSteps
                     dailyStepGoal = goalSteps
-                    if (changed && setupStarted.get() && state.trackingRequested) {
+                    if (changed && setupGate.isStarted && state.trackingRequested) {
                         updateNotificationIfNeeded(Instant.now(), force = true)
                     }
                 }
@@ -170,7 +170,8 @@ class StepTrackingService : Service(), SensorEventListener {
             }
         }
         if (BuildConfig.DEBUG && intent?.action == debugAction()) {
-            promote(NotificationModel(null, null, getString(R.string.notification_status_preparing)))
+            val firstStart = setupGate.claimInitialStart()
+            if (firstStart) promote(NotificationModel(NotificationContent.Preparing))
             val value = intent.getFloatExtra(debugValueExtra(), Float.NaN)
             val keepFakeMode = intent.getBooleanExtra(debugKeepFakeModeExtra(), false)
             val sequenceCount = intent.getIntExtra(debugSequenceCountExtra(), 0)
@@ -178,7 +179,7 @@ class StepTrackingService : Service(), SensorEventListener {
             val sequenceInterval = intent.getLongExtra(debugSequenceIntervalExtra(), 10L)
             scope.launch {
                 val accepted = serializeStateUpdate {
-                    if (setupStarted.compareAndSet(false, true)) {
+                    if (firstStart) {
                         state = repository.current()
                         val debugZone = ZoneId.systemDefault()
                         val debugDate = Instant.now().atZone(debugZone).toLocalDate()
@@ -193,7 +194,12 @@ class StepTrackingService : Service(), SensorEventListener {
                                     sessionId = it.sessionId ?: UUID.randomUUID().toString(),
                                 )
                             }
-                            promote(NotificationModel(officialSteps, state.lastSensorEventAt, getString(R.string.notification_status_tracking)))
+                            promote(
+                                NotificationModel(
+                                    NotificationContent.Tracking(officialSteps, dailyStepGoal.toLong()),
+                                    state.lastSensorEventAt,
+                                ),
+                            )
                             startHeartbeat()
                         }
                     } else {
@@ -236,9 +242,9 @@ class StepTrackingService : Service(), SensorEventListener {
             }
             return START_STICKY
         }
-        promote(NotificationModel(null, null, getString(R.string.notification_status_preparing)))
-        if (setupStarted.compareAndSet(false, true)) scope.launch {
-            serializeStateUpdate { restoreAndRegister() }
+        if (setupGate.claimInitialStart()) {
+            promote(NotificationModel(NotificationContent.Preparing))
+            scope.launch { serializeStateUpdate { restoreAndRegister() } }
         }
         return START_STICKY
     }
@@ -524,13 +530,19 @@ class StepTrackingService : Service(), SensorEventListener {
             )
         ) {
             val manual = activityRepository.currentManualSession()
+            val content = if (manual == null) {
+                NotificationContent.Tracking(preview.displayedSteps, dailyStepGoal.toLong())
+            } else {
+                NotificationContent.Walking(
+                    sessionSteps = manual.steps,
+                    elapsedMinutes = manual.elapsedDurationSeconds / 60,
+                    todaySteps = preview.displayedSteps,
+                    goalSteps = dailyStepGoal.toLong(),
+                )
+            }
             val model = NotificationModel(
-                preview.displayedSteps,
+                content,
                 maxOfInstant(preview.lastDetectorAt, preview.lastCounterAt) ?: state.lastSensorEventAt,
-                getString(
-                    if (manual == null) R.string.notification_status_tracking
-                    else R.string.notification_status_walking,
-                ),
                 manual,
             )
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(model))
@@ -634,33 +646,37 @@ class StepTrackingService : Service(), SensorEventListener {
         val updated = model.lastUpdated?.atZone(ZoneId.systemDefault())
             ?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--"
         val title = getString(
-            if (manual == null) R.string.notification_tracking_title
-            else R.string.notification_walking_title,
+            if (model.content is NotificationContent.Walking) R.string.notification_walking_title
+            else R.string.notification_tracking_title,
         )
-        val text = if (model.steps == null) {
-            getString(R.string.notification_status_preparing)
-        } else if (manual == null) {
-            getString(
+        val text = when (val content = model.content) {
+            NotificationContent.Preparing -> getString(R.string.notification_status_preparing)
+            is NotificationContent.Tracking -> getString(
                 R.string.notification_tracking_text,
-                NumberFormat.getNumberInstance().format(model.steps),
-                NumberFormat.getNumberInstance().format(dailyStepGoal),
+                NumberFormat.getNumberInstance().format(content.todaySteps),
+                NumberFormat.getNumberInstance().format(content.goalSteps),
                 updated,
             )
-        } else {
-            val minutes = manual.elapsedDurationSeconds / 60
-            getString(
+            is NotificationContent.Walking -> getString(
                 R.string.notification_walking_text,
-                NumberFormat.getNumberInstance().format(manual.steps),
-                minutes,
-                NumberFormat.getNumberInstance().format(model.steps),
-                NumberFormat.getNumberInstance().format(dailyStepGoal),
+                NumberFormat.getNumberInstance().format(content.sessionSteps),
+                content.elapsedMinutes,
+                NumberFormat.getNumberInstance().format(content.todaySteps),
+                NumberFormat.getNumberInstance().format(content.goalSteps),
             )
         }
+        val statusLabel = getString(
+            when (model.content) {
+                NotificationContent.Preparing -> R.string.notification_status_preparing
+                is NotificationContent.Tracking -> R.string.notification_status_tracking
+                is NotificationContent.Walking -> R.string.notification_status_walking
+            },
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(text)
-            .setSubText(model.statusLabel)
+            .setSubText(statusLabel)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -678,9 +694,8 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     data class NotificationModel(
-        val steps: Long?,
-        val lastUpdated: Instant?,
-        val statusLabel: String,
+        val content: NotificationContent,
+        val lastUpdated: Instant? = null,
         val manualSession: com.lazyapps.steparena.core.database.entity.WalkingSessionEntity? = null,
     )
 

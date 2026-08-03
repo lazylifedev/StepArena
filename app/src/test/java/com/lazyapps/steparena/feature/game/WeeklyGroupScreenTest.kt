@@ -2,21 +2,31 @@ package com.lazyapps.steparena.feature.game
 
 import com.lazyapps.steparena.core.database.entity.WeeklyLeagueParticipantEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WeeklyGroupScreenTest {
-    @Test fun visibleLeagueParticipantsReturnsEveryParticipantInRankOrder() {
-        val participants = listOf(
-            participant("p4", 4, false),
-            participant("p1", 1, false),
-            participant("p10", 10, true),
-            participant("p2", 2, false),
+    @Test fun visibleLeagueParticipantsReturnsAllTenInRankOrderForEveryLocalPosition() {
+        listOf(1, 5, 10).forEach { localRank ->
+            val participants = (10 downTo 1).map { rank ->
+                participant("p$rank", rank, rank == localRank)
+            }
+            val visible = visibleLeagueParticipants(participants)
+
+            assertEquals((1..10).toList(), visible.map { it.rank })
+            assertEquals(10, visible.map { it.participantId }.distinct().size)
+            assertTrue((4..8).all { rank -> visible.any { it.rank == rank } })
+            assertEquals(localRank, visible.single { it.isLocalPlayer }.rank)
+        }
+    }
+
+    @Test fun duplicateParticipantIdIsRenderedOnlyOnce() {
+        val visible = visibleLeagueParticipants(
+            listOf(participant("same", 2, false), participant("same", 8, true)),
         )
 
-        assertEquals(
-            listOf("p1", "p2", "p4", "p10"),
-            visibleLeagueParticipants(participants).map { it.participantId },
-        )
+        assertEquals(1, visible.size)
+        assertEquals(2, visible.single().rank)
     }
 
     private fun participant(id: String, rank: Int, local: Boolean) =

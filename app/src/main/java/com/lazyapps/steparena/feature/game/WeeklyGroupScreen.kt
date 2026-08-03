@@ -4,17 +4,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.R
@@ -27,14 +27,17 @@ data class WeeklyGroupUiState(
     val participants: List<WeeklyLeagueParticipantEntity> = emptyList(),
 )
 
-object WeeklyGroupTestTags { const val INFO_SHEET = "weekly_group_info_sheet" }
+object WeeklyGroupTestTags {
+    const val CONTENT = "weekly_group_content"
+    const val INFO_SHEET = "weekly_group_info_sheet"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeeklyGroupScreen(state: WeeklyGroupUiState) {
     var showInfo by remember { mutableStateOf(false) }
     LazyColumn(
-        Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+        Modifier.fillMaxSize().testTag(WeeklyGroupTestTags.CONTENT), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
@@ -59,19 +62,37 @@ fun WeeklyGroupScreen(state: WeeklyGroupUiState) {
             }
             items(visibleLeagueParticipants(state.participants), key = { it.participantId }) { participant ->
                 val localColor = Color(0xFF58E6FF).copy(alpha = .16f)
-                ListItem(
-                    modifier = Modifier.clip(MaterialTheme.shapes.large)
-                        .then(if (participant.isLocalPlayer) Modifier.background(localColor) else Modifier),
-                    leadingContent = {
-                        Box(
-                            Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(participant.displayName.take(1)) }
-                    },
-                    headlineContent = { Text(participant.displayName, fontWeight = if (participant.isLocalPlayer) FontWeight.Bold else null) },
-                    overlineContent = { Text(stringResource(R.string.game_rank_position, participant.rank)) },
-                    trailingContent = { Text(stringResource(R.string.game_points_value, formatNumber(participant.points))) },
+                val localLabel = stringResource(R.string.game_you)
+                val accessibility = stringResource(
+                    R.string.game_league_row_accessibility,
+                    participant.rank,
+                    participant.displayName,
+                    formatNumber(participant.points),
+                    if (participant.isLocalPlayer) localLabel else "",
                 )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .background(localColor.takeIf { participant.isLocalPlayer } ?: Color.Transparent, MaterialTheme.shapes.large)
+                        .testTag("weekly_participant_${participant.participantId}")
+                        .semantics { contentDescription = accessibility }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(participant.rank.toString(), modifier = Modifier.widthIn(min = 24.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            participant.displayName,
+                            fontWeight = if (participant.isLocalPlayer) FontWeight.Bold else null,
+                        )
+                        if (participant.isLocalPlayer) {
+                            Text(localLabel, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Text(formatNumber(participant.points), fontWeight = if (participant.isLocalPlayer) FontWeight.Bold else null)
+                }
             }
         } ?: item { Text(stringResource(R.string.game_league_loading), modifier = Modifier.testTag(GameTestTags.EMPTY)) }
     }
@@ -89,4 +110,5 @@ fun WeeklyGroupScreen(state: WeeklyGroupUiState) {
 internal fun visibleLeagueParticipants(
     participants: List<WeeklyLeagueParticipantEntity>,
 ): List<WeeklyLeagueParticipantEntity> =
-    participants.sortedWith(compareBy<WeeklyLeagueParticipantEntity> { it.rank }.thenBy { it.participantId })
+    participants.distinctBy { it.participantId }
+        .sortedWith(compareBy<WeeklyLeagueParticipantEntity> { it.rank }.thenBy { it.participantId })

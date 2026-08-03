@@ -390,6 +390,17 @@
     <string name="game_health_cap_compact">対象は30,000歩まで</string>
     <string name="game_today_loading">今日のチャレンジを準備しています。</string>
     <string name="game_past_title">過去のチャレンジ</string>
+    <string name="game_history_title">履歴</string>
+    <string name="game_history_steps_compact">%1$s歩 ／ 目標%2$s歩</string>
+    <string name="game_history_accessibility">%1$s、%2$s、自分%3$s歩、目標%4$s歩、レート差%5$s</string>
+    <string name="game_history_detail_title">チャレンジ詳細</string>
+    <string name="game_history_detail_date">日付：%1$s</string>
+    <string name="game_history_detail_result">結果：%1$s</string>
+    <string name="game_history_detail_user_steps">自分の対象歩数：%1$s歩</string>
+    <string name="game_history_detail_target">パートナー目標：%1$s歩</string>
+    <string name="game_history_detail_rating_before">レート変更前：%1$s</string>
+    <string name="game_history_detail_rating_after">レート変更後：%1$s</string>
+    <string name="game_history_detail_rating_delta">レート増減：%1$s</string>
     <string name="game_past_empty">記録されたチャレンジはまだありません。</string>
     <string name="game_user_steps">あなた %1$s歩</string>
     <string name="game_rating_change">歩行レート %1$s → %2$s</string>
@@ -418,6 +429,7 @@
     <string name="game_weekly_points">週間ポイント %1$s</string>
     <string name="game_league_finalized">週間記録を集計しました</string>
     <string name="game_points_value">%1$sポイント</string>
+    <string name="game_league_row_accessibility">%1$d位、%2$s、%3$sポイント、%4$s</string>
     <string name="game_league_loading">週間グループを準備しています。</string>
     <string name="game_season_title">月間記録</string>
     <string name="game_total_eligible_steps">合計チャレンジ対象歩数 %1$s歩</string>
