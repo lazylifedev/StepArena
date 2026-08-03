@@ -21,3 +21,7 @@ keystore.properties
 secrets.properties
 google-services.json
 service-account*.json
+firebase-rules-tests/node_modules/
+.firebase/
+firebase-debug.log
+firestore-debug.log

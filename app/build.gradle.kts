@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
 }
 
 configurations.matching { it.name.contains("AndroidTest", ignoreCase = true) }.configureEach {
@@ -76,6 +77,12 @@ ksp {
 }
 
 dependencies {
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -87,6 +94,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.health.connect.client)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.fragment)
     ksp(libs.androidx.room.compiler)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.foundation)

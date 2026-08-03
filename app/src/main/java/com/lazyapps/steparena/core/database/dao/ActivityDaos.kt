@@ -63,6 +63,8 @@ interface WalkingSessionDao {
     suspend fun activeSessions(): List<WalkingSessionEntity>
     @Query("SELECT COUNT(*) FROM walking_sessions") suspend fun count(): Int
     @Query("SELECT * FROM walking_sessions ORDER BY startedAtEpochMillis") suspend fun all(): List<WalkingSessionEntity>
+    @Query("SELECT * FROM walking_sessions WHERE status IN ('COMPLETED','RECOVERED') ORDER BY startedAtEpochMillis")
+    suspend fun completedForBackup(): List<WalkingSessionEntity>
 }
 
 @Dao
@@ -116,4 +118,6 @@ interface CompetitiveIntegritySegmentDao {
     @Query("SELECT * FROM competitive_integrity_segments WHERE localDate = :date AND zoneId = :zone ORDER BY startedAtEpochMillis")
     fun observeDate(date: String, zone: String): Flow<List<CompetitiveIntegritySegmentEntity>>
     @Query("SELECT COUNT(*) FROM competitive_integrity_segments") suspend fun count(): Int
+    @Query("SELECT * FROM competitive_integrity_segments ORDER BY startedAtEpochMillis")
+    suspend fun allForBackup(): List<CompetitiveIntegritySegmentEntity>
 }

@@ -98,6 +98,14 @@
     <string name="session_status_discarded">破棄</string>
     <string name="session_status_recovered">復元</string>
     <string name="settings_title">設定</string>
+    <string name="settings_heading_account">アカウント</string>
+    <string name="account_google_unlinked">Googleアカウント未連携</string>
+    <string name="account_google_linked">Googleアカウント連携済み</string>
+    <string name="account_link_support">Googleアカウントと連携すると、機種変更時にデータを引き継げるようになります。</string>
+    <string name="account_link_google">Googleアカウントと連携</string>
+    <string name="account_conflict">このGoogleアカウントは、すでに別のStepArenaデータと連携されています。データを安全に統合する機能は今後の更新で対応します。</string>
+    <string name="account_network_error">通信できませんでした。時間をおいて再度お試しください。</string>
+    <string name="account_general_error">アカウントを連携できませんでした。設定を確認して再度お試しください。</string>
     <string name="settings_profile">プロフィール・計算設定</string>
     <string name="settings_diagnostics">計測状態と権限</string>
     <string name="profile_height">身長（cm）</string>
@@ -549,4 +557,17 @@
     <string name="game_achievement_unlocked_state">達成済み</string>
     <string name="game_achievement_locked_state">未達成</string>
     <string name="game_achievement_accessibility">%1$s、%2$s、現在値%3$s、目標値%4$s、%5$s</string>
+    <string name="backup_title">クラウドバックアップ</string>
+    <string name="backup_requires_google">Googleアカウントを連携すると利用できます</string>
+    <string name="backup_ready">バックアップ準備完了</string>
+    <string name="backup_running">バックアップ中</string>
+    <string name="backup_complete">バックアップ済み</string>
+    <string name="backup_last_success">最終成功: %1$s</string>
+    <string name="backup_item_count">対象 %1$d 件</string>
+    <string name="backup_now">今すぐバックアップ</string>
+    <string name="backup_error_network">通信エラー。接続を確認して再試行してください</string>
+    <string name="backup_error_auth">認証エラー。Google連携を確認してください</string>
+    <string name="backup_error_integrity">データ整合性を確認できませんでした</string>
+    <string name="backup_error_permission">バックアップ権限を確認できませんでした</string>
+    <string name="backup_error_configuration">バックアップ設定を確認できませんでした</string>
 </resources>

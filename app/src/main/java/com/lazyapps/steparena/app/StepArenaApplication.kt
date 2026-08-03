@@ -19,6 +19,13 @@ import kotlinx.coroutines.launch
 import java.time.Clock
 import com.lazyapps.steparena.release.DataManagementRepository
 import com.lazyapps.steparena.core.time.CurrentLocalDayProvider
+import com.google.firebase.auth.FirebaseAuth
+import com.lazyapps.steparena.auth.AccountAuthRepository
+import com.lazyapps.steparena.auth.FirebaseAuthGateway
+import com.google.firebase.firestore.FirebaseFirestore
+import com.lazyapps.steparena.auth.AccountAuthState
+import com.lazyapps.steparena.backup.*
+import java.time.Duration
 
 interface AppGraph {
     val database: StepArenaDatabase
@@ -56,6 +63,20 @@ open class StepArenaApplication : Application(), AppGraph {
     val currentLocalDayProvider by lazy {
         CurrentLocalDayProvider(this, clock, applicationScope)
     }
+    val accountAuthRepository by lazy {
+        AccountAuthRepository(FirebaseAuthGateway(FirebaseAuth.getInstance()), applicationScope)
+    }
+    val backupStateStore by lazy { BackupStateStore(this) }
+    val backupScheduler by lazy { BackupScheduler(this) }
+    val cloudBackupRepository by lazy {
+        CloudBackupRepository(
+            FirebaseBackupIdentityProvider(FirebaseAuth.getInstance()),
+            BackupSnapshotReader(database, profileRepository, dailyStepGoalRepository, clock),
+            FirestoreBackupDataSource(FirebaseFirestore.getInstance()),
+            backupStateStore,
+            clock,
+        )
+    }
     override val installationId: String? = null
     override val isolatedScenario: Boolean = false
     override val gameRepository by lazy {
@@ -66,6 +87,18 @@ open class StepArenaApplication : Application(), AppGraph {
     override fun onCreate() {
         super.onCreate()
         scheduleBackgroundWork()
+        accountAuthRepository.initialize()
+        applicationScope.launch {
+            accountAuthRepository.state.collect { auth ->
+                if (auth is AccountAuthState.GoogleLinked) {
+                    backupScheduler.schedulePeriodic()
+                    val last = backupStateStore.current().lastSuccessfulBackupAt
+                    if (last == null || Duration.between(last, clock.instant()).toHours() >= 6) {
+                        backupScheduler.enqueueOneTime()
+                    }
+                }
+            }
+        }
         applicationScope.launch {
             DataManagementRepository(this@StepArenaApplication).completeInterruptedDeletionIfNeeded()
             gameRepository.runMaintenance()
