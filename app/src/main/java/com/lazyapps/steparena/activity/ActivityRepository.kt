@@ -25,11 +25,18 @@ import com.lazyapps.steparena.game.CompetitiveIntegrityInput
 import com.lazyapps.steparena.game.DetectorEvidence
 import com.lazyapps.steparena.game.MotionEvidenceAssessment
 import com.lazyapps.steparena.game.allocateCompetitiveDays
+import com.lazyapps.steparena.game.CompetitiveIntegrityAssessment
 
 data class PersistedActivityUpdate(
     val localDate: LocalDate,
     val zoneId: ZoneId,
     val officialDailySteps: Long,
+)
+
+private data class PendingMotionAllocation(
+    val windowId: String,
+    val segmentId: String,
+    val assignedDetectorCount: Int,
 )
 
 class ActivityRepository(
@@ -44,6 +51,7 @@ class ActivityRepository(
 ) {
     private val writer = Mutex()
     private val detectorEvents = ArrayDeque<DetectorEvidence>()
+    private val pendingMotionAllocations = ArrayDeque<PendingMotionAllocation>()
     private var learnedCadenceStepsPerMinute: Double? = null
 
     fun observeToday(date: LocalDate, zoneId: ZoneId) =
@@ -103,6 +111,32 @@ class ActivityRepository(
 
     suspend fun applyMotionEvidence(windowId: String, assessment: MotionEvidenceAssessment, confidence: Double) =
         writer.withLock {
+            database.withTransaction {
+                val pending = pendingMotionAllocations.filter { it.windowId == windowId }
+                pending.forEach { allocation ->
+                    val segment = database.competitiveIntegritySegments().byId(allocation.segmentId)
+                        ?: return@forEach
+                    val assigned = allocation.assignedDetectorCount.toLong().coerceAtMost(segment.totalSteps)
+                    val restricted = if (assessment == MotionEvidenceAssessment.SHAKE_SUSPECTED) assigned else 0L
+                    val excluded = if (assessment == MotionEvidenceAssessment.SHAKE_CONFIRMED) assigned else 0L
+                    database.competitiveIntegritySegments().upsert(
+                        segment.copy(
+                            eligibleSteps = segment.totalSteps - restricted - excluded,
+                            restrictedSteps = restricted,
+                            excludedSteps = excluded,
+                            assessment = when (assessment) {
+                                MotionEvidenceAssessment.SHAKE_CONFIRMED -> CompetitiveIntegrityAssessment.EXCLUDED
+                                MotionEvidenceAssessment.SHAKE_SUSPECTED -> CompetitiveIntegrityAssessment.LIMITED
+                                else -> CompetitiveIntegrityAssessment.TRUSTED
+                            },
+                            reasons = if (assessment == MotionEvidenceAssessment.SHAKE_CONFIRMED) "SHAKE_CONFIRMED"
+                            else if (assessment == MotionEvidenceAssessment.SHAKE_SUSPECTED) "SHAKE_SUSPECTED" else "",
+                            classifierVersion = segment.classifierVersion,
+                        ),
+                    )
+                }
+                pendingMotionAllocations.removeAll { it.windowId == windowId }
+            }
             val updated = detectorEvents.map { event ->
                 if (event.evidenceWindowId == windowId) event.copy(assessment = assessment, confidence = confidence)
                 else event
@@ -211,9 +245,10 @@ class ActivityRepository(
                 val eligible = allocation.eligible
                 val restricted = allocation.restricted
                 val excluded = allocation.excluded
+                val segmentId = "integrity-$bootSessionId-${at.toEpochMilli()}-${sensorValue}-${dayAndZone.first}-${dayAndZone.second}-$groupIndex"
                 database.competitiveIntegritySegments().upsert(
                     CompetitiveIntegritySegmentEntity(
-                        id = "integrity-$bootSessionId-${at.toEpochMilli()}-${sensorValue}-${dayAndZone.first}-${dayAndZone.second}-$groupIndex",
+                        id = segmentId,
                         localDate = dayAndZone.first.toString(), zoneId = dayAndZone.second.id,
                         startedAtEpochMillis = entries.minOf { it.key.start.toEpochMilli() },
                         endedAtEpochMillis = entries.maxOf { it.key.end.toEpochMilli() }.coerceAtMost(at.toEpochMilli()),
@@ -223,6 +258,13 @@ class ActivityRepository(
                         classifierVersion = integrity.classifierVersion, createdAtEpochMillis = at.toEpochMilli(),
                     ),
                 )
+                consumedDetectors.groupBy { it.evidenceWindowId }
+                    .filterKeys { it != null }
+                    .forEach { (windowId, events) ->
+                        pendingMotionAllocations.addLast(
+                            PendingMotionAllocation(windowId!!, segmentId, events.size),
+                        )
+                    }
             }
             if (durationResult.quality == DataQuality.MEASURED) {
                 durationResult.cadenceStepsPerMinute
