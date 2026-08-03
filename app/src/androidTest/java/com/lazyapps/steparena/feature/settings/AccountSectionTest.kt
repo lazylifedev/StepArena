@@ -40,10 +40,19 @@ class AccountSectionTest {
         compose.onNodeWithTag("link_google_button").assertDoesNotExist()
     }
 
-    @Test fun conflict_isShownAndRetryRemainsAvailable() {
-        compose.setContent { StepArenaTheme { AccountSection(AccountAuthState.AccountConflict(anonymous())) {} } }
-        compose.onNodeWithText("このGoogleアカウントは、すでに別のStepArenaデータと連携されています。データを安全に統合する機能は今後の更新で対応します。").assertIsDisplayed()
-        compose.onNodeWithTag("link_google_button").assertIsEnabled()
+    @Test fun conflict_isShownAndExplicitActionsAreAvailable() {
+        compose.setContent { StepArenaTheme { AccountSection(AccountAuthState.AccountConflict(anonymous()), {}) } }
+        compose.onNodeWithTag("account_conflict_title").assertIsDisplayed()
+        compose.onNodeWithText("既存アカウントでログイン").assertIsDisplayed()
+        compose.onNodeWithTag("sign_in_existing_button").assertIsEnabled()
+        compose.onNodeWithTag("account_conflict_cancel").assertIsEnabled()
+    }
+
+    @Test fun existingSignIn_disablesBothActionsAndShowsProgress() {
+        compose.setContent { StepArenaTheme { AccountSection(AccountAuthState.SigningIntoExistingAccount(anonymous()), {}) } }
+        compose.onNodeWithTag("sign_in_existing_button").assertIsNotEnabled()
+        compose.onNodeWithTag("account_conflict_cancel").assertIsNotEnabled()
+        compose.onNodeWithTag("account_progress").assertIsDisplayed()
     }
 
     private fun anonymous() = AccountProfile("not-shown", true)

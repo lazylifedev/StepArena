@@ -97,6 +97,34 @@ class AccountAuthRepositoryTest {
         assertTrue(repository.startGoogleLink())
     }
 
+    @Test fun conflictDoesNotSignInUntilExplicitAction() = runBlocking {
+        val fake = FakeAuthGateway(anonymous()).apply { linkFailure = AccountCollisionException() }
+        val repository = repository(fake)
+        repository.initialize()
+        repository.linkGoogle("collision-token")
+        assertEquals(0, fake.signInCalls)
+        assertTrue(repository.startExistingAccountSignIn())
+        fake.signedInUser = google("existing")
+        assertEquals(ExistingAccountSignInResult.SignedIn, repository.signInExistingAccount("new-token"))
+        assertEquals(1, fake.signInCalls)
+        val account = (repository.state.value as AccountAuthState.ExistingAccountSignedIn).account
+        assertEquals("existing", account.uid)
+        assertFalse(account.isAnonymous)
+        assertTrue(account.isGoogleLinked)
+    }
+
+    @Test fun existingAccountChooserCancellationKeepsAnonymousAndAllowsRetry() = runBlocking {
+        val fake = FakeAuthGateway(anonymous()).apply { linkFailure = AccountCollisionException() }
+        val repository = repository(fake)
+        repository.initialize()
+        repository.linkGoogle("collision-token")
+        assertTrue(repository.startExistingAccountSignIn())
+        assertEquals(ExistingAccountSignInResult.Cancelled, repository.existingAccountSelectionCancelled())
+        assertTrue(fake.currentUser()!!.isAnonymous)
+        assertTrue(repository.state.value is AccountAuthState.AccountConflict)
+        assertTrue(repository.startExistingAccountSignIn())
+    }
+
     private fun repository(fake: FakeAuthGateway) =
         AccountAuthRepository(fake, CoroutineScope(Dispatchers.Unconfined))
 
@@ -109,9 +137,11 @@ class AccountAuthRepositoryTest {
 private class FakeAuthGateway(private var user: AccountProfile?) : AuthGateway {
     var anonymousCalls = 0
     var linkCalls = 0
+    var signInCalls = 0
     var anonymousFailure: Throwable? = null
     var linkFailure: Throwable? = null
     var linkedUser: AccountProfile = AccountProfile("stable", false, providers = setOf("google.com"))
+    var signedInUser: AccountProfile = AccountProfile("existing", false, providers = setOf("google.com"))
     var listenerClosed = false
     var holdLink = false
     private val linkGate = java.util.concurrent.CountDownLatch(1)
@@ -127,6 +157,10 @@ private class FakeAuthGateway(private var user: AccountProfile?) : AuthGateway {
         if (holdLink) linkGate.await()
         linkFailure?.let { throw it }
         return linkedUser.also { user = it }
+    }
+    override suspend fun signInGoogle(idToken: String): AccountProfile {
+        signInCalls++
+        return signedInUser.also { user = it }
     }
     fun releaseLink() = linkGate.countDown()
     override fun addUserListener(listener: (AccountProfile?) -> Unit) = AutoCloseable { listenerClosed = true }

@@ -2,176 +2,84 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function owns(uid) { return request.auth != null && request.auth.uid == uid; }
-    function validCreateTimes() {
-      return request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
+    function createTimes() { return request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time; }
+    function updateTimes() { return request.resource.data.createdAt == resource.data.createdAt && request.resource.data.updatedAt == request.time; }
+    function times() { return resource == null ? createTimes() : updateTimes(); }
+    function nn(v) { return v is number && v >= 0; }
+    function optnn(v) { return v == null || nn(v); }
+    function date(v) { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    function sid(v) { return v is string && v.matches('^[0-9a-f]{32}$'); }
+    function v2(d) { return d.schemaVersion == 2 && sid(d.stableId); }
+    function quality(v) { return v in ['MEASURED','ESTIMATED','RECOVERED','MIXED','UNKNOWN']; }
+
+    function validRoot() {
+        let d=request.resource.data;
+        return d.keys().hasOnly(['schemaVersion','minimumRestoreVersion','appVersionName','appVersionCode','databaseVersion','backupGeneration','backupStatus','backupStartedAt','backupCompletedAt','localTimeZone','dailyCount','hourlyCount','sessionCount','challengeResultCount','leagueHistoryCount','leagueParticipantCount','seasonHistoryCount','integritySegmentCount','achievementCount','settingsCount','newestLocalDate','createdAt','updatedAt'])
+          && d.keys().hasAll(['schemaVersion','minimumRestoreVersion','appVersionName','appVersionCode','databaseVersion','backupGeneration','backupStatus','backupStartedAt','localTimeZone','dailyCount','hourlyCount','sessionCount','challengeResultCount','leagueHistoryCount','leagueParticipantCount','seasonHistoryCount','integritySegmentCount','achievementCount','settingsCount','createdAt','updatedAt'])
+          && d.schemaVersion == 2 && d.minimumRestoreVersion == 2 && d.databaseVersion == 10
+          && d.appVersionName is string && nn(d.appVersionCode) && d.backupGeneration is int && d.backupGeneration > 0
+          && d.backupStatus in ['in_progress','complete'] && d.backupStartedAt is timestamp && d.localTimeZone is string
+          && nn(d.dailyCount) && nn(d.hourlyCount) && nn(d.sessionCount) && nn(d.challengeResultCount)
+          && nn(d.leagueHistoryCount) && nn(d.leagueParticipantCount) && nn(d.seasonHistoryCount) && nn(d.integritySegmentCount) && nn(d.achievementCount) && nn(d.settingsCount)
+          && (!('newestLocalDate' in d) || d.newestLocalDate == null || date(d.newestLocalDate))
+          && (resource == null
+            ? d.backupStatus == 'in_progress' && d.backupStartedAt == request.time
+            : (d.backupStatus == 'in_progress'
+              ? d.backupGeneration == resource.data.backupGeneration + 1 && d.backupStartedAt == request.time
+              : d.backupGeneration == resource.data.backupGeneration && d.backupStartedAt == resource.data.backupStartedAt))
+          && (d.backupStatus == 'complete' ? d.backupCompletedAt == request.time : !('backupCompletedAt' in d));
     }
-    function validUpdateTimes() {
-      return request.resource.data.createdAt == resource.data.createdAt && request.resource.data.updatedAt == request.time;
-    }
-    function validTimes() { return resource == null ? validCreateTimes() : validUpdateTimes(); }
-    function nonNegative(value) { return value is number && value >= 0; }
-    function optionalNonNegative(value) { return value == null || nonNegative(value); }
-    function validDate(value) { return value is string && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
-    function validHourlyId(value) { return value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}-([01][0-9]|2[0-3])$'); }
-    function stableId(value) { return value.matches('^[0-9a-f]{32}$'); }
 
     match /userBackups/{uid} {
-      allow get: if owns(uid);
-      allow list, delete: if false;
-      allow create: if owns(uid) && validRoot(true);
-      allow update: if owns(uid) && validRoot(false);
-
-      function validRoot(create) {
-        let d = request.resource.data;
-        return d.keys().hasOnly(['schemaVersion','appVersionName','appVersionCode','databaseVersion',
-          'backupGeneration','backupStatus','backupStartedAt','backupCompletedAt','localTimeZone',
-          'dailyCount','hourlyCount','sessionCount','challengeResultCount','leagueHistoryCount',
-          'achievementCount','newestLocalDate','createdAt','updatedAt'])
-          && d.keys().hasAll(['schemaVersion','appVersionName','appVersionCode','databaseVersion',
-          'backupGeneration','backupStatus','backupStartedAt','localTimeZone','dailyCount','hourlyCount',
-          'sessionCount','challengeResultCount','leagueHistoryCount','achievementCount','createdAt','updatedAt'])
-          && d.schemaVersion == 1 && d.appVersionName is string && nonNegative(d.appVersionCode)
-          && d.databaseVersion == 10 && d.backupGeneration is int && d.backupGeneration > 0
-          && d.backupStatus in ['in_progress','complete'] && d.localTimeZone is string
-          && nonNegative(d.dailyCount) && nonNegative(d.hourlyCount) && nonNegative(d.sessionCount)
-          && nonNegative(d.challengeResultCount) && nonNegative(d.leagueHistoryCount) && nonNegative(d.achievementCount)
-          && (!('newestLocalDate' in d) || d.newestLocalDate == null || validDate(d.newestLocalDate))
-          && (create ? d.backupStartedAt == request.time
-            : (d.backupStatus == 'in_progress'
-              ? d.backupStartedAt == request.time && d.backupGeneration == resource.data.backupGeneration + 1
-              : d.backupStartedAt == resource.data.backupStartedAt && d.backupGeneration == resource.data.backupGeneration))
-          && (d.backupStatus == 'complete' ? d.backupCompletedAt == request.time : !('backupCompletedAt' in d))
-          && (create ? validCreateTimes() : validUpdateTimes());
+      // Legacy v1 stays readable by its owner but is immutable under these rules.
+      allow get: if owns(uid); allow list, create, update, delete: if false;
+      match /{legacyCollection}/{legacyDocument} {
+        allow read: if owns(uid) && legacyCollection in ['daily','hourly','sessions','challengeResults','leagueHistory','achievements','settings'];
+        allow write: if false;
       }
 
-      match /daily/{date} {
-        allow get: if owns(uid); allow list, delete: if false;
-        allow create, update: if owns(uid) && validTimes() && validDaily(date);
+      match /versions/v2 {
+        allow read: if owns(uid); allow create, update: if owns(uid) && validRoot() && times(); allow delete: if false;
+        match /daily/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validDaily(id); allow delete: if false; }
+        match /hourly/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validHourly(id); allow delete: if false; }
+        match /sessions/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validSession(id); allow delete: if false; }
+        match /challengeResults/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validMatch(id); allow delete: if false; }
+        match /leagueHistory/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validLeague(id); allow delete: if false; }
+        match /leagueParticipants/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validLeagueParticipant(id); allow delete: if false; }
+        match /seasonHistory/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validSeason(id); allow delete: if false; }
+        match /integritySegments/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validIntegrity(id); allow delete: if false; }
+        match /achievements/{id} { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validAchievement(id); allow delete: if false; }
+        match /settings/current { allow read: if owns(uid); allow create,update: if owns(uid)&&times()&&validSettings(); allow delete: if false; }
+        match /{unknown=**} { allow read,write: if false; }
       }
-      match /hourly/{hour} {
-        allow get: if owns(uid); allow list, delete: if false;
-        allow create, update: if owns(uid) && validTimes() && validHourly(hour);
-      }
-      match /sessions/{id} {
-        allow get: if owns(uid); allow list, delete: if false;
-        allow create, update: if owns(uid) && stableId(id) && validTimes() && validSession();
-      }
-      match /challengeResults/{id} {
-        allow get: if owns(uid); allow list, delete: if false;
-        allow create, update: if owns(uid) && stableId(id) && validTimes() && validChallenge();
-      }
-      match /leagueHistory/{id} {
-        allow get: if owns(uid); allow list, delete: if false;
-        allow create, update: if owns(uid) && stableId(id) && validTimes() && validLeague();
-      }
-      match /achievements/{id} {
-        allow get: if owns(uid); allow list, delete: if false;
-        allow create, update: if owns(uid) && stableId(id) && validTimes() && validAchievement();
-      }
-      match /settings/current {
-        allow get: if owns(uid); allow list, delete: if false;
-        allow create, update: if owns(uid) && validTimes() && validSettings();
-      }
-      match /{unknown=**} { allow read, write: if false; }
+      match /{unknown=**} { allow read,write: if false; }
     }
 
-    function validDaily(date) {
-      let d = request.resource.data;
-      return validDate(date) && d.localDate == date
-        && d.keys().hasOnly(['schemaVersion','localDate','zoneId','steps','externalRecoveredSteps',
-          'unallocatedMeasuredSteps','distanceMeters','walkingDurationSeconds','caloriesKcal','stepsQuality',
-          'finalized','finalizedAtEpochMillis','updatedAtEpochMillis','integrityTotal','integrityEligible',
-          'integrityRestricted','integrityExcluded','integrityReasons','classifierVersion','createdAt','updatedAt'])
-        && d.keys().hasAll(['schemaVersion','localDate','zoneId','steps','externalRecoveredSteps',
-          'unallocatedMeasuredSteps','stepsQuality','finalized','updatedAtEpochMillis','integrityTotal',
-          'integrityEligible','integrityRestricted','integrityExcluded','integrityReasons','classifierVersion','createdAt','updatedAt'])
-        && d.schemaVersion == 1 && d.zoneId is string && nonNegative(d.steps)
-        && nonNegative(d.externalRecoveredSteps) && nonNegative(d.unallocatedMeasuredSteps)
-        && optionalNonNegative(d.distanceMeters) && optionalNonNegative(d.walkingDurationSeconds)
-        && optionalNonNegative(d.caloriesKcal) && d.stepsQuality is string && d.finalized is bool
-        && optionalNonNegative(d.finalizedAtEpochMillis) && nonNegative(d.updatedAtEpochMillis)
-        && nonNegative(d.integrityTotal) && nonNegative(d.integrityEligible)
-        && nonNegative(d.integrityRestricted) && nonNegative(d.integrityExcluded)
-        && d.integrityTotal == d.integrityEligible + d.integrityRestricted + d.integrityExcluded
-        && d.integrityReasons is list && nonNegative(d.classifierVersion);
-    }
+    function validDaily(id) { let d=request.resource.data; return date(id)&&date(d.localDate)&&id==d.localDate&&v2(d)
+      && d.keys().hasOnly(['schemaVersion','stableId','roomId','localDate','zoneId','steps','unclassifiedSteps','unclassifiedStepsQuality','externalRecoveredSteps','unallocatedMeasuredSteps','distanceMeters','walkingDurationSeconds','caloriesKcal','averageWalkingSpeedKmh','stepsQuality','distanceQuality','durationQuality','caloriesQuality','speedQuality','activeHourCount','walkingSessionCount','finalized','finalizedAtEpochMillis','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])
+      && d.keys().hasAll(['schemaVersion','stableId','roomId','localDate','zoneId','steps','unclassifiedSteps','unclassifiedStepsQuality','externalRecoveredSteps','unallocatedMeasuredSteps','stepsQuality','distanceQuality','durationQuality','caloriesQuality','speedQuality','activeHourCount','walkingSessionCount','finalized','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])
+      && d.roomId is string && d.zoneId is string && nn(d.steps)&&nn(d.unclassifiedSteps)&&quality(d.unclassifiedStepsQuality)&&nn(d.externalRecoveredSteps)&&nn(d.unallocatedMeasuredSteps)&&optnn(d.distanceMeters)&&optnn(d.walkingDurationSeconds)&&optnn(d.caloriesKcal)&&optnn(d.averageWalkingSpeedKmh)&&quality(d.stepsQuality)&&quality(d.distanceQuality)&&quality(d.durationQuality)&&quality(d.caloriesQuality)&&quality(d.speedQuality)&&nn(d.activeHourCount)&&nn(d.walkingSessionCount)&&d.finalized is bool&&optnn(d.finalizedAtEpochMillis)&&nn(d.createdAtEpochMillis)&&nn(d.updatedAtEpochMillis); }
 
-    function validHourly(hour) {
-      let d = request.resource.data;
-      return validHourlyId(hour) && hour == d.localDate + '-' + (d.hourOfDay < 10 ? '0' : '') + string(d.hourOfDay)
-        && d.keys().hasOnly(['schemaVersion','localDate','hourOfDay','zoneId','utcOffsetSeconds','periodStartEpochMillis',
-          'periodEndEpochMillis','steps','distanceMeters','walkingDurationSeconds','caloriesKcal','stepsQuality',
-          'updatedAtEpochMillis','createdAt','updatedAt'])
-        && d.keys().hasAll(['schemaVersion','localDate','hourOfDay','zoneId','utcOffsetSeconds','periodStartEpochMillis',
-          'periodEndEpochMillis','steps','stepsQuality','updatedAtEpochMillis','createdAt','updatedAt'])
-        && d.schemaVersion == 1 && validDate(d.localDate) && d.hourOfDay is int && d.hourOfDay >= 0 && d.hourOfDay <= 23
-        && d.zoneId is string && d.utcOffsetSeconds is int && d.periodStartEpochMillis is int
-        && d.periodEndEpochMillis is int && d.periodEndEpochMillis >= d.periodStartEpochMillis
-        && nonNegative(d.steps) && optionalNonNegative(d.distanceMeters)
-        && optionalNonNegative(d.walkingDurationSeconds) && optionalNonNegative(d.caloriesKcal)
-        && d.stepsQuality is string && nonNegative(d.updatedAtEpochMillis);
-    }
+    function validHourly(id) { let d=request.resource.data; return id.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}-([01][0-9]|2[0-3])$')&&id==d.localDate+'-'+(d.hourOfDay<10?'0':'')+string(d.hourOfDay)&&v2(d)&&date(d.localDate)&&d.hourOfDay is int&&d.hourOfDay>=0&&d.hourOfDay<=23
+      && d.keys().hasOnly(['schemaVersion','stableId','roomId','localDate','hourOfDay','zoneId','utcOffsetSeconds','periodStartEpochMillis','periodEndEpochMillis','steps','distanceMeters','walkingDurationSeconds','caloriesKcal','averageWalkingSpeedKmh','stepsQuality','distanceQuality','durationQuality','caloriesQuality','speedQuality','firstActivityAtEpochMillis','lastActivityAtEpochMillis','sensorEventCount','recoveredSteps','estimatedSteps','appliedStepLengthMeters','appliedWeightKg','calorieFormulaVersion','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])
+      && d.keys().hasAll(['schemaVersion','stableId','roomId','localDate','hourOfDay','zoneId','utcOffsetSeconds','periodStartEpochMillis','periodEndEpochMillis','steps','stepsQuality','distanceQuality','durationQuality','caloriesQuality','speedQuality','sensorEventCount','recoveredSteps','estimatedSteps','appliedStepLengthMeters','appliedWeightKg','calorieFormulaVersion','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])
+      && d.roomId is string&&d.zoneId is string&&d.utcOffsetSeconds is int&&d.periodStartEpochMillis is int&&d.periodEndEpochMillis>=d.periodStartEpochMillis&&nn(d.steps)&&optnn(d.distanceMeters)&&optnn(d.walkingDurationSeconds)&&optnn(d.caloriesKcal)&&optnn(d.averageWalkingSpeedKmh)&&quality(d.stepsQuality)&&quality(d.distanceQuality)&&quality(d.durationQuality)&&quality(d.caloriesQuality)&&quality(d.speedQuality)&&optnn(d.firstActivityAtEpochMillis)&&optnn(d.lastActivityAtEpochMillis)&&nn(d.sensorEventCount)&&nn(d.recoveredSteps)&&nn(d.estimatedSteps)&&nn(d.appliedStepLengthMeters)&&nn(d.appliedWeightKg)&&nn(d.calorieFormulaVersion)&&nn(d.createdAtEpochMillis)&&nn(d.updatedAtEpochMillis); }
 
-    function validSession() {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['schemaVersion','localDate','zoneId','startedAtEpochMillis','endedAtEpochMillis','steps',
-        'distanceMeters','activeDurationSeconds','elapsedDurationSeconds','caloriesKcal','sessionType','status',
-        'stepsQuality','updatedAtEpochMillis','createdAt','updatedAt'])
-        && d.keys().hasAll(['schemaVersion','localDate','zoneId','startedAtEpochMillis','endedAtEpochMillis','steps',
-        'activeDurationSeconds','elapsedDurationSeconds','sessionType','status','stepsQuality','updatedAtEpochMillis','createdAt','updatedAt'])
-        && d.schemaVersion == 1 && validDate(d.localDate) && d.zoneId is string
-        && d.startedAtEpochMillis is int && d.endedAtEpochMillis is int && d.endedAtEpochMillis >= d.startedAtEpochMillis
-        && nonNegative(d.steps) && optionalNonNegative(d.distanceMeters) && nonNegative(d.activeDurationSeconds)
-        && nonNegative(d.elapsedDurationSeconds) && optionalNonNegative(d.caloriesKcal)
-        && d.sessionType is string && d.status in ['COMPLETED','RECOVERED']
-        && d.stepsQuality is string && nonNegative(d.updatedAtEpochMillis);
-    }
+    function validSession(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&date(d.localDate)&&d.status in ['COMPLETED','RECOVERED']&&d.endedAtEpochMillis is int&&d.endedAtEpochMillis>=d.startedAtEpochMillis
+      && d.keys().hasOnly(['schemaVersion','stableId','roomId','localDate','zoneId','startedAtEpochMillis','endedAtEpochMillis','steps','distanceMeters','activeDurationSeconds','elapsedDurationSeconds','pausedDurationSeconds','caloriesKcal','averageMovingSpeedKmh','averageElapsedSpeedKmh','sessionType','status','stepsQuality','distanceQuality','durationQuality','caloriesQuality','speedQuality','trackingServiceSessionId','lastWalkingEventAtEpochMillis','pausedSinceEpochMillis','isManual','detectorEventCount','estimatedStepCount','recoveredStepCount','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])
+      && d.keys().hasAll(['schemaVersion','stableId','roomId','localDate','zoneId','startedAtEpochMillis','endedAtEpochMillis','steps','activeDurationSeconds','elapsedDurationSeconds','pausedDurationSeconds','sessionType','status','stepsQuality','distanceQuality','durationQuality','caloriesQuality','speedQuality','isManual','detectorEventCount','estimatedStepCount','recoveredStepCount','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])
+      && d.roomId is string&&d.zoneId is string&&d.startedAtEpochMillis is int&&nn(d.steps)&&optnn(d.distanceMeters)&&nn(d.activeDurationSeconds)&&nn(d.elapsedDurationSeconds)&&nn(d.pausedDurationSeconds)&&optnn(d.caloriesKcal)&&optnn(d.averageMovingSpeedKmh)&&optnn(d.averageElapsedSpeedKmh)&&d.sessionType in ['AUTO_DETECTED','MANUAL_WALK','RANKED_MATCH','RECOVERED']&&quality(d.stepsQuality)&&quality(d.distanceQuality)&&quality(d.durationQuality)&&quality(d.caloriesQuality)&&quality(d.speedQuality)&&d.isManual is bool&&nn(d.detectorEventCount)&&nn(d.estimatedStepCount)&&nn(d.recoveredStepCount)&&nn(d.createdAtEpochMillis)&&nn(d.updatedAtEpochMillis); }
 
-    function validChallenge() {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['schemaVersion','localDate','zoneId','seasonId','matchType','status','outcome',
-        'opponentTargetSteps','totalSteps','eligibleSteps','restrictedSteps','excludedSteps','restrictionReasons',
-        'classifierVersion','ratingBefore','ratingDelta','ratingAfter','finalizedAtEpochMillis','createdAt','updatedAt'])
-        && d.keys().hasAll(['schemaVersion','localDate','zoneId','seasonId','matchType','status','opponentTargetSteps',
-        'totalSteps','eligibleSteps','restrictedSteps','excludedSteps','restrictionReasons','classifierVersion',
-        'ratingBefore','finalizedAtEpochMillis','createdAt','updatedAt'])
-        && d.schemaVersion == 1 && validDate(d.localDate) && d.zoneId is string && stableId(d.seasonId)
-        && d.matchType is string && d.status == 'FINALIZED' && nonNegative(d.opponentTargetSteps)
-        && nonNegative(d.totalSteps) && nonNegative(d.eligibleSteps) && nonNegative(d.restrictedSteps)
-        && nonNegative(d.excludedSteps) && d.totalSteps == d.eligibleSteps + d.restrictedSteps + d.excludedSteps
-        && d.restrictionReasons is string && nonNegative(d.classifierVersion) && d.ratingBefore is int
-        && nonNegative(d.finalizedAtEpochMillis);
-    }
+    function validMatch(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&d.status=='FINALIZED'&&d.totalSteps==d.eligibleSteps+d.restrictedSteps+d.excludedSteps&&date(d.localDate)
+      && d.keys().hasOnly(['schemaVersion','stableId','roomId','localDate','zoneId','seasonId','seasonStableId','matchType','status','outcome','opponentTargetSteps','totalSteps','eligibleSteps','restrictedSteps','excludedSteps','opponentId','opponentName','opponentAvatarKey','opponentRankTier','opponentRankDivision','opponentPersonality','restrictionReasons','competitiveQuality','ratingBefore','ratingDelta','ratingAfter','finalizedAtEpochMillis','ratingBreakdown','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])
+      && d.keys().hasAll(['schemaVersion','stableId','roomId','localDate','zoneId','seasonId','seasonStableId','matchType','status','opponentTargetSteps','totalSteps','eligibleSteps','restrictedSteps','excludedSteps','opponentId','opponentName','opponentAvatarKey','opponentRankTier','opponentPersonality','restrictionReasons','competitiveQuality','ratingBefore','finalizedAtEpochMillis','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])&&nn(d.totalSteps)&&nn(d.eligibleSteps)&&nn(d.restrictedSteps)&&nn(d.excludedSteps)&&nn(d.opponentTargetSteps)&&nn(d.finalizedAtEpochMillis)&&d.matchType=='DAILY'&&d.outcome in ['WIN','LOSS','DRAW','NO_CONTEST','CANCELLED']&&d.opponentRankTier in ['BRONZE','SILVER','GOLD','PLATINUM','DIAMOND','MASTER']&&d.opponentPersonality in ['STEADY','SPRINTER','EARLY_BIRD','NIGHT_WALKER','CHALLENGER','RELAXED']&&d.competitiveQuality in ['FULL','RESTRICTED','EXCLUDED']; }
 
-    function validLeague() {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['schemaVersion','historyType','periodStart','periodEnd','zoneId','status','points','rank',
-        'finalizedAtEpochMillis','startedAtEpochMillis','endedAtEpochMillis','startRating','endRating','wins','losses',
-        'draws','totalEligibleSteps','bestWinStreak','createdAt','updatedAt'])
-        && d.keys().hasAll(['schemaVersion','historyType','status','createdAt','updatedAt'])
-        && d.schemaVersion == 1 && d.historyType in ['WEEKLY_LEAGUE','SEASON'] && d.status == 'FINALIZED';
-    }
-
-    function validAchievement() {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['schemaVersion','achievementKey','unlockedAtEpochMillis','progressValue','seasonId',
-        'acknowledged','createdAt','updatedAt'])
-        && d.keys().hasAll(['schemaVersion','achievementKey','unlockedAtEpochMillis','progressValue','acknowledged','createdAt','updatedAt'])
-        && d.schemaVersion == 1 && d.achievementKey is string && nonNegative(d.unlockedAtEpochMillis)
-        && nonNegative(d.progressValue) && (!('seasonId' in d) || d.seasonId == null || stableId(d.seasonId))
-        && d.acknowledged is bool;
-    }
-
-    function validSettings() {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['schemaVersion','heightCm','weightKg','manualStepLengthMeters','useAutomaticStepLength',
-        'dailyStepGoal','createdAt','updatedAt'])
-        && d.keys().hasAll(['schemaVersion','useAutomaticStepLength','dailyStepGoal','createdAt','updatedAt'])
-        && d.schemaVersion == 1 && optionalNonNegative(d.heightCm) && optionalNonNegative(d.weightKg)
-        && optionalNonNegative(d.manualStepLengthMeters) && d.useAutomaticStepLength is bool
-        && d.dailyStepGoal is int && d.dailyStepGoal >= 1000 && d.dailyStepGoal <= 100000;
-    }
-
-    match /{document=**} { allow read, write: if false; }
+    function validLeague(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&d.status=='FINALIZED'&&date(d.periodStart)&&date(d.periodEnd)&&d.keys().hasOnly(['schemaVersion','stableId','roomId','periodStart','periodEnd','zoneId','status','points','rank','participantsJson','finalizedAtEpochMillis','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','stableId','roomId','periodStart','periodEnd','zoneId','status','points','participantsJson','finalizedAtEpochMillis','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])&&d.roomId is string&&d.participantsJson is string&&nn(d.points)&&optnn(d.rank)&&nn(d.finalizedAtEpochMillis); }
+    function validLeagueParticipant(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&sid(d.leagueStableId)&&d.keys().hasOnly(['schemaVersion','stableId','leagueRoomId','leagueStableId','participantId','displayName','avatarKey','points','eligibleSteps','rank','isLocalPlayer','generatedLocally','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','stableId','leagueRoomId','leagueStableId','participantId','displayName','avatarKey','points','eligibleSteps','rank','isLocalPlayer','generatedLocally','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])&&d.leagueRoomId is string&&d.participantId is string&&d.displayName is string&&d.avatarKey is string&&nn(d.points)&&nn(d.eligibleSteps)&&nn(d.rank)&&d.isLocalPlayer is bool&&d.generatedLocally is bool&&nn(d.createdAtEpochMillis)&&nn(d.updatedAtEpochMillis); }
+    function validSeason(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&d.status=='FINALIZED'&&d.endedAtEpochMillis>=d.startedAtEpochMillis&&d.keys().hasOnly(['schemaVersion','stableId','roomId','startedAtEpochMillis','endedAtEpochMillis','status','startRating','endRating','wins','losses','draws','highestRankTier','highestRankDivision','totalEligibleSteps','bestWinStreak','rewardClaimed','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','stableId','roomId','startedAtEpochMillis','endedAtEpochMillis','status','startRating','wins','losses','draws','highestRankTier','totalEligibleSteps','bestWinStreak','rewardClaimed','createdAtEpochMillis','updatedAtEpochMillis','createdAt','updatedAt'])&&nn(d.wins)&&nn(d.losses)&&nn(d.draws)&&nn(d.totalEligibleSteps)&&nn(d.bestWinStreak)&&d.rewardClaimed is bool&&d.highestRankTier in ['BRONZE','SILVER','GOLD','PLATINUM','DIAMOND','MASTER']; }
+    function validIntegrity(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&date(d.localDate)&&d.endedAtEpochMillis>=d.startedAtEpochMillis&&d.totalSteps==d.eligibleSteps+d.restrictedSteps+d.excludedSteps&&d.keys().hasOnly(['schemaVersion','stableId','roomId','localDate','zoneId','startedAtEpochMillis','endedAtEpochMillis','totalSteps','eligibleSteps','restrictedSteps','excludedSteps','assessment','reasons','classifierVersion','createdAtEpochMillis','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','stableId','roomId','localDate','zoneId','startedAtEpochMillis','endedAtEpochMillis','totalSteps','eligibleSteps','restrictedSteps','excludedSteps','assessment','reasons','classifierVersion','createdAtEpochMillis','createdAt','updatedAt'])&&nn(d.totalSteps)&&nn(d.eligibleSteps)&&nn(d.restrictedSteps)&&nn(d.excludedSteps)&&d.assessment in ['TRUSTED','LIMITED','REVIEW','EXCLUDED']&&d.reasons is string&&nn(d.classifierVersion); }
+    function validAchievement(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&d.keys().hasOnly(['schemaVersion','stableId','achievementKey','unlockedAtEpochMillis','progressValue','seasonId','seasonStableId','acknowledged','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','stableId','achievementKey','unlockedAtEpochMillis','progressValue','acknowledged','createdAt','updatedAt'])&&d.achievementKey is string&&nn(d.unlockedAtEpochMillis)&&nn(d.progressValue)&&d.acknowledged is bool; }
+    function validSettings() { let d=request.resource.data; return d.schemaVersion==2&&d.keys().hasOnly(['schemaVersion','heightCm','weightKg','manualStepLengthMeters','useAutomaticStepLength','dailyStepGoal','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','useAutomaticStepLength','dailyStepGoal','createdAt','updatedAt'])&&optnn(d.heightCm)&&optnn(d.weightKg)&&optnn(d.manualStepLengthMeters)&&d.useAutomaticStepLength is bool&&d.dailyStepGoal is int&&d.dailyStepGoal>=1000&&d.dailyStepGoal<=100000; }
+    match /{document=**} { allow read,write: if false; }
   }
 }

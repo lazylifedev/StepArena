@@ -25,12 +25,12 @@ class BackupDocumentValidatorTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun inconsistentIntegrityTotalsAreRejected() {
-        BackupDocumentValidator.validate(document(mapOf("integrityEligible" to 79L)))
+        BackupDocumentValidator.validate(document(mapOf("eligibleSteps" to 79L)))
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun unsupportedSchemaIsRejected() {
-        BackupDocumentValidator.validate(document(mapOf("schemaVersion" to 2)))
+        BackupDocumentValidator.validate(document(mapOf("schemaVersion" to 3)))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -38,12 +38,15 @@ class BackupDocumentValidatorTest {
         BackupDocumentValidator.validate(document(id = "bad/id"))
     }
 
-    private fun document(overrides: Map<String, Any?> = emptyMap(), id: String = "2026-08-03") = BackupDocument(
-        collection = "daily",
+    private fun document(overrides: Map<String, Any?> = emptyMap(), id: String = "0123456789abcdef0123456789abcdef") = BackupDocument(
+        collection = "integritySegments",
         id = id,
         fields = mapOf(
-            "schemaVersion" to 1, "steps" to 100L, "integrityTotal" to 100L,
-            "integrityEligible" to 80L, "integrityRestricted" to 10L, "integrityExcluded" to 10L,
+            "schemaVersion" to 2, "steps" to 100L, "totalSteps" to 100L,
+            "eligibleSteps" to 80L, "restrictedSteps" to 10L, "excludedSteps" to 10L,
+            "stableId" to "0123456789abcdef0123456789abcdef", "roomId" to "room",
+            "assessment" to "TRUSTED", "reasons" to "", "classifierVersion" to 1,
+            "createdAtEpochMillis" to 1L,
         ) + overrides,
     )
 }

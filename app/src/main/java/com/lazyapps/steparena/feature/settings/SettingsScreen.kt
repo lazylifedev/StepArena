@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.ChevronRight
@@ -48,6 +49,8 @@ import kotlinx.coroutines.launch
 import com.lazyapps.steparena.backup.BackupErrorCategory
 import com.lazyapps.steparena.backup.BackupState
 import com.lazyapps.steparena.backup.BackupStatus
+import com.lazyapps.steparena.backup.RestoreState
+import com.lazyapps.steparena.backup.RestoreStatus
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -69,6 +72,8 @@ fun SettingsScreen(
     val authState by repository.state.collectAsStateWithLifecycle()
     val backupRepository = (context.applicationContext as StepArenaApplication).cloudBackupRepository
     val backupState by backupRepository.state.collectAsStateWithLifecycle(initialValue = BackupState())
+    val restoreRepository = (context.applicationContext as StepArenaApplication).cloudRestoreRepository
+    val restoreState by restoreRepository.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val serverClientId = stringResource(R.string.default_web_client_id)
     Column(
@@ -97,11 +102,38 @@ fun SettingsScreen(
                     }
                 }
             },
+            onSignInExisting = {
+                if (!repository.startExistingAccountSignIn()) return@AccountSection
+                val activity = context.findActivity() ?: run {
+                    repository.existingAccountCredentialFailed()
+                    return@AccountSection
+                }
+                scope.launch {
+                    when (val result = GoogleCredentialProvider(activity).request(serverClientId)) {
+                        is GoogleCredentialResult.Success -> repository.signInExistingAccount(result.idToken)
+                        GoogleCredentialResult.Cancelled -> repository.existingAccountSelectionCancelled()
+                        GoogleCredentialResult.ConfigurationError, GoogleCredentialResult.GeneralError ->
+                            repository.existingAccountCredentialFailed()
+                    }
+                }
+            },
+            onCancelConflict = repository::dismissAccountConflict,
         )
         CloudBackupSection(
-            googleLinked = authState is AccountAuthState.GoogleLinked,
+            googleLinked = authState is AccountAuthState.GoogleLinked || authState is AccountAuthState.ExistingAccountSignedIn,
             state = backupState,
-            onBackupNow = { scope.launch { backupRepository.backupNow() } },
+            onBackupNow = {
+                val account = when (val current = authState) {
+                    is AccountAuthState.GoogleLinked -> current.account
+                    is AccountAuthState.ExistingAccountSignedIn -> current.account
+                    else -> null
+                }
+                account?.let { (context.applicationContext as StepArenaApplication).existingAccountSafetyStore.allowExplicitBackup(it.uid) }
+                scope.launch { backupRepository.backupNow() }
+            },
+            restoreState = restoreState,
+            onCheckRestore = { scope.launch { restoreRepository.check() } },
+            onRestore = { scope.launch { restoreRepository.restoreConfirmed() } },
         )
         SettingsHeading(R.string.settings_heading_tracking)
         SettingRow(Icons.Default.HealthAndSafety, R.string.settings_health_connect, R.string.settings_health_connect_summary, onRecoverySettings)
@@ -126,8 +158,12 @@ fun SettingsScreen(
 internal fun CloudBackupSection(
     googleLinked: Boolean,
     state: BackupState,
-    onBackupNow: () -> Unit,
+    onBackupNow: () -> Unit = {},
+    restoreState: RestoreState = RestoreState(),
+    onCheckRestore: () -> Unit = {},
+    onRestore: () -> Unit = {},
 ) {
+    var showConfirm by remember { mutableStateOf(false) }
     val status = when {
         !googleLinked -> stringResource(R.string.backup_requires_google)
         state.status == BackupStatus.RUNNING -> stringResource(R.string.backup_running)
@@ -158,27 +194,70 @@ internal fun CloudBackupSection(
             ) {
                 Text(stringResource(if (state.status == BackupStatus.FAILED) R.string.retry else R.string.backup_now))
             }
+            if (googleLinked) Button(
+                onClick = onCheckRestore,
+                enabled = restoreState.status !in setOf(RestoreStatus.CHECKING, RestoreStatus.RESTORING),
+                modifier = Modifier.testTag("restore_check_button"),
+            ) { Text(stringResource(R.string.restore_check)) }
+            restoreState.preview?.let { preview ->
+                Text(stringResource(if (preview.metadata.schemaVersion == 1) R.string.restore_schema_v1 else R.string.restore_schema_v2), modifier = Modifier.testTag("restore_preview"))
+                if (preview.metadata.schemaVersion == 1) Text(stringResource(R.string.restore_schema_v1_limited))
+                preview.restorableCounts.forEach { (key, count) -> Text(stringResource(R.string.restore_category_count, key, count)) }
+                if (preview.hasSettings) Text(stringResource(R.string.restore_settings_available))
+                if (preview.unavailableRecordCount > 0) Text(stringResource(R.string.restore_unavailable_count, preview.unavailableRecordCount))
+                val excluded = preview.excludedCounts.values.sum()
+                if (excluded > 0) Text(stringResource(R.string.restore_excluded_count, excluded))
+                Text(stringResource(R.string.restore_current_day_protected))
+                Button(
+                    onClick = { showConfirm = true }, enabled = restoreState.status == RestoreStatus.AVAILABLE,
+                    modifier = Modifier.testTag("restore_button"),
+                ) { Text(stringResource(R.string.restore_from_cloud)) }
+            }
+            when (restoreState.status) {
+                RestoreStatus.RESTORING -> Text(stringResource(R.string.restore_running))
+                RestoreStatus.SUCCESS -> Text(stringResource(R.string.restore_success, restoreState.addedAchievements, restoreState.conflicts))
+                RestoreStatus.NO_CHANGES -> Text(stringResource(R.string.restore_no_changes))
+                RestoreStatus.FAILED -> Text(stringResource(R.string.restore_failed), color = MaterialTheme.colorScheme.error)
+                else -> Unit
+            }
         }
     }
+    if (showConfirm) AlertDialog(
+        onDismissRequest = { showConfirm = false },
+        title = { Text(stringResource(R.string.restore_confirm_title)) },
+        text = { Text(stringResource(R.string.restore_confirm_message)) },
+        confirmButton = { Button(onClick = { showConfirm = false; onRestore() }, modifier = Modifier.testTag("restore_confirm_button")) { Text(stringResource(R.string.restore_from_cloud)) } },
+        dismissButton = { Button(onClick = { showConfirm = false }, modifier = Modifier.testTag("restore_cancel_button")) { Text(stringResource(android.R.string.cancel)) } },
+    )
 }
 
 @Composable
 internal fun AccountSection(
     state: AccountAuthState,
-    onLinkGoogle: () -> Unit,
+    onSignInExisting: () -> Unit = {},
+    onCancelConflict: () -> Unit = {},
+    onLinkGoogle: () -> Unit = {},
 ) {
-    val linked = state as? AccountAuthState.GoogleLinked
+    val linked = when (state) {
+        is AccountAuthState.GoogleLinked -> state.account
+        is AccountAuthState.ExistingAccountSignedIn -> state.account
+        else -> null
+    }
     val account = when (state) {
         is AccountAuthState.LinkingGoogle -> state.account
         is AccountAuthState.AccountConflict -> state.account
+        is AccountAuthState.SigningIntoExistingAccount -> state.account
+        is AccountAuthState.ExistingAccountSignedIn -> state.account
+        is AccountAuthState.ExistingAccountSignInCancelled -> state.account
+        is AccountAuthState.ExistingAccountSignInError -> state.account
         is AccountAuthState.NetworkError -> state.account
         is AccountAuthState.ConfigurationError -> state.account
         is AccountAuthState.GeneralError -> state.account
         is AccountAuthState.GoogleLinked -> state.account
         else -> null
     }
-    val busy = state is AccountAuthState.Initializing ||
-        state is AccountAuthState.SigningInAnonymously || state is AccountAuthState.LinkingGoogle
+    val busy = state is AccountAuthState.Initializing || state is AccountAuthState.SigningInAnonymously ||
+        state is AccountAuthState.LinkingGoogle || state is AccountAuthState.SigningIntoExistingAccount
     GlassSurface(Modifier.fillMaxWidth().testTag("account_section")) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -190,7 +269,15 @@ internal fun AccountSection(
             account?.displayName?.takeIf { it.isNotBlank() }?.let { Text(it) }
             account?.email?.takeIf { it.isNotBlank() }?.let { Text(it) }
             when (state) {
-                is AccountAuthState.AccountConflict -> Text(stringResource(R.string.account_conflict), color = MaterialTheme.colorScheme.error)
+                is AccountAuthState.AccountConflict, is AccountAuthState.SigningIntoExistingAccount -> {
+                    Text(stringResource(R.string.account_conflict_title), style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.testTag("account_conflict_title"))
+                    Text(stringResource(R.string.account_conflict), modifier = Modifier.testTag("account_conflict_message"))
+                }
+                is AccountAuthState.ExistingAccountSignInError -> Text(
+                    stringResource(if (state.error == com.lazyapps.steparena.auth.AuthError.NETWORK) R.string.account_network_error else R.string.account_existing_sign_in_error),
+                    color = MaterialTheme.colorScheme.error,
+                )
                 is AccountAuthState.NetworkError -> Text(stringResource(R.string.account_network_error), color = MaterialTheme.colorScheme.error)
                 is AccountAuthState.ConfigurationError, is AccountAuthState.GeneralError ->
                     Text(stringResource(R.string.account_general_error), color = MaterialTheme.colorScheme.error)
@@ -202,7 +289,15 @@ internal fun AccountSection(
                 }
                 else -> Unit
             }
-            if (linked == null) {
+            if (state is AccountAuthState.AccountConflict || state is AccountAuthState.SigningIntoExistingAccount || state is AccountAuthState.ExistingAccountSignInError) {
+                Button(onClick = onSignInExisting, enabled = !busy, modifier = Modifier.testTag("sign_in_existing_button")) {
+                    Text(stringResource(R.string.account_sign_in_existing))
+                    if (busy) { Spacer(Modifier.width(8.dp)); CircularProgressIndicator(Modifier.size(18.dp).testTag("account_progress"), strokeWidth = 2.dp) }
+                }
+                Button(onClick = onCancelConflict, enabled = !busy, modifier = Modifier.testTag("account_conflict_cancel")) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            } else if (linked == null) {
                 Button(
                     onClick = onLinkGoogle,
                     enabled = !busy,

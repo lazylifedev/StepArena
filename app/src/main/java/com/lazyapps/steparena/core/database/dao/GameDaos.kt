@@ -55,6 +55,8 @@ interface DailyMatchDao {
     fun observeForLeague(leagueId: String): Flow<List<WeeklyLeagueParticipantEntity>>
     @Query("SELECT * FROM weekly_league_participants WHERE leagueId = :leagueId ORDER BY rank")
     suspend fun getForLeague(leagueId: String): List<WeeklyLeagueParticipantEntity>
+    @Query("SELECT * FROM weekly_league_participants ORDER BY leagueId, participantId")
+    suspend fun allForBackup(): List<WeeklyLeagueParticipantEntity>
     @Query("DELETE FROM weekly_league_participants WHERE leagueId = :leagueId")
     suspend fun deleteForLeague(leagueId: String)
     @Query("UPDATE weekly_league_participants SET displayName = :displayName, updatedAtEpochMillis = :updatedAt WHERE isLocalPlayer = 1")

@@ -64,10 +64,12 @@ open class StepArenaApplication : Application(), AppGraph {
         CurrentLocalDayProvider(this, clock, applicationScope)
     }
     val accountAuthRepository by lazy {
-        AccountAuthRepository(FirebaseAuthGateway(FirebaseAuth.getInstance()), applicationScope)
+        AccountAuthRepository(FirebaseAuthGateway(FirebaseAuth.getInstance()), applicationScope, backupOperationGate)
     }
     val backupStateStore by lazy { BackupStateStore(this) }
     val backupScheduler by lazy { BackupScheduler(this) }
+    val backupOperationGate by lazy { BackupOperationGate() }
+    val existingAccountSafetyStore by lazy { ExistingAccountSafetyStore(this) }
     val cloudBackupRepository by lazy {
         CloudBackupRepository(
             FirebaseBackupIdentityProvider(FirebaseAuth.getInstance()),
@@ -75,6 +77,14 @@ open class StepArenaApplication : Application(), AppGraph {
             FirestoreBackupDataSource(FirebaseFirestore.getInstance()),
             backupStateStore,
             clock,
+            backupOperationGate,
+        )
+    }
+    val cloudRestoreRepository by lazy {
+        CloudRestoreRepository(
+            FirebaseBackupIdentityProvider(FirebaseAuth.getInstance()),
+            FirebaseFirestore.getInstance(), database, profileRepository,
+            dailyStepGoalRepository, clock, backupOperationGate,
         )
     }
     override val installationId: String? = null
@@ -91,11 +101,20 @@ open class StepArenaApplication : Application(), AppGraph {
         applicationScope.launch {
             accountAuthRepository.state.collect { auth ->
                 if (auth is AccountAuthState.GoogleLinked) {
-                    backupScheduler.schedulePeriodic()
-                    val last = backupStateStore.current().lastSuccessfulBackupAt
-                    if (last == null || Duration.between(last, clock.instant()).toHours() >= 6) {
-                        backupScheduler.enqueueOneTime()
+                    if (existingAccountSafetyStore.isPendingReview(auth.account.uid)) {
+                        cloudRestoreRepository.clearForAccountChange()
+                        cloudRestoreRepository.check()
+                    } else {
+                        backupScheduler.schedulePeriodic()
+                        val last = backupStateStore.current().lastSuccessfulBackupAt
+                        if (last == null || Duration.between(last, clock.instant()).toHours() >= 6) {
+                            backupScheduler.enqueueOneTime()
+                        }
                     }
+                } else if (auth is AccountAuthState.ExistingAccountSignedIn) {
+                    existingAccountSafetyStore.markPendingReview(auth.account.uid)
+                    cloudRestoreRepository.clearForAccountChange()
+                    cloudRestoreRepository.check()
                 }
             }
         }

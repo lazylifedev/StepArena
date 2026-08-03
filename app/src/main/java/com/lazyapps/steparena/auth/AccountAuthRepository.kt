@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.lazyapps.steparena.backup.BackupOperationGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,10 @@ sealed interface AccountAuthState {
     data class LinkingGoogle(val account: AccountProfile) : AccountAuthState
     data class GoogleLinked(val account: AccountProfile) : AccountAuthState
     data class AccountConflict(val account: AccountProfile) : AccountAuthState
+    data class SigningIntoExistingAccount(val account: AccountProfile) : AccountAuthState
+    data class ExistingAccountSignedIn(val account: AccountProfile) : AccountAuthState
+    data class ExistingAccountSignInCancelled(val account: AccountProfile) : AccountAuthState
+    data class ExistingAccountSignInError(val account: AccountProfile, val error: AuthError) : AccountAuthState
     data class NetworkError(val account: AccountProfile?) : AccountAuthState
     data class ConfigurationError(val account: AccountProfile?) : AccountAuthState
     data class GeneralError(val account: AccountProfile?) : AccountAuthState
@@ -51,10 +56,19 @@ sealed interface LinkResult {
     data object IgnoredWhileBusy : LinkResult
 }
 
+sealed interface ExistingAccountSignInResult {
+    data object SignedIn : ExistingAccountSignInResult
+    data object Cancelled : ExistingAccountSignInResult
+    data object NetworkFailure : ExistingAccountSignInResult
+    data object GeneralFailure : ExistingAccountSignInResult
+    data object Ignored : ExistingAccountSignInResult
+}
+
 interface AuthGateway {
     fun currentUser(): AccountProfile?
     suspend fun signInAnonymously(): AccountProfile
     suspend fun linkGoogle(idToken: String): AccountProfile
+    suspend fun signInGoogle(idToken: String): AccountProfile
     fun addUserListener(listener: (AccountProfile?) -> Unit): AutoCloseable
 }
 
@@ -64,11 +78,13 @@ class AuthNetworkException(cause: Throwable? = null) : Exception(cause)
 class AccountAuthRepository(
     private val gateway: AuthGateway,
     private val scope: CoroutineScope,
+    private val operationGate: BackupOperationGate = BackupOperationGate(),
 ) : AutoCloseable {
     private val started = AtomicBoolean(false)
     private val operationInProgress = AtomicBoolean(false)
     private val credentialLinkStarted = AtomicBoolean(false)
     private var listener: AutoCloseable? = null
+    private var conflictAccount: AccountProfile? = null
     private val mutableState = MutableStateFlow<AccountAuthState>(AccountAuthState.Initializing)
     val state: StateFlow<AccountAuthState> = mutableState.asStateFlow()
 
@@ -126,6 +142,7 @@ class AccountAuthRepository(
             mutableState.value = linked.toState()
             LinkResult.Linked
         } catch (_: AccountCollisionException) {
+            conflictAccount = current
             mutableState.value = AccountAuthState.AccountConflict(current)
             LinkResult.Conflict
         } catch (_: AuthNetworkException) {
@@ -138,6 +155,70 @@ class AccountAuthRepository(
             credentialLinkStarted.set(false)
             operationInProgress.set(false)
         }
+    }
+
+    fun startExistingAccountSignIn(): Boolean {
+        val conflict = conflictAccount ?: return false
+        if (mutableState.value !is AccountAuthState.AccountConflict &&
+            mutableState.value !is AccountAuthState.ExistingAccountSignInError) return false
+        if (!operationInProgress.compareAndSet(false, true)) return false
+        if (!operationGate.tryEnter()) {
+            operationInProgress.set(false)
+            return false
+        }
+        mutableState.value = AccountAuthState.SigningIntoExistingAccount(conflict)
+        return true
+    }
+
+    suspend fun signInExistingAccount(idToken: String): ExistingAccountSignInResult {
+        val original = conflictAccount ?: return ExistingAccountSignInResult.Ignored
+        if (mutableState.value !is AccountAuthState.SigningIntoExistingAccount) return ExistingAccountSignInResult.Ignored
+        var nextState: AccountAuthState = AccountAuthState.AccountConflict(original)
+        val result = try {
+            val signedIn = gateway.signInGoogle(idToken)
+            check(!signedIn.isAnonymous && signedIn.isGoogleLinked && signedIn.uid != original.uid) {
+                "Existing Google account authentication did not change identity"
+            }
+            nextState = AccountAuthState.ExistingAccountSignedIn(signedIn)
+            ExistingAccountSignInResult.SignedIn
+        } catch (_: AuthNetworkException) {
+            nextState = AccountAuthState.ExistingAccountSignInError(original, AuthError.NETWORK)
+            ExistingAccountSignInResult.NetworkFailure
+        } catch (_: Throwable) {
+            nextState = AccountAuthState.ExistingAccountSignInError(original, AuthError.GENERAL)
+            ExistingAccountSignInResult.GeneralFailure
+        } finally {
+            operationInProgress.set(false)
+            operationGate.leave()
+        }
+        mutableState.value = nextState
+        return result
+    }
+
+    fun existingAccountSelectionCancelled(): ExistingAccountSignInResult {
+        val original = conflictAccount ?: return ExistingAccountSignInResult.Ignored
+        if (mutableState.value !is AccountAuthState.SigningIntoExistingAccount) return ExistingAccountSignInResult.Ignored
+        operationInProgress.set(false)
+        operationGate.leave()
+        mutableState.value = AccountAuthState.ExistingAccountSignInCancelled(original)
+        mutableState.value = AccountAuthState.AccountConflict(original)
+        return ExistingAccountSignInResult.Cancelled
+    }
+
+    fun dismissAccountConflict() {
+        if (mutableState.value is AccountAuthState.AccountConflict || mutableState.value is AccountAuthState.ExistingAccountSignInError) {
+            mutableState.value = AccountAuthState.Anonymous()
+        }
+    }
+
+    fun existingAccountCredentialFailed(network: Boolean = false) {
+        val original = conflictAccount ?: return
+        if (mutableState.value !is AccountAuthState.SigningIntoExistingAccount) return
+        operationInProgress.set(false)
+        operationGate.leave()
+        mutableState.value = AccountAuthState.ExistingAccountSignInError(
+            original, if (network) AuthError.NETWORK else AuthError.GENERAL,
+        )
     }
 
     fun googleSelectionCancelled() {
@@ -188,6 +269,17 @@ class FirebaseAuthGateway(private val auth: FirebaseAuth) : AuthGateway {
                 ?: error("Google link returned no user")
         } catch (error: FirebaseAuthUserCollisionException) {
             throw AccountCollisionException(error)
+        } catch (error: FirebaseNetworkException) {
+            throw AuthNetworkException(error)
+        }
+    }
+
+
+    override suspend fun signInGoogle(idToken: String): AccountProfile {
+        val credential: AuthCredential = GoogleAuthProvider.getCredential(idToken, null)
+        return try {
+            auth.signInWithCredential(credential).awaitResult().user?.reloadAndProfile()
+                ?: error("Google sign-in returned no user")
         } catch (error: FirebaseNetworkException) {
             throw AuthNetworkException(error)
         }

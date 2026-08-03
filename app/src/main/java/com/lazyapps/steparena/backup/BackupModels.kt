@@ -2,7 +2,8 @@ package com.lazyapps.steparena.backup
 
 import java.time.Instant
 
-const val BACKUP_SCHEMA_VERSION = 1
+const val BACKUP_SCHEMA_VERSION = 2
+const val MINIMUM_RESTORE_VERSION = 2
 
 enum class BackupStatus { NEVER_RUN, RUNNING, COMPLETE, FAILED }
 enum class BackupErrorCategory { NETWORK, AUTHENTICATION, INTEGRITY, PERMISSION, CONFIGURATION, UNKNOWN }

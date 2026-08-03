@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.sync.Mutex
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -27,9 +28,12 @@ class FirebaseBackupIdentityProvider(private val auth: FirebaseAuth) : BackupIde
 
 class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
     suspend fun upload(uid: String, generation: Long, snapshot: BackupSnapshot) {
+        // Schema v1 remains at userBackups/{uid}; every v2 write is isolated below versions/v2.
         val root = firestore.collection("userBackups").document(uid)
+            .collection("versions").document("v2")
         upsertWithServerTimestamps(root, mapOf(
             "schemaVersion" to BACKUP_SCHEMA_VERSION, "appVersionName" to BuildConfig.VERSION_NAME,
+            "minimumRestoreVersion" to MINIMUM_RESTORE_VERSION,
             "appVersionCode" to BuildConfig.VERSION_CODE, "databaseVersion" to 10,
             "backupGeneration" to generation, "backupStatus" to "in_progress",
             "backupStartedAt" to FieldValue.serverTimestamp(), "localTimeZone" to snapshot.localTimeZone,
@@ -38,7 +42,11 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
             "sessionCount" to (snapshot.counts["sessions"] ?: 0),
             "challengeResultCount" to (snapshot.counts["challengeResults"] ?: 0),
             "leagueHistoryCount" to (snapshot.counts["leagueHistory"] ?: 0),
-            "achievementCount" to (snapshot.counts["achievements"] ?: 0), "newestLocalDate" to snapshot.newestLocalDate,
+            "leagueParticipantCount" to (snapshot.counts["leagueParticipants"] ?: 0),
+            "seasonHistoryCount" to (snapshot.counts["seasonHistory"] ?: 0),
+            "integritySegmentCount" to (snapshot.counts["integritySegments"] ?: 0),
+            "achievementCount" to (snapshot.counts["achievements"] ?: 0),
+            "settingsCount" to (snapshot.counts["settings"] ?: 0), "newestLocalDate" to snapshot.newestLocalDate,
         ))
         snapshot.documents.chunked(MAX_TRANSACTION_DOCUMENTS).forEach { chunk ->
             firestore.runTransaction { transaction ->
@@ -52,12 +60,15 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
                         put("createdAt", existing.get("createdAt") ?: FieldValue.serverTimestamp())
                         put("updatedAt", FieldValue.serverTimestamp())
                     }
-                    transaction.set(reference, fields, SetOptions.merge())
+                    // Replace one data document so fields left by schema v1 cannot survive
+                    // and violate the schema v2 hasOnly contract. createdAt is preserved above.
+                    transaction.set(reference, fields)
                 }
             }.await()
         }
         upsertWithServerTimestamps(root, mapOf(
             "schemaVersion" to BACKUP_SCHEMA_VERSION, "appVersionName" to BuildConfig.VERSION_NAME,
+            "minimumRestoreVersion" to MINIMUM_RESTORE_VERSION,
             "appVersionCode" to BuildConfig.VERSION_CODE, "databaseVersion" to 10,
             "backupGeneration" to generation, "backupStatus" to "complete",
             "backupCompletedAt" to FieldValue.serverTimestamp(),
@@ -65,7 +76,11 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
             "hourlyCount" to (snapshot.counts["hourly"] ?: 0), "sessionCount" to (snapshot.counts["sessions"] ?: 0),
             "challengeResultCount" to (snapshot.counts["challengeResults"] ?: 0),
             "leagueHistoryCount" to (snapshot.counts["leagueHistory"] ?: 0),
-            "achievementCount" to (snapshot.counts["achievements"] ?: 0), "newestLocalDate" to snapshot.newestLocalDate,
+            "leagueParticipantCount" to (snapshot.counts["leagueParticipants"] ?: 0),
+            "seasonHistoryCount" to (snapshot.counts["seasonHistory"] ?: 0),
+            "integritySegmentCount" to (snapshot.counts["integritySegments"] ?: 0),
+            "achievementCount" to (snapshot.counts["achievements"] ?: 0),
+            "settingsCount" to (snapshot.counts["settings"] ?: 0), "newestLocalDate" to snapshot.newestLocalDate,
         ))
     }
 
@@ -89,6 +104,7 @@ class CloudBackupRepository(
     private val dataSource: FirestoreBackupDataSource,
     private val stateStore: BackupStateStore,
     private val clock: Clock,
+    private val operationGate: BackupOperationGate = BackupOperationGate(),
 ) {
     private val running = AtomicBoolean(false)
     val state: Flow<BackupState> = stateStore.state
@@ -96,6 +112,10 @@ class CloudBackupRepository(
     suspend fun backupNow(): BackupResult {
         val uid = identityProvider.googleLinkedUid() ?: return BackupResult.Skipped(BackupResult.Reason.NOT_GOOGLE_LINKED)
         if (!running.compareAndSet(false, true)) return BackupResult.Skipped(BackupResult.Reason.ALREADY_RUNNING)
+        if (!operationGate.tryEnter()) {
+            running.set(false)
+            return BackupResult.Skipped(BackupResult.Reason.ALREADY_RUNNING)
+        }
         val started = clock.instant()
         return try {
             stateStore.markRunning(started)
@@ -115,8 +135,16 @@ class CloudBackupRepository(
             BackupResult.Failure(category)
         } finally {
             running.set(false)
+            operationGate.leave()
         }
     }
+}
+
+/** Process-wide exclusion shared by backup and restore. */
+class BackupOperationGate {
+    private val mutex = Mutex()
+    fun tryEnter(): Boolean = mutex.tryLock()
+    fun leave() { if (mutex.isLocked) mutex.unlock() }
 }
 
 private fun Throwable.toCategory(): BackupErrorCategory = when (this) {
@@ -132,7 +160,7 @@ private fun Throwable.toCategory(): BackupErrorCategory = when (this) {
     else -> BackupErrorCategory.UNKNOWN
 }
 
-private suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T = suspendCancellableCoroutine { continuation ->
+internal suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T = suspendCancellableCoroutine { continuation ->
     addOnSuccessListener { if (continuation.isActive) continuation.resume(it) }
     addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
     addOnCanceledListener { continuation.cancel() }
