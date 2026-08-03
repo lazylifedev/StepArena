@@ -170,7 +170,7 @@ class StepTrackingService : Service(), SensorEventListener {
             }
         }
         if (BuildConfig.DEBUG && intent?.action == debugAction()) {
-            promote(NotificationModel(0, null, getString(R.string.notification_status_preparing)))
+            promote(NotificationModel(null, null, getString(R.string.notification_status_preparing)))
             val value = intent.getFloatExtra(debugValueExtra(), Float.NaN)
             val keepFakeMode = intent.getBooleanExtra(debugKeepFakeModeExtra(), false)
             val sequenceCount = intent.getIntExtra(debugSequenceCountExtra(), 0)
@@ -236,7 +236,7 @@ class StepTrackingService : Service(), SensorEventListener {
             }
             return START_STICKY
         }
-        promote(NotificationModel(0, null, getString(R.string.notification_status_preparing)))
+        promote(NotificationModel(null, null, getString(R.string.notification_status_preparing)))
         if (setupStarted.compareAndSet(false, true)) scope.launch {
             serializeStateUpdate { restoreAndRegister() }
         }
@@ -637,7 +637,9 @@ class StepTrackingService : Service(), SensorEventListener {
             if (manual == null) R.string.notification_tracking_title
             else R.string.notification_walking_title,
         )
-        val text = if (manual == null) {
+        val text = if (model.steps == null) {
+            getString(R.string.notification_status_preparing)
+        } else if (manual == null) {
             getString(
                 R.string.notification_tracking_text,
                 NumberFormat.getNumberInstance().format(model.steps),
@@ -676,7 +678,7 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     data class NotificationModel(
-        val steps: Long,
+        val steps: Long?,
         val lastUpdated: Instant?,
         val statusLabel: String,
         val manualSession: com.lazyapps.steparena.core.database.entity.WalkingSessionEntity? = null,

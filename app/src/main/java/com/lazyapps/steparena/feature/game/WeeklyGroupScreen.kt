@@ -54,7 +54,6 @@ fun WeeklyGroupScreen(state: WeeklyGroupUiState) {
                         fontWeight = FontWeight.Bold,
                     )
                     Text(stringResource(R.string.game_weekly_points, formatNumber(league.userPoints)))
-                    Text(stringResource(R.string.game_league_lines_compact))
                     if (league.status == LeagueStatus.FINALIZED) Text(stringResource(R.string.game_league_finalized))
                 }
             }
@@ -89,11 +88,5 @@ fun WeeklyGroupScreen(state: WeeklyGroupUiState) {
 
 internal fun visibleLeagueParticipants(
     participants: List<WeeklyLeagueParticipantEntity>,
-): List<WeeklyLeagueParticipantEntity> {
-    val sorted = participants.sortedBy { it.rank }
-    val localIndex = sorted.indexOfFirst { it.isLocalPlayer }
-    val nearby = if (localIndex < 0) emptyList() else sorted.subList(
-        (localIndex - 1).coerceAtLeast(0), (localIndex + 2).coerceAtMost(sorted.size),
-    )
-    return (sorted.take(3) + nearby).distinctBy { it.participantId }.sortedBy { it.rank }
-}
+): List<WeeklyLeagueParticipantEntity> =
+    participants.sortedWith(compareBy<WeeklyLeagueParticipantEntity> { it.rank }.thenBy { it.participantId })
