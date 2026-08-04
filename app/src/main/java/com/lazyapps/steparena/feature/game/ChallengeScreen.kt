@@ -66,6 +66,11 @@ import com.lazyapps.steparena.core.designsystem.theme.StepArenaMotion
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 import com.lazyapps.steparena.game.MatchOutcome
 import com.lazyapps.steparena.game.MatchStatus
+import com.lazyapps.steparena.game.LocalOpponent
+import com.lazyapps.steparena.game.LocalOpponentGenerator
+import com.lazyapps.steparena.game.OfficialSteps
+import com.lazyapps.steparena.game.PartnerProgress
+import com.lazyapps.steparena.game.PartnerSyncState
 import com.lazyapps.steparena.game.publicDisplayName
 import com.lazyapps.steparena.core.database.entity.DailyMatchEntity
 import kotlinx.coroutines.delay
@@ -104,11 +109,22 @@ fun ChallengeScreen(
     var showInformation by rememberSaveable { mutableStateOf(false) }
     var selectedHistoryId by rememberSaveable { mutableStateOf<String?>(null) }
     val match = state.todayMatch
+    val partnerProgress = match?.let {
+        val now = java.time.ZonedDateTime.now()
+        val steps = LocalOpponentGenerator().progress(
+            LocalOpponent(
+                it.opponentId, it.opponentName, it.opponentAvatarKey, it.opponentRankTier,
+                it.opponentRankDivision, it.opponentTargetSteps, it.opponentPersonality,
+            ), now.hour * 60 + now.minute,
+        )
+        PartnerProgress(OfficialSteps.fromEligible(steps), now.toInstant().toEpochMilli(), it.localDate, it.zoneId, PartnerSyncState.SYNCED)
+    }
     val comparison = match?.let {
         challengeComparison(
             current = currentChallengeSteps(it, state.currentMeasuredSteps, state.currentEligibleSteps),
             healthConnectAddedSteps = state.currentHealthConnectAddedSteps,
             partnerTargetSteps = it.opponentTargetSteps,
+            partner = partnerProgress,
         )
     }
     val finalized = state.recentMatches
@@ -221,9 +237,8 @@ private fun ChallengeHistoryRow(match: DailyMatchEntity, onClick: () -> Unit) {
     val deltaText = signedRating(delta)
     val date = formatDate(match.localDate)
     val steps = formatNumber(match.eligibleUserSteps)
-    val target = formatNumber(match.opponentTargetSteps)
     val accessibility = stringResource(
-        R.string.game_history_accessibility, date, result, steps, target, deltaText,
+        R.string.game_history_accessibility, date, result, steps, deltaText,
     )
     GlassSurface(
         Modifier
@@ -244,7 +259,7 @@ private fun ChallengeHistoryRow(match: DailyMatchEntity, onClick: () -> Unit) {
             Text(result, fontWeight = FontWeight.Bold)
             Text(deltaText)
         }
-        Text(stringResource(R.string.game_history_steps_compact, steps, target))
+        Text(stringResource(R.string.game_history_steps_compact, steps))
     }
 }
 
@@ -270,7 +285,6 @@ private fun ChallengeHistorySheet(match: DailyMatchEntity, onDismiss: () -> Unit
             Text(stringResource(R.string.game_history_detail_date, formatDate(match.localDate)))
             Text(stringResource(R.string.game_history_detail_result, result))
             Text(stringResource(R.string.game_history_detail_user_steps, formatNumber(match.eligibleUserSteps)))
-            Text(stringResource(R.string.game_history_detail_target, formatNumber(match.opponentTargetSteps)))
             Text(stringResource(R.string.game_history_detail_rating_before, formatNumber(match.ratingBefore)))
             Text(stringResource(R.string.game_history_detail_rating_after, after))
             Text(stringResource(R.string.game_history_detail_rating_delta, delta))
@@ -309,10 +323,13 @@ private fun ChallengeComparisonCard(
     onInformation: () -> Unit,
 ) {
     val userSteps = formatNumber(comparison.eligibleSteps)
-    val partnerSteps = formatNumber(comparison.partnerTargetSteps)
+    val partnerSteps = comparison.partner?.officialSteps?.let(::formatNumber)
+        ?: stringResource(R.string.game_partner_sync_waiting)
     val remainingSteps = formatNumber(comparison.remainingSteps)
     val playerName = publicDisplayName(displayName, stringResource(R.string.game_you))
-    val comparisonAccessibility = if (comparison.goalAchieved) {
+    val comparisonAccessibility = if (comparison.partner?.officialSteps == null) {
+        stringResource(R.string.game_partner_sync_waiting)
+    } else if (comparison.goalAchieved) {
         stringResource(R.string.game_challenge_accessibility_achieved, userSteps, partnerSteps)
     } else {
         stringResource(
@@ -398,13 +415,13 @@ private fun ChallengeComparisonCard(
             ParticipantProgress(
                 label = stringResource(R.string.game_partner),
                 steps = partnerSteps,
-                progress = 0f,
+                progress = comparison.partner?.let { it.officialSteps?.let { steps -> (steps % OfficialSteps.DAILY_LIMIT).toFloat() / OfficialSteps.DAILY_LIMIT } } ?: 0f,
                 color = StepArenaColors.Violet,
                 isUser = false,
                 compactTypography = compactTypography,
                 motionLevel = motionLevel,
-                completedSegments = 0,
-                segmentProgress = 0f,
+                completedSegments = comparison.partner?.officialSteps?.let { (it / OfficialSteps.SEGMENT_SIZE).toInt() } ?: 0,
+                segmentProgress = comparison.partner?.officialSteps?.let { (it % OfficialSteps.SEGMENT_SIZE).toFloat() / OfficialSteps.SEGMENT_SIZE } ?: 0f,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -430,6 +447,29 @@ private fun ChallengeComparisonCard(
                 },
                 style = MaterialTheme.typography.titleLarge,
                 color = if (comparison.goalAchieved) StepArenaColors.Emerald else StepArenaColors.White,
+            )
+        }
+        Text(
+            when {
+                comparison.leadDifference == null -> stringResource(R.string.game_partner_sync_waiting)
+                comparison.leadDifference!! < 0 -> stringResource(R.string.game_steps_behind, formatNumber(-comparison.leadDifference!!))
+                comparison.leadDifference!! > 0 -> stringResource(R.string.game_steps_ahead, formatNumber(comparison.leadDifference!!))
+                else -> stringResource(R.string.game_steps_tied)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+            color = StepArenaColors.TextSecondary,
+        )
+        comparison.partner?.updatedAtEpochMillis?.let { updatedAt ->
+            Text(
+                stringResource(
+                    R.string.game_partner_updated_at,
+                    java.time.Instant.ofEpochMilli(updatedAt).atZone(java.time.ZoneId.systemDefault())
+                        .toLocalTime().toString().take(5),
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                color = StepArenaColors.TextSecondary,
             )
         }
         if (comparison.showsTotalBreakdown) {

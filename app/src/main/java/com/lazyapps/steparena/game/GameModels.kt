@@ -106,6 +106,59 @@ object OfficialSteps {
     const val REWARD_LIMIT = 30_000L
 
     fun fromEligible(eligibleSteps: Long): Long = eligibleSteps.coerceAtLeast(0).coerceAtMost(DAILY_LIMIT)
+    fun competition(eligibleSteps: Long): Long = fromEligible(eligibleSteps)
+    fun reward(eligibleSteps: Long): Long = fromEligible(eligibleSteps).coerceAtMost(REWARD_LIMIT)
+}
+
+enum class MatchCandidateType { BOT, REAL }
+enum class PartnerSyncState { SYNCED, STALE, NO_TODAY_DATA, UNKNOWN }
+
+data class PartnerProgress(
+    val officialSteps: Long?,
+    val updatedAtEpochMillis: Long?,
+    val localDate: String?,
+    val timezone: String?,
+    val syncState: PartnerSyncState,
+)
+
+data class ChallengeResult(
+    val myCompetitionSteps: Long,
+    val opponentCompetitionSteps: Long,
+    val myRewardSteps: Long,
+    val opponentRewardSteps: Long,
+    val winner: MatchOutcome,
+) {
+    val difference: Long get() = myCompetitionSteps - opponentCompetitionSteps
+}
+
+data class MatchCandidate(
+    val id: String,
+    val type: MatchCandidateType,
+    val rankTier: RankTier,
+    val rankDivision: Int?,
+    val recentOfficialSteps: Long?,
+    val personalGoalBand: Int,
+    val timezone: String?,
+    val lastActiveAtEpochMillis: Long?,
+    val recentOpponentIds: Set<String> = emptySet(),
+)
+
+object MatchCandidateScoring {
+    fun score(candidate: MatchCandidate, player: MatchCandidate): Long {
+        val rankDistance = kotlin.math.abs(candidate.rankTier.ordinal - player.rankTier.ordinal) * 100L +
+            kotlin.math.abs((candidate.rankDivision ?: 0) - (player.rankDivision ?: 0))
+        val stepDistance = if (candidate.recentOfficialSteps == null || player.recentOfficialSteps == null) 50_000L
+            else kotlin.math.abs(candidate.recentOfficialSteps - player.recentOfficialSteps).coerceAtMost(100_000L)
+        val goalDistance = kotlin.math.abs(candidate.personalGoalBand - player.personalGoalBand).toLong()
+        val timezonePenalty = if (candidate.timezone == player.timezone) 0L else 10L
+        val stalePenalty = if (candidate.lastActiveAtEpochMillis == null) 100_000L else 0L
+        val repeatPenalty = if (candidate.id in player.recentOpponentIds) 25_000L else 0L
+        return rankDistance * 1_000_000L + stepDistance * 1_000L + goalDistance * 100L +
+            timezonePenalty + stalePenalty + repeatPenalty
+    }
+
+    fun rank(candidates: List<MatchCandidate>, player: MatchCandidate): List<MatchCandidate> =
+        candidates.sortedWith(compareBy<MatchCandidate> { score(it, player) }.thenBy { it.id })
 }
 
 data class CompetitiveIntegrityPolicy(
