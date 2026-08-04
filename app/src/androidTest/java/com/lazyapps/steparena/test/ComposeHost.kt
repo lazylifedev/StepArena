@@ -16,6 +16,9 @@ fun AndroidComposeTestRule<ActivityScenarioRule<ComponentActivity>, ComponentAct
     if (initialState == Lifecycle.State.DESTROYED) {
         fail("Compose test host is closed before setContent; scenarioState=$initialState")
     }
+    if (initialState != Lifecycle.State.RESUMED) {
+        scenario.moveToState(Lifecycle.State.RESUMED)
+    }
     waitUntil(timeoutMillis = 10_000) {
         scenario.state == Lifecycle.State.RESUMED
     }

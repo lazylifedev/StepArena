@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import com.lazyapps.steparena.app.navigation.StepArenaApp
@@ -95,16 +96,19 @@ class HomeDiagnosticsNavigationTest {
         composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.nav_settings))
             .performClick()
         composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.settings_diagnostics))
+            .performScrollTo()
             .performClick()
         composeRule.onNodeWithTag(DiagnosticsTestTags.SCREEN).assertIsDisplayed()
 
         composeRule.activityRule.scenario.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()
         }
-        composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.settings_diagnostics))
-            .assertIsDisplayed()
+        composeRule.onNodeWithTag("settings_list").assertIsDisplayed()
         composeRule.onNodeWithTag("bottom_navigation_settings")
             .assertIsSelected()
+        composeRule.onNodeWithText(composeRule.activity.getString(com.lazyapps.steparena.R.string.settings_diagnostics))
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     private fun setAppContent() {
