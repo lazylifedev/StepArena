@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "production": "steparena-474b8",
+    "qa": "steparena-dev"
+  }
+}

@@ -6,6 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChallengePresentationTest {
+    @Test fun historyRatingDeltaUsesCompactSignedForm() {
+        assertEquals("+12", signedRating(12))
+        assertEquals("-3", signedRating(-3))
+        assertEquals("0", signedRating(0))
+        assertEquals("—", signedRating(null))
+    }
     @Test fun phase721FixtureKeepsTotalEligiblePartnerAndRemainingDistinct() {
         val comparison = challengeComparison(
             current = CurrentChallengeSteps(

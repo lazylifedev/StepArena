@@ -34,6 +34,8 @@ interface DailyMatchDao {
     suspend fun deleteForZone(zone: String)
     @Query("SELECT COUNT(*) FROM daily_matches") suspend fun count(): Int
     @Query("DELETE FROM daily_matches") suspend fun deleteAll()
+    @Query("SELECT * FROM daily_matches WHERE status = 'FINALIZED' ORDER BY localDate")
+    suspend fun finalizedForBackup(): List<DailyMatchEntity>
 }
 
 @Dao interface WeeklyLeagueDao {
@@ -44,6 +46,8 @@ interface DailyMatchDao {
     suspend fun expired(today: String): List<WeeklyLeagueEntity>
     @Query("SELECT COUNT(*) FROM weekly_leagues") suspend fun count(): Int
     @Query("DELETE FROM weekly_leagues") suspend fun deleteAll()
+    @Query("SELECT * FROM weekly_leagues WHERE status = 'FINALIZED' ORDER BY weekStartLocalDate")
+    suspend fun finalizedForBackup(): List<WeeklyLeagueEntity>
 }
 @Dao interface WeeklyLeagueParticipantDao {
     @Upsert suspend fun upsertAll(values: List<WeeklyLeagueParticipantEntity>)
@@ -51,6 +55,8 @@ interface DailyMatchDao {
     fun observeForLeague(leagueId: String): Flow<List<WeeklyLeagueParticipantEntity>>
     @Query("SELECT * FROM weekly_league_participants WHERE leagueId = :leagueId ORDER BY rank")
     suspend fun getForLeague(leagueId: String): List<WeeklyLeagueParticipantEntity>
+    @Query("SELECT * FROM weekly_league_participants ORDER BY leagueId, participantId")
+    suspend fun allForBackup(): List<WeeklyLeagueParticipantEntity>
     @Query("DELETE FROM weekly_league_participants WHERE leagueId = :leagueId")
     suspend fun deleteForLeague(leagueId: String)
     @Query("UPDATE weekly_league_participants SET displayName = :displayName, updatedAtEpochMillis = :updatedAt WHERE isLocalPlayer = 1")
@@ -66,6 +72,8 @@ interface DailyMatchDao {
     @Query("SELECT * FROM game_seasons ORDER BY id DESC") fun observeAll(): Flow<List<GameSeasonEntity>>
     @Query("SELECT COUNT(*) FROM game_seasons") suspend fun count(): Int
     @Query("DELETE FROM game_seasons") suspend fun deleteAll()
+    @Query("SELECT * FROM game_seasons WHERE status = 'FINALIZED' ORDER BY startedAtEpochMillis")
+    suspend fun finalizedForBackup(): List<GameSeasonEntity>
 }
 @Dao interface AchievementUnlockDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insert(value: AchievementUnlockEntity): Long
@@ -75,6 +83,8 @@ interface DailyMatchDao {
     @Query("DELETE FROM achievement_unlocks WHERE achievementId LIKE 'debug-%'") suspend fun deleteDebug()
     @Query("SELECT COUNT(*) FROM achievement_unlocks") suspend fun count(): Int
     @Query("DELETE FROM achievement_unlocks") suspend fun deleteAll()
+    @Query("SELECT * FROM achievement_unlocks ORDER BY unlockedAtEpochMillis")
+    suspend fun allForBackup(): List<AchievementUnlockEntity>
 }
 
 @Dao

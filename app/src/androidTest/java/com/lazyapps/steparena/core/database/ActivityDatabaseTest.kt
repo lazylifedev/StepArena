@@ -9,6 +9,8 @@ import com.lazyapps.steparena.core.database.entity.ActivityProcessingStateEntity
 import com.lazyapps.steparena.core.database.model.DataQuality
 import com.lazyapps.steparena.activity.ActivityRepository
 import com.lazyapps.steparena.activity.UserProfileRepository
+import com.lazyapps.steparena.game.DetectorEvidence
+import com.lazyapps.steparena.game.MotionEvidenceAssessment
 import com.lazyapps.steparena.core.database.model.WalkingSessionStatus
 import java.time.Instant
 import java.time.ZoneId
@@ -160,6 +162,166 @@ class ActivityDatabaseTest {
 
     @Test fun counterMeasuredStepsKeepMeasuredDurationIndependent() = runBlocking {
         assertCounterAndDurationQuality(98, DataQuality.MEASURED)
+    }
+
+    @Test fun motionEvidenceRestrictsCompetitionButPreservesEveryActivityStore() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        database.processingState().upsert(
+            ActivityProcessingStateEntity(
+                lastCounterValue = 1_000, lastEventEpochMillis = start.toEpochMilli(), lastZoneId = zone.id,
+                lastBootSessionId = "boot", activeAutoSessionId = null, activeManualSessionId = null,
+                lastDetectorEventEpochMillis = null, lastWalkingEventEpochMillis = start.toEpochMilli(),
+                updatedAtEpochMillis = start.toEpochMilli(), activityRepairVersion = 1,
+            ),
+        )
+        repeat(100) { index ->
+            val assessment = when {
+                index < 30 -> MotionEvidenceAssessment.SHAKE_CONFIRMED
+                index < 50 -> MotionEvidenceAssessment.SHAKE_SUSPECTED
+                else -> MotionEvidenceAssessment.WALK_LIKE
+            }
+            repository.recordDetector(DetectorEvidence(start.plusMillis(index * 500L), assessment, 0.9))
+        }
+        repository.recordCounterDelta(
+            sensorValue = 1_100, delta = 100, at = start.plusSeconds(60), zoneId = zone,
+            bootSessionId = "boot", trackingServiceSessionId = "service", recovered = false,
+            detectorAvailable = true, motionSensorAvailable = true,
+        )
+        val integrity = database.competitiveIntegritySegments().forDate("2026-07-29", zone.id).single()
+        assertEquals(100L, database.daily().get("2026-07-29", zone.id)?.steps)
+        assertEquals(100L, database.hourly().forDate("2026-07-29", zone.id).sumOf { it.steps })
+        assertEquals(100L, database.sessions().active(false)?.steps)
+        assertEquals(100L, integrity.totalSteps)
+        assertEquals(50L, integrity.eligibleSteps)
+        assertEquals(20L, integrity.restrictedSteps)
+        assertEquals(30L, integrity.excludedSteps)
+        assertEquals(3, integrity.classifierVersion)
+    }
+
+    @Test fun counterFirstMultipleMotionWindowsAccumulateAndDuplicateFinishIsIdempotent() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        database.processingState().upsert(ActivityProcessingStateEntity(
+            lastCounterValue = 1_000, lastEventEpochMillis = start.toEpochMilli(), lastZoneId = zone.id,
+            lastBootSessionId = "boot", activeAutoSessionId = null, activeManualSessionId = null,
+            lastDetectorEventEpochMillis = null, lastWalkingEventEpochMillis = start.toEpochMilli(),
+            updatedAtEpochMillis = start.toEpochMilli(), activityRepairVersion = 1))
+        repeat(100) { index -> repository.recordDetector(DetectorEvidence(
+            start.plusMillis(index * 500L), evidenceWindowId = when { index < 30 -> "a"; index < 50 -> "b"; else -> null })) }
+        repository.recordCounterDelta(1_100, 100, start.plusSeconds(60), zone, "boot", "service",
+            recovered = false, detectorAvailable = true, motionSensorAvailable = true)
+        assertEquals(2, repository.motionRepositorySnapshot().pendingAllocations)
+        assertEquals(1, repository.applyMotionEvidence("a", MotionEvidenceAssessment.SHAKE_CONFIRMED, .9).integritySegmentsUpdated)
+        assertEquals(1, repository.applyMotionEvidence("b", MotionEvidenceAssessment.SHAKE_SUSPECTED, .8).integritySegmentsUpdated)
+        assertEquals(0, repository.applyMotionEvidence("a", MotionEvidenceAssessment.WALK_LIKE, .9).integritySegmentsUpdated)
+        assertEquals(0, repository.motionRepositorySnapshot().pendingAllocations)
+        val integrity = database.competitiveIntegritySegments().forDate("2026-07-29", zone.id).single()
+        assertEquals(listOf(100L, 50L, 20L, 30L), listOf(integrity.totalSteps, integrity.eligibleSteps,
+            integrity.restrictedSteps, integrity.excludedSteps))
+        assertEquals("DEVICE_SHAKE_CONFIRMED,DEVICE_SHAKE_SUSPECTED", integrity.reasons)
+    }
+
+    @Test fun clearingAllEvidencePreventsStoppedSessionDetectorsFromReachingRestartedCounter() = runBlocking {
+        val repository = repositoryWithProcessing("boot", "2026-07-29T03:00:00Z")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        repeat(5) { repository.recordDetector(DetectorEvidence(start.plusSeconds(it.toLong()),
+            MotionEvidenceAssessment.SHAKE_CONFIRMED, .9, "old")) }
+        repository.clearAllMotionEvidence()
+        repeat(10) { repository.recordDetector(DetectorEvidence(start.plusSeconds(10 + it.toLong()),
+            MotionEvidenceAssessment.WALK_LIKE, .9, "new")) }
+        repository.recordCounterDelta(1_010, 10, start.plusSeconds(30), ZoneId.of("Asia/Tokyo"),
+            "boot", "new-session", false, detectorAvailable = true, motionSensorAvailable = true)
+
+        val snapshot = repository.motionRepositorySnapshot()
+        val segment = database.competitiveIntegritySegments().forDate("2026-07-29", "Asia/Tokyo").single()
+        assertEquals(0, snapshot.detectorEvents)
+        assertEquals(0, snapshot.pendingAllocations)
+        assertEquals(10L, segment.eligibleSteps)
+    }
+
+    @Test fun bootChangeDiscardsOldDetectorEvidence() = runBlocking {
+        val repository = repositoryWithProcessing("old-boot", "2026-07-29T03:00:00Z")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        repeat(5) { repository.recordDetector(DetectorEvidence(start.plusSeconds(it.toLong()),
+            MotionEvidenceAssessment.SHAKE_CONFIRMED, .9, "old")) }
+        repository.recordCounterDelta(1_010, 10, start.plusSeconds(30), ZoneId.of("Asia/Tokyo"),
+            "new-boot", "session", false, detectorAvailable = true, motionSensorAvailable = true)
+
+        assertEquals(0, repository.motionRepositorySnapshot().detectorEvents)
+        assertEquals(10L, database.competitiveIntegritySegments().forDate("2026-07-29", "Asia/Tokyo").single().eligibleSteps)
+    }
+
+    @Test fun counterResetClearRemovesDetectorAndPendingState() = runBlocking {
+        val repository = repositoryWithProcessing("boot", "2026-07-29T03:00:00Z")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        repeat(5) { repository.recordDetector(DetectorEvidence(start.plusSeconds(it.toLong()), evidenceWindowId = "pending")) }
+        repository.recordCounterDelta(1_005, 5, start.plusSeconds(10), ZoneId.of("Asia/Tokyo"),
+            "boot", "session", false, detectorAvailable = true, motionSensorAvailable = true)
+        repository.recordDetector(DetectorEvidence(start.plusSeconds(11), evidenceWindowId = "queued"))
+        repository.clearAllMotionEvidence()
+
+        assertEquals(listOf(0, 0, 0), repository.motionRepositorySnapshot().let {
+            listOf(it.detectorEvents, it.pendingAllocations, it.pendingSegments)
+        })
+    }
+
+    @Test fun motionFirstClassificationAppliesImmediatelyWithoutPending() = runBlocking {
+        val repository = repositoryWithProcessing("boot", "2026-07-29T03:00:00Z")
+        val start = Instant.parse("2026-07-29T03:00:00Z")
+        repeat(10) { repository.recordDetector(DetectorEvidence(start.plusSeconds(it.toLong()),
+            MotionEvidenceAssessment.SHAKE_CONFIRMED, .9, "confirmed")) }
+        repository.recordCounterDelta(1_010, 10, start.plusSeconds(20), ZoneId.of("Asia/Tokyo"),
+            "boot", "session", false, detectorAvailable = true, motionSensorAvailable = true)
+
+        val segment = database.competitiveIntegritySegments().forDate("2026-07-29", "Asia/Tokyo").single()
+        assertEquals(10L, segment.excludedSteps)
+        assertEquals(0, repository.motionRepositorySnapshot().pendingAllocations)
+        assertEquals(0, repository.applyMotionEvidence("confirmed", MotionEvidenceAssessment.SHAKE_CONFIRMED, .9).integritySegmentsUpdated)
+    }
+
+    @Test fun midnightCrossingRetainsInstantBasedDetectorAllocationWithoutDuplicates() = runBlocking {
+        val repository = repositoryWithProcessing("boot", "2026-07-29T14:59:50Z")
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = Instant.parse("2026-07-29T14:59:50Z")
+        repeat(10) { repository.recordDetector(DetectorEvidence(start.plusSeconds(1 + it * 2L), evidenceWindowId = "cross")) }
+        repository.recordCounterDelta(1_010, 10, start.plusSeconds(20), zone, "boot", "session", false,
+            detectorAvailable = true, motionSensorAvailable = true)
+
+        assertEquals(2, repository.motionRepositorySnapshot().pendingAllocations)
+        assertEquals(2, repository.applyMotionEvidence("cross", MotionEvidenceAssessment.WALK_LIKE, .9).integritySegmentsUpdated)
+        assertEquals(10L, listOf("2026-07-29", "2026-07-30").sumOf { date ->
+            database.competitiveIntegritySegments().forDate(date, zone.id).sumOf { it.totalSteps }
+        })
+        assertEquals(0, repository.motionRepositorySnapshot().pendingAllocations)
+    }
+
+    @Test fun oneThousandStopRestartClearsRemainBounded() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        repeat(1_000) { cycle ->
+            repeat(5) { repository.recordDetector(Instant.ofEpochMilli(cycle * 10L + it)) }
+            repository.clearAllMotionEvidence()
+        }
+        assertEquals(listOf(0, 0, 0), repository.motionRepositorySnapshot().let {
+            listOf(it.detectorEvents, it.pendingAllocations, it.pendingSegments)
+        })
+    }
+
+    private suspend fun repositoryWithProcessing(boot: String, at: String): ActivityRepository {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repository = ActivityRepository(database, UserProfileRepository(context))
+        val instant = Instant.parse(at)
+        database.processingState().upsert(ActivityProcessingStateEntity(
+            lastCounterValue = 1_000, lastEventEpochMillis = instant.toEpochMilli(), lastZoneId = "Asia/Tokyo",
+            lastBootSessionId = boot, activeAutoSessionId = null, activeManualSessionId = null,
+            lastDetectorEventEpochMillis = null, lastWalkingEventEpochMillis = instant.toEpochMilli(),
+            updatedAtEpochMillis = instant.toEpochMilli(), activityRepairVersion = 1))
+        return repository
     }
 
     private suspend fun assertCounterAndDurationQuality(

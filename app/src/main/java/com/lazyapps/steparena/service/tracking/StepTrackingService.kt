@@ -25,6 +25,8 @@ import com.lazyapps.steparena.app.MainActivity
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.activity.ActivityRepository
 import com.lazyapps.steparena.activity.DailyStepGoal
+import com.lazyapps.steparena.game.DetectorEvidence
+import com.lazyapps.steparena.game.MotionSample
 import com.lazyapps.steparena.tracking.BootSession
 import com.lazyapps.steparena.tracking.DailyStepSummary
 import com.lazyapps.steparena.tracking.DiagnosticLogEntry
@@ -32,6 +34,8 @@ import com.lazyapps.steparena.tracking.DiagnosticLogRepository
 import com.lazyapps.steparena.tracking.NotificationUpdatePolicy
 import com.lazyapps.steparena.tracking.NotificationStepPreview
 import com.lazyapps.steparena.tracking.NotificationStepPreviewDiagnostics
+import com.lazyapps.steparena.tracking.MotionCaptureDiagnosticSnapshot
+import com.lazyapps.steparena.tracking.MotionCaptureDiagnostics
 import com.lazyapps.steparena.tracking.StepCounter
 import com.lazyapps.steparena.tracking.StepEventResult
 import com.lazyapps.steparena.tracking.StepTrackingState
@@ -49,6 +53,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
@@ -67,7 +72,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private val counter = StepCounter()
     private val notificationPolicy = NotificationUpdatePolicy()
     private val notificationPreview = NotificationStepPreview()
-    private val setupStarted = AtomicBoolean(false)
+    private val setupGate = ServiceSetupGate()
     private val stateUpdates = ServiceStateUpdateGate()
     private var state = StepTrackingState()
     private var lastPersistedSteps = 0L
@@ -78,7 +83,7 @@ class StepTrackingService : Service(), SensorEventListener {
     private var fakeSensorMode = false
     private var stepCounterRegistered = false
     private var stepDetectorRegistered = false
-    private val sensorSamples = Channel<SensorSample>(Channel.UNLIMITED)
+    private val sensorSamples = Channel<SensorSample>(SENSOR_CHANNEL_CAPACITY)
     private var sensorConsumerJob: Job? = null
     private val sensorEventClock = RealtimeSensorEventClock()
     private var sessionTimeoutJob: Job? = null
@@ -87,6 +92,14 @@ class StepTrackingService : Service(), SensorEventListener {
     private val previewExpiryLock = Any()
     private var manualStartRequested = false
     private var dailyStepGoal = DailyStepGoal.DEFAULT
+    private val motionCapture = MotionCaptureController()
+    private var motionFinishJob: Job? = null
+    private var motionMaximumJob: Job? = null
+    private var gyroscopeSensor: Sensor? = null
+    private var accelerationSensor: Sensor? = null
+    private var accelerometerFallback = false
+    private val gravity = FloatArray(3)
+    private var motionSensorsRegistered = false
 
     override fun onCreate() {
         super.onCreate()
@@ -98,13 +111,23 @@ class StepTrackingService : Service(), SensorEventListener {
         val goalRepository = (application as StepArenaApplication).dailyStepGoalRepository
         dailyStepGoal = goalRepository.current()
         sensorManager = getSystemService(SensorManager::class.java)
+        MotionCaptureDiagnostics.update(
+            MotionCaptureDiagnosticSnapshot(
+                gyroscopeAvailable = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null,
+                accelerationMode = when {
+                    sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION) != null -> "LINEAR_ACCELERATION"
+                    sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null -> "ACCELEROMETER_FALLBACK"
+                    else -> "UNAVAILABLE"
+                },
+            ),
+        )
         createNotificationChannel()
         scope.launch {
             goalRepository.goalSteps.collect { goalSteps ->
                 serializeStateUpdate {
                     val changed = dailyStepGoal != goalSteps
                     dailyStepGoal = goalSteps
-                    if (changed && setupStarted.get() && state.trackingRequested) {
+                    if (changed && setupGate.isStarted && state.trackingRequested) {
                         updateNotificationIfNeeded(Instant.now(), force = true)
                     }
                 }
@@ -170,7 +193,8 @@ class StepTrackingService : Service(), SensorEventListener {
             }
         }
         if (BuildConfig.DEBUG && intent?.action == debugAction()) {
-            promote(NotificationModel(0, null, getString(R.string.notification_status_preparing)))
+            val firstStart = setupGate.claimInitialStart()
+            if (firstStart) promote(NotificationModel(NotificationContent.Preparing))
             val value = intent.getFloatExtra(debugValueExtra(), Float.NaN)
             val keepFakeMode = intent.getBooleanExtra(debugKeepFakeModeExtra(), false)
             val sequenceCount = intent.getIntExtra(debugSequenceCountExtra(), 0)
@@ -178,7 +202,7 @@ class StepTrackingService : Service(), SensorEventListener {
             val sequenceInterval = intent.getLongExtra(debugSequenceIntervalExtra(), 10L)
             scope.launch {
                 val accepted = serializeStateUpdate {
-                    if (setupStarted.compareAndSet(false, true)) {
+                    if (firstStart) {
                         state = repository.current()
                         val debugZone = ZoneId.systemDefault()
                         val debugDate = Instant.now().atZone(debugZone).toLocalDate()
@@ -186,6 +210,7 @@ class StepTrackingService : Service(), SensorEventListener {
                         publishNotificationPreview(notificationPreview.reset(officialSteps, debugDate))
                         if (state.trackingRequested) {
                             val now = Instant.now()
+                            val startsNewSession = state.sessionId == null
                             state = repository.update {
                                 it.copy(
                                     trackingStatus = TrackingStatus.TRACKING,
@@ -193,7 +218,13 @@ class StepTrackingService : Service(), SensorEventListener {
                                     sessionId = it.sessionId ?: UUID.randomUUID().toString(),
                                 )
                             }
-                            promote(NotificationModel(officialSteps, state.lastSensorEventAt, getString(R.string.notification_status_tracking)))
+                            if (startsNewSession) activityRepository.clearAllMotionEvidence()
+                            promote(
+                                NotificationModel(
+                                    NotificationContent.Tracking(officialSteps, dailyStepGoal.toLong()),
+                                    state.lastSensorEventAt,
+                                ),
+                            )
                             startHeartbeat()
                         }
                     } else {
@@ -236,9 +267,9 @@ class StepTrackingService : Service(), SensorEventListener {
             }
             return START_STICKY
         }
-        promote(NotificationModel(0, null, getString(R.string.notification_status_preparing)))
-        if (setupStarted.compareAndSet(false, true)) scope.launch {
-            serializeStateUpdate { restoreAndRegister() }
+        if (setupGate.claimInitialStart()) {
+            promote(NotificationModel(NotificationContent.Preparing))
+            scope.launch { serializeStateUpdate { restoreAndRegister() } }
         }
         return START_STICKY
     }
@@ -252,11 +283,13 @@ class StepTrackingService : Service(), SensorEventListener {
             notificationPreview.reset(officialSteps, restoreDate),
         )
         if (!state.trackingRequested) {
+            activityRepository.clearAllMotionEvidence()
             stopSelf()
             return
         }
         val now = Instant.now()
         val previousExit = applicationContext.readPreviousExit()
+        val startsNewSession = state.sessionId == null
         state = repository.update {
             it.copy(
                 trackingStatus = TrackingStatus.STARTING,
@@ -270,6 +303,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 },
             )
         }
+        if (startsNewSession) activityRepository.clearAllMotionEvidence()
         logEvent("service_restore", detail = previousExit?.summary)
         val permissionGranted = ContextCompat.checkSelfPermission(
             this, Manifest.permission.ACTIVITY_RECOGNITION,
@@ -291,6 +325,7 @@ class StepTrackingService : Service(), SensorEventListener {
                     serviceRunning = false,
                 )
             }
+            activityRepository.clearAllMotionEvidence()
             logEvent("sensor_registration_blocked", detail = status.name)
             stopSelf()
             return
@@ -357,6 +392,27 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         val eventAt = sensorEventClock.toInstant(event.timestamp)
+        when (event.sensor.type) {
+            Sensor.TYPE_GYROSCOPE -> {
+                motionCapture.addGyroscope(event.toMotionSample())
+                return
+            }
+            Sensor.TYPE_LINEAR_ACCELERATION -> {
+                motionCapture.addLinearAcceleration(event.toMotionSample())
+                return
+            }
+            Sensor.TYPE_ACCELEROMETER -> if (accelerometerFallback) {
+                val alpha = 0.8f
+                val linear = FloatArray(3) { index ->
+                    gravity[index] = alpha * gravity[index] + (1f - alpha) * event.values[index]
+                    event.values[index] - gravity[index]
+                }
+                motionCapture.addLinearAcceleration(
+                    MotionSample(event.timestamp, linear[0], linear[1], linear[2]),
+                )
+                return
+            }
+        }
         if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
             sensorSamples.trySend(SensorSample.Detector(eventAt))
             return
@@ -373,9 +429,89 @@ class StepTrackingService : Service(), SensorEventListener {
         publishNotificationPreview(notificationPreview.onDetector(localDate, eventAt))
         updateNotificationIfNeeded(eventAt, force = dateChanged)
         ensurePreviewExpiryJob()
-        activityRepository.recordDetector(eventAt)
+        val captureStarted = !motionCapture.isCapturing()
+        val windowId = motionCapture.onDetector(eventAt)
+        activityRepository.recordDetector(DetectorEvidence(at = eventAt, evidenceWindowId = windowId))
+        registerMotionSensors()
+        motionFinishJob?.cancel()
+        motionFinishJob = scope.launch {
+            delay(MOTION_CAPTURE_TAIL_MILLIS)
+            serializeStateUpdate { finishMotionCapture() }
+        }
+        if (captureStarted) {
+            motionMaximumJob?.cancel()
+            motionMaximumJob = scope.launch {
+                delay(MOTION_CAPTURE_MAX_MILLIS)
+                motionFinishJob?.cancel()
+                serializeStateUpdate { finishMotionCapture() }
+            }
+        }
         logEvent("step_detector")
     }
+
+    private fun registerMotionSensors() {
+        if (motionSensorsRegistered || !state.trackingRequested) return
+        gyroscopeSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        accelerationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        accelerometerFallback = accelerationSensor == null
+        if (accelerationSensor == null) accelerationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val gyroRegistered = gyroscopeSensor?.let {
+            sensorManager.registerListener(this, it, MOTION_SAMPLE_PERIOD_MICROS)
+        } ?: false
+        val accelerationRegistered = accelerationSensor?.let {
+            sensorManager.registerListener(this, it, MOTION_SAMPLE_PERIOD_MICROS)
+        } ?: false
+        motionSensorsRegistered = gyroRegistered && accelerationRegistered
+        MotionCaptureDiagnostics.update(
+            MotionCaptureDiagnosticSnapshot(
+                gyroscopeAvailable = gyroscopeSensor != null,
+                accelerationMode = when {
+                    accelerationSensor == null -> "UNAVAILABLE"
+                    accelerometerFallback -> "ACCELEROMETER_FALLBACK"
+                    else -> "LINEAR_ACCELERATION"
+                },
+                capturing = motionSensorsRegistered,
+            ),
+        )
+        if (!motionSensorsRegistered) {
+            unregisterMotionSensors()
+        }
+    }
+
+    private suspend fun finishMotionCapture() {
+        val window = motionCapture.finish()
+        motionMaximumJob?.cancel()
+        motionMaximumJob = null
+        unregisterMotionSensors()
+        if (window != null) {
+            activityRepository.applyMotionEvidence(
+                window.id, window.evidence.assessment, window.evidence.confidence,
+            )
+            MotionCaptureDiagnostics.update(
+                MotionCaptureDiagnostics.snapshot.value.copy(
+                    capturing = false,
+                    lastAssessment = window.evidence.assessment,
+                    lastEvaluatedAt = Instant.now(),
+                ),
+            )
+            logEvent("motion_evaluated", detail = window.evidence.assessment.name)
+        }
+    }
+
+    private fun unregisterMotionSensors() {
+        gyroscopeSensor?.let { sensorManager.unregisterListener(this, it) }
+        accelerationSensor?.let { sensorManager.unregisterListener(this, it) }
+        gyroscopeSensor = null
+        accelerationSensor = null
+        accelerometerFallback = false
+        motionSensorsRegistered = false
+        MotionCaptureDiagnostics.clearCapture()
+        gravity.fill(0f)
+    }
+
+    private fun SensorEvent.toMotionSample() = MotionSample(
+        timestamp, values.getOrElse(0) { 0f }, values.getOrElse(1) { 0f }, values.getOrElse(2) { 0f },
+    )
 
     private fun ensurePreviewExpiryJob() {
         synchronized(previewExpiryLock) {
@@ -398,6 +534,10 @@ class StepTrackingService : Service(), SensorEventListener {
         val now = eventAt
         val zone = ZoneId.systemDefault()
         if (state.currentLocalDate != now.atZone(zone).toLocalDate()) {
+            motionFinishJob?.cancel()
+            motionMaximumJob?.cancel()
+            motionCapture.reset()
+            unregisterMotionSensors()
             repository.saveDailySummary(
                 DailyStepSummary(
                     state.currentLocalDate,
@@ -411,6 +551,7 @@ class StepTrackingService : Service(), SensorEventListener {
         val bootSession = BootSession.current(applicationContext)
         val previousState = state
         val result = counter.accept(raw, previousState, now, zone, bootSession)
+        if (result is StepEventResult.Reset) activityRepository.clearAllMotionEvidence()
         state = recoverStatusOnCounterEvent(previousState, result, raw)
         val delta = (result as? StepEventResult.Added)?.delta
         val persistedUpdate = if (delta != null) {
@@ -423,6 +564,7 @@ class StepTrackingService : Service(), SensorEventListener {
                 trackingServiceSessionId = state.sessionId,
                 recovered = (result as? StepEventResult.Added)?.unusuallyLarge == true,
                 detectorAvailable = stepDetectorRegistered,
+                motionSensorAvailable = motionSensorsRegistered,
             )
         } else null
         when (result) {
@@ -463,6 +605,11 @@ class StepTrackingService : Service(), SensorEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun stopTracking(reason: TrackingStopReason) {
+        activityRepository.clearAllMotionEvidence()
+        motionFinishJob?.cancel()
+        motionMaximumJob?.cancel()
+        motionCapture.reset()
+        unregisterMotionSensors()
         sensorManager.unregisterListener(this)
         stepCounterRegistered = false
         stepDetectorRegistered = false
@@ -495,7 +642,12 @@ class StepTrackingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         TrackingServiceProcessRegistry.serviceAlive = false
+        runBlocking { activityRepository.clearAllMotionEvidence() }
         stateUpdates.destroy()
+        motionFinishJob?.cancel()
+        motionMaximumJob?.cancel()
+        motionCapture.reset()
+        unregisterMotionSensors()
         sensorManager.unregisterListener(this)
         sensorSamples.close()
         sensorConsumerJob?.cancel()
@@ -524,13 +676,19 @@ class StepTrackingService : Service(), SensorEventListener {
             )
         ) {
             val manual = activityRepository.currentManualSession()
+            val content = if (manual == null) {
+                NotificationContent.Tracking(preview.displayedSteps, dailyStepGoal.toLong())
+            } else {
+                NotificationContent.Walking(
+                    sessionSteps = manual.steps,
+                    elapsedMinutes = manual.elapsedDurationSeconds / 60,
+                    todaySteps = preview.displayedSteps,
+                    goalSteps = dailyStepGoal.toLong(),
+                )
+            }
             val model = NotificationModel(
-                preview.displayedSteps,
+                content,
                 maxOfInstant(preview.lastDetectorAt, preview.lastCounterAt) ?: state.lastSensorEventAt,
-                getString(
-                    if (manual == null) R.string.notification_status_tracking
-                    else R.string.notification_status_walking,
-                ),
                 manual,
             )
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(model))
@@ -634,31 +792,37 @@ class StepTrackingService : Service(), SensorEventListener {
         val updated = model.lastUpdated?.atZone(ZoneId.systemDefault())
             ?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "--:--"
         val title = getString(
-            if (manual == null) R.string.notification_tracking_title
-            else R.string.notification_walking_title,
+            if (model.content is NotificationContent.Walking) R.string.notification_walking_title
+            else R.string.notification_tracking_title,
         )
-        val text = if (manual == null) {
-            getString(
+        val text = when (val content = model.content) {
+            NotificationContent.Preparing -> getString(R.string.notification_status_preparing)
+            is NotificationContent.Tracking -> getString(
                 R.string.notification_tracking_text,
-                NumberFormat.getNumberInstance().format(model.steps),
-                NumberFormat.getNumberInstance().format(dailyStepGoal),
+                NumberFormat.getNumberInstance().format(content.todaySteps),
+                NumberFormat.getNumberInstance().format(content.goalSteps),
                 updated,
             )
-        } else {
-            val minutes = manual.elapsedDurationSeconds / 60
-            getString(
+            is NotificationContent.Walking -> getString(
                 R.string.notification_walking_text,
-                NumberFormat.getNumberInstance().format(manual.steps),
-                minutes,
-                NumberFormat.getNumberInstance().format(model.steps),
-                NumberFormat.getNumberInstance().format(dailyStepGoal),
+                NumberFormat.getNumberInstance().format(content.sessionSteps),
+                content.elapsedMinutes,
+                NumberFormat.getNumberInstance().format(content.todaySteps),
+                NumberFormat.getNumberInstance().format(content.goalSteps),
             )
         }
+        val statusLabel = getString(
+            when (model.content) {
+                NotificationContent.Preparing -> R.string.notification_status_preparing
+                is NotificationContent.Tracking -> R.string.notification_status_tracking
+                is NotificationContent.Walking -> R.string.notification_status_walking
+            },
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(text)
-            .setSubText(model.statusLabel)
+            .setSubText(statusLabel)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -676,9 +840,8 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     data class NotificationModel(
-        val steps: Long,
-        val lastUpdated: Instant?,
-        val statusLabel: String,
+        val content: NotificationContent,
+        val lastUpdated: Instant? = null,
         val manualSession: com.lazyapps.steparena.core.database.entity.WalkingSessionEntity? = null,
     )
 
@@ -692,6 +855,10 @@ class StepTrackingService : Service(), SensorEventListener {
     }
 
     companion object {
+        private const val SENSOR_CHANNEL_CAPACITY = 1_024
+        private const val MOTION_SAMPLE_PERIOD_MICROS = 50_000
+        private const val MOTION_CAPTURE_TAIL_MILLIS = 4_000L
+        private const val MOTION_CAPTURE_MAX_MILLIS = 15_000L
         const val ACTION_START = "com.lazyapps.steparena.action.START_TRACKING"
         const val ACTION_STOP = "com.lazyapps.steparena.action.STOP_TRACKING"
         const val ACTION_START_MANUAL_WALK = "com.lazyapps.steparena.action.START_MANUAL_WALK"

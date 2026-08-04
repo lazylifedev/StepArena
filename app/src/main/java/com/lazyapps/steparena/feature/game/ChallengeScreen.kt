@@ -80,6 +80,8 @@ object ChallengeTestTags {
     const val PARTNER_PROGRESS = "challenge_partner_progress"
     const val GOAL_FLAG = "challenge_goal_flag"
     const val CELEBRATION = "challenge_celebration"
+    const val HISTORY_SHEET = "challenge_history_sheet"
+    fun historyRow(id: String) = "challenge_history_$id"
 }
 
 data class ChallengeUiState(
@@ -100,6 +102,7 @@ fun ChallengeScreen(
     onCelebrationConsumed: (String) -> Unit = {},
 ) {
     var showInformation by rememberSaveable { mutableStateOf(false) }
+    var selectedHistoryId by rememberSaveable { mutableStateOf<String?>(null) }
     val match = state.todayMatch
     val comparison = match?.let {
         challengeComparison(
@@ -108,6 +111,9 @@ fun ChallengeScreen(
             partnerTargetSteps = it.opponentTargetSteps,
         )
     }
+    val finalized = state.recentMatches
+        .filter { it.status == MatchStatus.FINALIZED }
+        .sortedByDescending { it.localDate }
 
     if (match != null && comparison != null) {
         LaunchedEffect(match.id, comparison.eligibleSteps, comparison.partnerTargetSteps) {
@@ -183,43 +189,15 @@ fun ChallengeScreen(
         }
         item {
             Text(
-                stringResource(R.string.game_past_title),
+                stringResource(R.string.game_history_title),
                 style = MaterialTheme.typography.titleLarge,
             )
         }
-        val finalized = state.recentMatches.filter { it.status == MatchStatus.FINALIZED }
         if (finalized.isEmpty()) {
             item { Text(stringResource(R.string.game_past_empty)) }
         }
-        items(finalized) { pastMatch ->
-            GlassSurface(Modifier.fillMaxWidth()) {
-                Text(
-                    formatDate(pastMatch.localDate),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(
-                    stringResource(
-                        (pastMatch.outcome ?: MatchOutcome.IN_PROGRESS).displayNameRes(),
-                    ),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(stringResource(R.string.game_user_steps, formatNumber(pastMatch.eligibleUserSteps)))
-                Text(
-                    stringResource(
-                        R.string.game_partner_target,
-                        formatNumber(pastMatch.opponentTargetSteps),
-                    ),
-                )
-                Text(
-                    stringResource(
-                        R.string.game_rating_change,
-                        formatNumber(pastMatch.ratingBefore),
-                        pastMatch.ratingAfter?.let(::formatNumber)
-                            ?: stringResource(R.string.records_no_value),
-                    ),
-                )
-            }
+        items(finalized, key = { it.id }) { pastMatch ->
+            ChallengeHistoryRow(pastMatch) { selectedHistoryId = pastMatch.id }
         }
     }
 
@@ -229,6 +207,84 @@ fun ChallengeScreen(
             onDismiss = { showInformation = false },
         )
     }
+    selectedHistoryId?.let { id ->
+        finalized.firstOrNull { it.id == id }?.let { match ->
+            ChallengeHistorySheet(match) { selectedHistoryId = null }
+        }
+    }
+}
+
+@Composable
+private fun ChallengeHistoryRow(match: DailyMatchEntity, onClick: () -> Unit) {
+    val result = stringResource((match.outcome ?: MatchOutcome.IN_PROGRESS).displayNameRes())
+    val delta = match.ratingDelta ?: match.ratingAfter?.minus(match.ratingBefore)
+    val deltaText = signedRating(delta)
+    val date = formatDate(match.localDate)
+    val steps = formatNumber(match.eligibleUserSteps)
+    val target = formatNumber(match.opponentTargetSteps)
+    val accessibility = stringResource(
+        R.string.game_history_accessibility, date, result, steps, target, deltaText,
+    )
+    GlassSurface(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .testTag(ChallengeTestTags.historyRow(match.id))
+            .clickable(onClick = onClick)
+            .semantics {
+                role = Role.Button
+                contentDescription = accessibility
+            },
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm),
+        ) {
+            Text(date, modifier = Modifier.weight(1f))
+            Text(result, fontWeight = FontWeight.Bold)
+            Text(deltaText)
+        }
+        Text(stringResource(R.string.game_history_steps_compact, steps, target))
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun ChallengeHistorySheet(match: DailyMatchEntity, onDismiss: () -> Unit) {
+    val result = stringResource((match.outcome ?: MatchOutcome.IN_PROGRESS).displayNameRes())
+    val after = match.ratingAfter?.let(::formatNumber) ?: stringResource(R.string.records_no_value)
+    val delta = signedRating(match.ratingDelta ?: match.ratingAfter?.minus(match.ratingBefore))
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag(ChallengeTestTags.HISTORY_SHEET),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(
+                start = StepArenaSpacing.lg,
+                end = StepArenaSpacing.lg,
+                bottom = StepArenaSpacing.xl,
+            ),
+            verticalArrangement = Arrangement.spacedBy(StepArenaSpacing.sm),
+        ) {
+            Text(stringResource(R.string.game_history_detail_title), style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.game_history_detail_date, formatDate(match.localDate)))
+            Text(stringResource(R.string.game_history_detail_result, result))
+            Text(stringResource(R.string.game_history_detail_user_steps, formatNumber(match.eligibleUserSteps)))
+            Text(stringResource(R.string.game_history_detail_target, formatNumber(match.opponentTargetSteps)))
+            Text(stringResource(R.string.game_history_detail_rating_before, formatNumber(match.ratingBefore)))
+            Text(stringResource(R.string.game_history_detail_rating_after, after))
+            Text(stringResource(R.string.game_history_detail_rating_delta, delta))
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                Text(stringResource(R.string.common_close))
+            }
+        }
+    }
+}
+
+internal fun signedRating(delta: Int?): String = when {
+    delta == null -> "—"
+    delta > 0 -> "+$delta"
+    else -> delta.toString()
 }
 
 @Composable

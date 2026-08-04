@@ -15,7 +15,11 @@ class NotificationUpdatePolicyTest {
     }
 
     @Test fun oneStepAfterCoalesceInterval_updates() {
-        assertTrue(policy.shouldUpdate(101, 100, now, now.minusMillis(350)))
+        assertTrue(policy.shouldUpdate(101, 100, now, now.minusMillis(250)))
+    }
+
+    @Test fun detectorUpdateNeverWaitsBeyond250Milliseconds() {
+        assertTrue(policy.remainingDelayMillis(now, now.minusMillis(1)) <= 250)
     }
 
     @Test fun unchangedValueDoesNotUpdateOnlyBecauseTimeElapsed() {

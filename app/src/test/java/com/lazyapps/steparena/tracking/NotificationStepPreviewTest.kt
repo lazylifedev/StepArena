@@ -115,6 +115,26 @@ class NotificationStepPreviewTest {
         assertEquals(110, value.displayedSteps)
     }
 
+    @Test fun lowerSameDayCounterDoesNotRegressDetectorPreviewOrOfficialValue() {
+        val preview = initialized(2_096)
+        preview.onDetector(date, start)
+
+        val value = preview.onCounter(2_095, date, start.plusMillis(100))
+
+        assertEquals(2_096, value.officialSteps)
+        assertEquals(1, value.pendingDetectorSteps)
+        assertEquals(2_097, value.displayedSteps)
+    }
+
+    @Test fun newDayOfficialZeroResetsPreviousDayValue() {
+        val preview = initialized(2_096)
+
+        val value = preview.onCounter(0, date.plusDays(1), start.plusSeconds(1))
+
+        assertEquals(0, value.officialSteps)
+        assertEquals(0, value.displayedSteps)
+    }
+
     @Test fun continuousWalking_interleavedEventsNeverRegressOrDoubleCount() {
         val preview = initialized(1_000)
         val displays = buildList {

@@ -57,11 +57,12 @@ class NotificationStepPreview {
         localDate: LocalDate,
         at: Instant,
     ): NotificationStepPreviewSnapshot {
-        val safeOfficial = officialSteps.coerceAtLeast(0)
+        val reportedOfficial = officialSteps.coerceAtLeast(0)
         val current = snapshot.takeIf { it.localDate == localDate }
             ?: NotificationStepPreviewSnapshot(localDate = localDate)
         if (snapshot.localDate != localDate) pendingEvents.clear()
         expireEvents(at)
+        val safeOfficial = maxOf(reportedOfficial, current.officialSteps)
         val officialDelta = (safeOfficial - current.officialSteps).coerceAtLeast(0)
         repeat(officialDelta.coerceAtMost(pendingEvents.size.toLong()).toInt()) {
             pendingEvents.removeFirst()

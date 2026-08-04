@@ -5,7 +5,7 @@ import java.time.Instant
 
 class NotificationUpdatePolicy(
     private val stepThreshold: Long = 1,
-    private val timeThreshold: Duration = Duration.ofMillis(350),
+    private val timeThreshold: Duration = Duration.ofMillis(250),
 ) {
     fun shouldUpdate(
         currentSteps: Long,

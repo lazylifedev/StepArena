@@ -22,12 +22,39 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 import com.lazyapps.steparena.game.CompetitiveIntegrityClassifier
 import com.lazyapps.steparena.game.CompetitiveIntegrityInput
+import com.lazyapps.steparena.game.DetectorEvidence
+import com.lazyapps.steparena.game.MotionEvidenceAssessment
 import com.lazyapps.steparena.game.allocateCompetitiveDays
+import com.lazyapps.steparena.game.CompetitiveIntegrityAssessment
+import com.lazyapps.steparena.game.CompetitiveIntegrityReason
+import com.lazyapps.steparena.game.CompetitiveAllocation
+import com.lazyapps.steparena.game.ResolvedMotionAllocation
+import com.lazyapps.steparena.game.finalizePendingMotionClassification
 
 data class PersistedActivityUpdate(
     val localDate: LocalDate,
     val zoneId: ZoneId,
     val officialDailySteps: Long,
+)
+
+private data class PendingMotionAllocation(
+    val windowId: String,
+    val segmentId: String,
+    val assignedSteps: Long,
+    val createdAtEpochMillis: Long,
+)
+
+private data class PendingSegmentClassification(
+    val base: CompetitiveAllocation,
+    val windows: MutableMap<String, ResolvedMotionAllocation> = linkedMapOf(),
+)
+
+data class MotionEvidenceApplyResult(val queuedEventsUpdated: Int, val pendingAllocationsResolved: Int, val integritySegmentsUpdated: Int)
+
+data class MotionRepositorySnapshot(
+    val detectorEvents: Int,
+    val pendingAllocations: Int,
+    val pendingSegments: Int,
 )
 
 class ActivityRepository(
@@ -41,7 +68,9 @@ class ActivityRepository(
     private val integrityClassifier: CompetitiveIntegrityClassifier = CompetitiveIntegrityClassifier(),
 ) {
     private val writer = Mutex()
-    private val detectorEvents = ArrayDeque<Instant>()
+    private val detectorEvents = ArrayDeque<DetectorEvidence>()
+    private val pendingMotionAllocations = ArrayDeque<PendingMotionAllocation>()
+    private val pendingSegmentClassifications = mutableMapOf<String, PendingSegmentClassification>()
     private var learnedCadenceStepsPerMinute: Double? = null
 
     fun observeToday(date: LocalDate, zoneId: ZoneId) =
@@ -90,12 +119,75 @@ class ActivityRepository(
         }
     }
 
-    suspend fun recordDetector(at: Instant) = writer.withLock {
-        detectorEvents.addLast(at)
-        while (detectorEvents.firstOrNull()?.isBefore(at.minusSeconds(3_600)) == true) {
+    suspend fun recordDetector(at: Instant) = recordDetector(DetectorEvidence(at))
+
+    suspend fun recordDetector(evidence: DetectorEvidence) = writer.withLock {
+        detectorEvents.addLast(evidence)
+        while (detectorEvents.firstOrNull()?.at?.isBefore(evidence.at.minusSeconds(3_600)) == true) {
             detectorEvents.removeFirst()
         }
     }
+
+    suspend fun applyMotionEvidence(windowId: String, assessment: MotionEvidenceAssessment, confidence: Double): MotionEvidenceApplyResult =
+        writer.withLock {
+            var resolved = 0
+            var segmentsUpdated = 0
+            val stateSnapshot = pendingSegmentClassifications.mapValues { (_, state) ->
+                PendingSegmentClassification(state.base, LinkedHashMap(state.windows))
+            }
+            try {
+                database.withTransaction {
+                val pending = pendingMotionAllocations.filter { it.windowId == windowId }
+                pending.forEach { allocation ->
+                    val segment = database.competitiveIntegritySegments().byId(allocation.segmentId)
+                        ?: return@forEach
+                    val state = pendingSegmentClassifications.getOrPut(segment.id) {
+                        PendingSegmentClassification(CompetitiveAllocation(segment.eligibleSteps, segment.restrictedSteps,
+                            segment.excludedSteps, segment.assessment, parseReasons(segment.reasons), segment.classifierVersion))
+                    }
+                    state.windows.putIfAbsent(windowId, ResolvedMotionAllocation(windowId, allocation.assignedSteps, assessment))
+                    val result = finalizePendingMotionClassification(segment.totalSteps, state.base, state.windows.values.toList())
+                    check(database.competitiveIntegritySegments().updateClassification(segment.id, result.eligibleSteps,
+                        result.restrictedSteps, result.excludedSteps, result.assessment,
+                        result.reasons.joinToString(",") { it.name }, result.classifierVersion) == 1)
+                    check(database.competitiveIntegritySegments().byId(segment.id)?.totalSteps == segment.totalSteps)
+                    resolved++
+                    segmentsUpdated++
+                }
+                }
+            } catch (failure: Throwable) {
+                pendingSegmentClassifications.clear()
+                pendingSegmentClassifications.putAll(stateSnapshot)
+                throw failure
+            }
+            pendingMotionAllocations.removeAll { it.windowId == windowId }
+            val updated = detectorEvents.map { event ->
+                if (event.evidenceWindowId == windowId) event.copy(assessment = assessment, confidence = confidence)
+                else event
+            }
+            detectorEvents.clear()
+            detectorEvents.addAll(updated)
+            MotionEvidenceApplyResult(updated.count { it.evidenceWindowId == windowId }, resolved, segmentsUpdated)
+        }
+
+    suspend fun clearPendingMotionClassifications() = writer.withLock {
+        pendingMotionAllocations.clear()
+        pendingSegmentClassifications.clear()
+    }
+
+    suspend fun clearAllMotionEvidence() = writer.withLock {
+        detectorEvents.clear()
+        pendingMotionAllocations.clear()
+        pendingSegmentClassifications.clear()
+    }
+
+    suspend fun motionRepositorySnapshot() = writer.withLock {
+        MotionRepositorySnapshot(detectorEvents.size, pendingMotionAllocations.size, pendingSegmentClassifications.size)
+    }
+
+    private fun parseReasons(value: String): Set<CompetitiveIntegrityReason> = value.split(',').mapNotNull {
+        runCatching { CompetitiveIntegrityReason.valueOf(it.trim()) }.getOrNull()
+    }.toSet()
 
     suspend fun recordExternalRecoveredSteps(
         steps: Long,
@@ -124,12 +216,22 @@ class ActivityRepository(
         trackingServiceSessionId: String?,
         recovered: Boolean,
         detectorAvailable: Boolean = false,
+        motionSensorAvailable: Boolean = false,
     ): PersistedActivityUpdate? = writer.withLock {
         if (delta <= 0) return@withLock null
         val localDate = at.atZone(zoneId).toLocalDate()
         val profile = profileRepository.current()
         val persisted = database.withTransaction {
             val processing = database.processingState().get()
+            if (processing != null && processing.lastBootSessionId != bootSessionId) {
+                detectorEvents.clear()
+                pendingMotionAllocations.clear()
+                pendingSegmentClassifications.clear()
+            } else if (processing != null && (processing.lastZoneId != zoneId.id ||
+                    processing.lastEventEpochMillis?.let { Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate() } != localDate)) {
+                pendingMotionAllocations.clear()
+                pendingSegmentClassifications.clear()
+            }
             if ((processing?.activityRepairVersion ?: 0) < ACTIVITY_REPAIR_VERSION) {
                 repairImplausibleActivity(profile, at)
             }
@@ -140,13 +242,16 @@ class ActivityRepository(
 
             val previousAt = processing?.lastEventEpochMillis?.let(Instant::ofEpochMilli)
             val longGap = previousAt != null && Duration.between(previousAt, at).toHours() >= 2
+            while (previousAt != null && detectorEvents.firstOrNull()?.at?.isBefore(previousAt) == true) {
+                detectorEvents.removeFirst()
+            }
             val consumedDetectors = detectorEvents
-                .filter { previousAt == null || !it.isBefore(previousAt) }
-                .filter { !it.isAfter(at) }
+                .takeWhile { !it.at.isAfter(at) }
                 .take(delta.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-            val allocations = allocate(delta, previousAt, at, zoneId, longGap, consumedDetectors)
+            val consumedTimes = consumedDetectors.map { it.at }
+            val allocations = allocate(delta, previousAt, at, zoneId, longGap, consumedTimes)
             val durationResult = durationCalculator.calculate(
-                delta, consumedDetectors, previousAt, at, recovered || longGap,
+                delta, consumedTimes, previousAt, at, recovered || longGap,
                 learnedCadenceStepsPerMinute,
             )
             val integrity = integrityClassifier.classify(
@@ -160,6 +265,18 @@ class ActivityRepository(
                         processing.lastBootSessionId != bootSessionId,
                     recoveredOrLongGap = recovered || longGap,
                     recentCadences = listOfNotNull(learnedCadenceStepsPerMinute),
+                    shakeSuspectedDetectorEvents = consumedDetectors.count {
+                        it.assessment == MotionEvidenceAssessment.SHAKE_SUSPECTED
+                    },
+                    shakeConfirmedDetectorEvents = consumedDetectors.count {
+                        it.assessment == MotionEvidenceAssessment.SHAKE_CONFIRMED
+                    },
+                    motionEvaluatedDetectorEvents = consumedDetectors.count {
+                        it.assessment != MotionEvidenceAssessment.UNKNOWN
+                    },
+                    motionSensorAvailable = motionSensorAvailable || consumedDetectors.any {
+                        it.assessment != MotionEvidenceAssessment.UNKNOWN
+                    },
                 ),
             )
             val segmentAllocations = if (allocations.isEmpty()) {
@@ -181,9 +298,10 @@ class ActivityRepository(
                 val eligible = allocation.eligible
                 val restricted = allocation.restricted
                 val excluded = allocation.excluded
+                val segmentId = "integrity-$bootSessionId-${at.toEpochMilli()}-${sensorValue}-${dayAndZone.first}-${dayAndZone.second}-$groupIndex"
                 database.competitiveIntegritySegments().upsert(
                     CompetitiveIntegritySegmentEntity(
-                        id = "integrity-$bootSessionId-${at.toEpochMilli()}-${sensorValue}-${dayAndZone.first}-${dayAndZone.second}-$groupIndex",
+                        id = segmentId,
                         localDate = dayAndZone.first.toString(), zoneId = dayAndZone.second.id,
                         startedAtEpochMillis = entries.minOf { it.key.start.toEpochMilli() },
                         endedAtEpochMillis = entries.maxOf { it.key.end.toEpochMilli() }.coerceAtMost(at.toEpochMilli()),
@@ -193,6 +311,18 @@ class ActivityRepository(
                         classifierVersion = integrity.classifierVersion, createdAtEpochMillis = at.toEpochMilli(),
                     ),
                 )
+                consumedDetectors.filter { event ->
+                    val bucket = HourBucket.of(event.at, dayAndZone.second)
+                    bucket.date == dayAndZone.first && bucket.zone == dayAndZone.second &&
+                        event.evidenceWindowId != null &&
+                        event.assessment == MotionEvidenceAssessment.UNKNOWN
+                }.groupBy { it.evidenceWindowId }
+                    .forEach { (windowId, events) ->
+                        pendingMotionAllocations.addLast(
+                            PendingMotionAllocation(windowId!!, segmentId, events.size.toLong().coerceAtMost(total), at.toEpochMilli()),
+                        )
+                    }
+                trimPending(at.toEpochMilli())
             }
             if (durationResult.quality == DataQuality.MEASURED) {
                 durationResult.cadenceStepsPerMinute
@@ -208,7 +338,7 @@ class ActivityRepository(
                 upsertHour(
                     bucket, steps, at, profile, durationQuality,
                     durationAllocations[bucket] ?: 0,
-                    consumedDetectors.count { HourBucket.of(it, zoneId) == bucket },
+                    consumedTimes.count { HourBucket.of(it, zoneId) == bucket },
                 )
             }
             splitManualSessionAtDateBoundary(at, zoneId, profile, trackingServiceSessionId)
@@ -245,7 +375,7 @@ class ActivityRepository(
                     lastBootSessionId = bootSessionId,
                     activeAutoSessionId = database.sessions().active(false)?.id,
                     activeManualSessionId = database.sessions().active(true)?.id,
-                    lastDetectorEventEpochMillis = consumedDetectors.lastOrNull()?.toEpochMilli()
+                    lastDetectorEventEpochMillis = consumedDetectors.lastOrNull()?.at?.toEpochMilli()
                         ?: processing?.lastDetectorEventEpochMillis,
                     lastWalkingEventEpochMillis = at.toEpochMilli(),
                     updatedAtEpochMillis = at.toEpochMilli(),
@@ -257,6 +387,18 @@ class ActivityRepository(
         }
         if (!persisted) return@withLock null
         PersistedActivityUpdate(localDate, zoneId, officialDailySteps(localDate, zoneId))
+    }
+
+    private fun trimPending(now: Long) {
+        val cutoff = now - 3_600_000L
+        while (pendingMotionAllocations.firstOrNull()?.createdAtEpochMillis?.let { it < cutoff } == true ||
+            pendingMotionAllocations.size > 1_024) pendingMotionAllocations.removeFirstOrNull()
+        while (pendingMotionAllocations.map { it.windowId }.distinct().size > 256) {
+            val oldestWindow = pendingMotionAllocations.firstOrNull()?.windowId ?: break
+            pendingMotionAllocations.removeAll { it.windowId == oldestWindow }
+        }
+        val liveSegments = pendingMotionAllocations.map { it.segmentId }.toSet()
+        pendingSegmentClassifications.keys.retainAll(liveSegments)
     }
 
     suspend fun finishSession(id: String?, at: Instant) = writer.withLock {
