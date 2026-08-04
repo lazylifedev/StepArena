@@ -94,7 +94,14 @@ class LocalGameRepository(
         val date = targetDate.toString()
         val rank = RankSystem.definition(profile.rating)
         val recent = database.daily().recentNow(28)
-        val median = recent.map { it.steps }.sorted().let { values ->
+        val median = recent.map { daily ->
+            OfficialSteps.fromEligible(
+                competitiveSummary(
+                    daily,
+                    database.competitiveIntegritySegments().forDate(daily.localDate, daily.zoneId),
+                ).eligibleSteps,
+            )
+        }.sorted().let { values ->
             values.takeIf { it.isNotEmpty() }?.get(values.size / 2)
         }
         val opponent = opponentGenerator.generate(

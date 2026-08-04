@@ -27,7 +27,9 @@ data class CompetitiveIntegrityThresholds(
     val coverageEvaluationMaxInterval: Duration = Duration.ofMinutes(10),
     val regularRhythmMinimumSamples: Int = 5,
     val regularRhythmMaxDeviation: Double = 1.0,
-    val dailyEligibleLimit: Long = 30_000,
+    // The user-facing competitive limit is applied by OfficialSteps after
+    // all integrity segments are classified; it is not a 30,000-step cutoff.
+    val dailyEligibleLimit: Long = OfficialSteps.DAILY_LIMIT,
     val version: Int = 3,
 )
 
