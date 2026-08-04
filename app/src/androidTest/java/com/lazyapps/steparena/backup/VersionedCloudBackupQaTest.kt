@@ -32,6 +32,7 @@ class VersionedCloudBackupQaTest {
         val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
         val user = requireNotNull(auth.currentUser)
         assertTrue(user.providerData.any { it.providerId == GoogleAuthProvider.PROVIDER_ID })
+        app.suppressAutomaticBackupForQaTest(user)
         val uid = requireNotNull(FirebaseBackupIdentityProvider(auth).googleLinkedUid())
         val appCheckToken = FirebaseAppCheck.getInstance().getAppCheckToken(true).await()
         assertTrue("App Check force-refresh token is required", appCheckToken.token.isNotBlank())

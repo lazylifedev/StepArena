@@ -10,6 +10,7 @@ import com.lazyapps.steparena.game.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import java.time.LocalDate
+import com.lazyapps.steparena.tracking.TrackingStateRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -37,26 +38,42 @@ class CloudBackupV2QaTest {
         val user = FirebaseAuth.getInstance().currentUser
         assumeTrue("QA Google-linked authentication is required", user != null && !user.isAnonymous &&
             user.providerData.any { it.providerId == GoogleAuthProvider.PROVIDER_ID })
+        app.suppressAutomaticBackupForQaTest(requireNotNull(user))
         val processingBefore = db.processingState().get()
         val today = LocalDate.now(app.clock).toString()
         val todayBefore = db.daily().all().filter { it.localDate == today }
+        val trackingBefore = TrackingStateRepository(app).current()
+        val activeSessionsBefore = db.sessions().activeSessions()
+        val integrityBefore = db.competitiveIntegritySegments().allForBackup().filterNot { it.id.startsWith(prefix) }
         seed(db)
 
         val backup = app.cloudBackupRepository.backupNow()
         assertTrue("QA Google-linked authentication and cloud backup are required: $backup", backup is BackupResult.Success)
+        val backupSuccess = backup as BackupResult.Success
         deleteFixture(db)
         val preview = app.cloudRestoreRepository.check()
         assertEquals(RestoreStatus.AVAILABLE, preview.status)
         assertEquals(2, preview.preview?.metadata?.schemaVersion)
         val first = app.cloudRestoreRepository.restoreConfirmed()
         assertTrue(first is RestoreResult.Success)
+        val firstSuccess = first as RestoreResult.Success
         assertFixturePresent(db)
         val counts = fixtureCounts(db)
         val second = app.cloudRestoreRepository.restoreConfirmed()
         assertTrue(second is RestoreResult.Success)
+        val secondSuccess = second as RestoreResult.Success
+        assertEquals(0, secondSuccess.added)
         assertEquals(counts, fixtureCounts(db))
         assertEquals(processingBefore, db.processingState().get())
         assertEquals(todayBefore, db.daily().all().filter { it.localDate == today })
+        assertEquals(trackingBefore, TrackingStateRepository(app).current())
+        assertEquals(activeSessionsBefore, db.sessions().activeSessions())
+        assertEquals(integrityBefore, db.competitiveIntegritySegments().allForBackup().filterNot { it.id.startsWith(prefix) })
+        println("QA_V2_BACKUP generation=${backupSuccess.generation} rootComplete=true documents=${backupSuccess.documentCount} " +
+            "firstRestoreAdded=${firstSuccess.added} secondRestoreAdded=${secondSuccess.added} " +
+            "todaySteps=${todayBefore.sumOf { it.steps }} today_steps=${trackingBefore.accumulatedTodaySteps} " +
+            "lastCounter=${processingBefore?.lastCounterValue} activeSessions=${activeSessionsBefore.size} " +
+            "integritySegments=${integrityBefore.size} serviceRunning=${trackingBefore.serviceRunning}")
     }
 
     private suspend fun seed(db: com.lazyapps.steparena.core.database.StepArenaDatabase) {

@@ -15,6 +15,7 @@ import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -240,6 +241,7 @@ class BackupOperationGate {
     private val mutex = Mutex()
     fun tryEnter(): Boolean = mutex.tryLock()
     fun leave() { if (mutex.isLocked) mutex.unlock() }
+    suspend fun awaitIdle() { mutex.withLock { } }
 }
 
 private fun Throwable.toCategory(): BackupErrorCategory = when (this) {
