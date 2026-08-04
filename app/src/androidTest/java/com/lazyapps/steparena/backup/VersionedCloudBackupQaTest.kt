@@ -6,6 +6,8 @@ import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.Timestamp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.auth.GoogleAuthProvider
 import com.lazyapps.steparena.BuildConfig
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.tracking.TrackingStateRepository
@@ -27,7 +29,13 @@ class VersionedCloudBackupQaTest {
     @Test fun explicitV2BackupPreservesV1AndRestoresIdempotently() = runBlocking {
         assertEquals("qa", BuildConfig.FLAVOR)
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StepArenaApplication
-        val uid = requireNotNull(FirebaseBackupIdentityProvider(com.google.firebase.auth.FirebaseAuth.getInstance()).googleLinkedUid())
+        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+        val user = requireNotNull(auth.currentUser)
+        assertTrue(user.providerData.any { it.providerId == GoogleAuthProvider.PROVIDER_ID })
+        val uid = requireNotNull(FirebaseBackupIdentityProvider(auth).googleLinkedUid())
+        val appCheckToken = FirebaseAppCheck.getInstance().getAppCheckToken(true).await()
+        assertTrue("App Check force-refresh token is required", appCheckToken.token.isNotBlank())
+        println("QA_BACKUP_PREFLIGHT authNonNull=true googleProvider=true appCheckForceRefresh=true uidSuffix=${uid.takeLast(4)}")
         val firestore = FirebaseFirestore.getInstance()
         val legacy = firestore.collection("userBackups").document(uid)
         val before = legacyFingerprint(legacy)
@@ -39,6 +47,11 @@ class VersionedCloudBackupQaTest {
         val trackingBefore = TrackingStateRepository(app).current()
 
         val versionedReference = legacy.collection("versions").document("v2")
+        val v2Before = versionedReference.get(Source.SERVER).await()
+        val physicalChallengeBefore = versionedReference.collection("challengeResults").get(Source.SERVER).await().documents
+        val legacyUntaggedChallengeBefore = physicalChallengeBefore.count { !it.data.orEmpty().containsKey("backupGeneration") }
+        val cloudGenerationBefore = if (v2Before.exists()) requireNotNull(v2Before.getLong("backupGeneration")) else 0L
+        if (v2Before.exists()) assertEquals("complete", v2Before.getString("backupStatus"))
         val startupCheck = app.cloudRestoreRepository.check()
         if (startupCheck.status == RestoreStatus.CHECKING) {
             withTimeout(30_000) {
@@ -47,24 +60,32 @@ class VersionedCloudBackupQaTest {
         }
         val backup = app.cloudBackupRepository.backupNow()
         assertTrue("Explicit versioned backup must succeed: $backup", backup is BackupResult.Success)
+        assertEquals(cloudGenerationBefore + 1L, (backup as BackupResult.Success).generation)
         val after = legacyFingerprint(legacy)
         assertEquals(before, after)
 
         val v2Root = versionedReference.get(Source.SERVER).await()
         assertTrue(v2Root.exists())
         assertEquals(2L, v2Root.getLong("schemaVersion"))
+        assertEquals(1L, v2Root.getLong("childGenerationVersion"))
         assertEquals("complete", v2Root.getString("backupStatus"))
-        assertNotNull(v2Root.getLong("backupGeneration"))
+        val currentGeneration = requireNotNull(v2Root.getLong("backupGeneration"))
         val v2Counts = V2_COLLECTIONS.associateWith {
             if (it == "settings") {
-                if (versionedReference.collection(it).document("current").get(Source.SERVER).await().exists()) 1 else 0
-            } else versionedReference.collection(it).get(Source.SERVER).await().size()
+                val settings = versionedReference.collection(it).document("current").get(Source.SERVER).await()
+                if (settings.exists() && settings.getLong("backupGeneration") == currentGeneration) 1 else 0
+            } else versionedReference.collection(it).whereEqualTo("backupGeneration", currentGeneration).get(Source.SERVER).await().size()
         }
+        val physicalChallengeAfter = versionedReference.collection("challengeResults").get(Source.SERVER).await().documents
+        assertEquals(legacyUntaggedChallengeBefore, physicalChallengeAfter.count { !it.data.orEmpty().containsKey("backupGeneration") })
+        assertEquals(v2Root.getLong("challengeResultCount")?.toInt(), v2Counts.getValue("challengeResults"))
+        assertEquals(0, v2Counts.getValue("challengeResults"))
+        assertEquals(1, v2Counts.getValue("settings"))
         val v2Count = v2Counts.values.sum()
         assertTrue("v2 backup must contain data", v2Count > 0)
 
         val preview = app.cloudRestoreRepository.check()
-        assertEquals(RestoreStatus.AVAILABLE, preview.status)
+        assertEquals("preview=$preview", RestoreStatus.AVAILABLE, preview.status)
         assertEquals(2, preview.preview?.metadata?.schemaVersion)
         val first = app.cloudRestoreRepository.restoreConfirmed()
         val second = app.cloudRestoreRepository.restoreConfirmed()
@@ -76,8 +97,14 @@ class VersionedCloudBackupQaTest {
         assertEquals(dailyBefore, app.database.daily().all().filter { it.localDate == today })
         assertEquals(processingBefore, app.database.processingState().get())
         assertEquals(trackingBefore, TrackingStateRepository(app).current())
+        val finalUser = requireNotNull(auth.currentUser)
+        assertTrue(finalUser.providerData.any { it.providerId == GoogleAuthProvider.PROVIDER_ID })
+        assertTrue(FirebaseAppCheck.getInstance().getAppCheckToken(true).await().token.isNotBlank())
         println("QA_VERSIONED_BACKUP uidSuffix=${uid.takeLast(4)} v1Documents=${before.entries.size} " +
-            "v1Hash=${before.digest} v2Documents=$v2Count generation=${v2Root.getLong("backupGeneration")} " +
+            "v1Hash=${before.digest} v2Documents=$v2Count cloudGenerationBefore=$cloudGenerationBefore " +
+            "cloudGenerationAfter=${v2Root.getLong("backupGeneration")} authMaintained=true appCheckPost=true " +
+            "challengePhysical=${physicalChallengeAfter.size} challengeCurrent=${v2Counts.getValue("challengeResults")} " +
+            "legacyUntaggedChallenge=${physicalChallengeAfter.count { !it.data.orEmpty().containsKey("backupGeneration") }} " +
             "todaySteps=${dailyBefore.sumOf { it.steps }} today_steps=${trackingBefore.accumulatedTodaySteps} " +
             "lastCounter=${processingBefore?.lastCounterValue} secondRestoreAdded=${secondSuccess.added}")
     }

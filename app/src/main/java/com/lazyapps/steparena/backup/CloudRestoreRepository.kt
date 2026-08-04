@@ -70,7 +70,7 @@ class CloudRestoreRepository(
             ).also { mutableState.value = it }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            fail(error.restoreCategory())
+            fail(error.restoreCategory(), (error as? RestoreDiagnosticException)?.diagnostic)
         } finally { operationGate.leave() }
     }
 
@@ -85,7 +85,7 @@ class CloudRestoreRepository(
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             val category = error.restoreCategory()
-            fail(category)
+            fail(category, (error as? RestoreDiagnosticException)?.diagnostic)
             RestoreResult.Failure(category)
         } finally { operationGate.leave() }
     }
@@ -146,39 +146,181 @@ class CloudRestoreRepository(
     }
 
     private suspend fun downloadConsistent(uid: String): RestoreSnapshot {
+        val diagnostic = RestoreDiagnosticTracker()
+        try {
         val legacyRoot = firestore.collection("userBackups").document(uid)
         val versionedRoot = legacyRoot.collection("versions").document("v2")
+        diagnostic.read(RestorePreviewStage.READ_V2_ROOT_INITIAL, ROOT_PATH)
         val versioned = versionedRoot.get(Source.SERVER).await()
         // An existing but incomplete/invalid v2 must fail validation; it never falls back to v1.
         val root = if (versioned.exists()) versionedRoot else legacyRoot
         val before = if (versioned.exists()) versioned else legacyRoot.get(Source.SERVER).await()
+        diagnostic.stage = RestorePreviewStage.VALIDATE_V2_ROOT_INITIAL
+        diagnostic.captureRoot(before)
         val metadata = before.restoreMetadata()
-        val achievements = root.collection("achievements").get(Source.SERVER).await().documents.map { it.toAchievement(metadata.schemaVersion) }
+        diagnostic.metadata = metadata
+        diagnostic.read(RestorePreviewStage.READ_ACHIEVEMENTS, path("achievements"))
+        val achievementDocs = if (metadata.schemaVersion == 2) {
+            diagnostic.readCurrent(root, "achievements", RestorePreviewStage.READ_ACHIEVEMENTS)
+        } else {
+            root.collection("achievements").get(Source.SERVER).await().documents
+        }
+        val achievements = diagnostic.parse("achievements", achievementDocs) { it.toAchievement(metadata.schemaVersion) }
+        diagnostic.read(RestorePreviewStage.READ_SETTINGS, "userBackups/{uid}/versions/v2/settings/current")
         val settingsDoc = root.collection("settings").document("current").get(Source.SERVER).await()
-        val settings = settingsDoc.takeIf { it.exists() }?.toSettings(metadata.schemaVersion)
-        val daily = if (metadata.schemaVersion == 2) root.collection("daily").get(Source.SERVER).await().documents.map { it.toDaily() } else emptyList()
-        val hourly = if (metadata.schemaVersion == 2) root.collection("hourly").get(Source.SERVER).await().documents.map { it.toHourly() } else emptyList()
-        val sessions = if (metadata.schemaVersion == 2) root.collection("sessions").get(Source.SERVER).await().documents.map { it.toSession() } else emptyList()
-        val matches = if (metadata.schemaVersion == 2) root.collection("challengeResults").get(Source.SERVER).await().documents.map { it.toMatch() } else emptyList()
-        val leagues = if (metadata.schemaVersion == 2) root.collection("leagueHistory").get(Source.SERVER).await().documents
-            .filter { it.getLong("schemaVersion")?.toInt() == 2 }.map { it.toLeague() } else emptyList()
-        val leagueParticipants = if (metadata.schemaVersion == 2) root.collection("leagueParticipants").get(Source.SERVER).await().documents.map { it.toLeagueParticipant(leagues) } else emptyList()
-        val seasons = if (metadata.schemaVersion == 2) root.collection("seasonHistory").get(Source.SERVER).await().documents.map { it.toSeason() } else emptyList()
-        val integrity = if (metadata.schemaVersion == 2) root.collection("integritySegments").get(Source.SERVER).await().documents.map { it.toIntegrity() } else emptyList()
+        if (metadata.schemaVersion == 2) diagnostic.capturePhysical("settings", listOfNotNull(settingsDoc.takeIf { it.exists() }))
+        val settingsCurrent = settingsDoc.takeIf {
+            it.exists() && (metadata.schemaVersion == 1 || it.getLong("backupGeneration") == metadata.generation)
+        }
+        val settings = settingsCurrent?.toSettings(metadata.schemaVersion)
+        val daily = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "daily", RestorePreviewStage.READ_DAILY) { it.toDaily() } else emptyList()
+        val hourly = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "hourly", RestorePreviewStage.READ_HOURLY) { it.toHourly() } else emptyList()
+        val sessions = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "sessions", RestorePreviewStage.READ_SESSIONS) { it.toSession() } else emptyList()
+        val matches = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "challengeResults", RestorePreviewStage.READ_CHALLENGE_RESULTS) { it.toMatch() } else emptyList()
+        val leagues = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "leagueHistory", RestorePreviewStage.READ_LEAGUE_HISTORY) { it.toLeague() } else emptyList()
+        val leagueParticipants = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "leagueParticipants", RestorePreviewStage.READ_LEAGUE_PARTICIPANTS) { it.toLeagueParticipant(leagues) } else emptyList()
+        val seasons = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "seasonHistory", RestorePreviewStage.READ_SEASON_HISTORY) { it.toSeason() } else emptyList()
+        val integrity = if (metadata.schemaVersion == 2) diagnostic.readParse(root, "integritySegments", RestorePreviewStage.READ_INTEGRITY_SEGMENTS) { it.toIntegrity() } else emptyList()
+        diagnostic.read(RestorePreviewStage.READ_V2_ROOT_FINAL, ROOT_PATH)
         val after = root.get(Source.SERVER).await().restoreMetadata()
+        diagnostic.stage = RestorePreviewStage.VERIFY_ROOT_UNCHANGED
+        diagnostic.rootChanged = metadata != after
         require(metadata == after) { "generation_changed" }
-        require(achievements.size == (metadata.counts["achievements"] ?: 0)) { "count_mismatch" }
-        require((settings != null) == ((metadata.counts["settings"] ?: 0) > 0)) { "settings_count_mismatch" }
+        diagnostic.stage = RestorePreviewStage.VALIDATE_DOCUMENT_COUNTS
+        diagnostic.validateCount("achievements", achievements.size)
+        if ((metadata.counts["settings"] ?: 0) == 1 && settingsCurrent == null) {
+            throw IllegalArgumentException("settings_generation_mismatch")
+        }
+        diagnostic.validateCount("settings", if (settings != null) 1 else 0)
         if (metadata.schemaVersion == 2) {
             mapOf("daily" to daily.size, "hourly" to hourly.size, "sessions" to sessions.size,
                 "challengeResults" to matches.size, "leagueHistory" to leagues.size, "leagueParticipants" to leagueParticipants.size, "seasonHistory" to seasons.size,
-                "integritySegments" to integrity.size).forEach { (key, count) -> require(count == metadata.counts[key]) { "count_mismatch" } }
+                "integritySegments" to integrity.size).forEach { (key, count) -> diagnostic.validateCount(key, count) }
         }
+        diagnostic.stage = RestorePreviewStage.BUILD_RESTORE_PLAN
         return RestoreSnapshot(metadata, achievements, settings, daily, hourly, sessions, matches, leagues, leagueParticipants, seasons, integrity)
+        } catch (error: Throwable) {
+            if (error is RestoreDiagnosticException) throw error
+            throw RestoreDiagnosticException(diagnostic.build(error), error)
+        }
     }
 
-    private fun fail(category: RestoreErrorCategory) = RestoreState(RestoreStatus.FAILED, error = category).also { mutableState.value = it }
+    private fun fail(category: RestoreErrorCategory, diagnostic: RestoreFailureDiagnostic? = null) =
+        RestoreState(RestoreStatus.FAILED, error = category, diagnostic = diagnostic).also { mutableState.value = it }
+
+    private companion object { const val ROOT_PATH = "userBackups/{uid}/versions/v2" }
 }
+
+internal class RestoreDiagnosticException(
+    val diagnostic: RestoreFailureDiagnostic,
+    cause: Throwable,
+) : RuntimeException("Restore preview failed at ${diagnostic.stage}", cause)
+
+internal class RestoreDiagnosticTracker {
+    var stage = RestorePreviewStage.AUTH_CHECK
+    var operation: FirestoreOperation? = null
+    var pathTemplate: String? = null
+    var metadata: RestoreMetadata? = null
+    var rootChanged: Boolean? = null
+    private var currentFieldTypes: Map<String, String> = emptyMap()
+    private var reason: String? = null
+    private val collections = linkedMapOf<String, RestoreCollectionDiagnostic>()
+
+    fun read(next: RestorePreviewStage, path: String) {
+        stage = next; operation = FirestoreOperation.GET; pathTemplate = path
+        currentFieldTypes = emptyMap(); reason = null
+    }
+    fun captureRoot(root: DocumentSnapshot) { currentFieldTypes = safeFieldTypes(root.data.orEmpty()) }
+    fun capturePhysical(name: String, docs: List<DocumentSnapshot>) {
+        val expected = metadata?.generation
+        val legacy = docs.count { !it.data.orEmpty().containsKey("backupGeneration") }
+        val typed = docs.mapNotNull { it.data.orEmpty()["backupGeneration"] as? Long }
+        val invalid = docs.count { it.data.orEmpty().containsKey("backupGeneration") && it.data.orEmpty()["backupGeneration"] !is Long }
+        if (invalid > 0) { reason = "CHILD_GENERATION_TYPE_INVALID"; throw IllegalArgumentException("child_generation_type_invalid") }
+        val previous = collections[name]
+        collections[name] = RestoreCollectionDiagnostic(
+            metadata?.counts?.get(name), previous?.actualCount ?: 0, previous?.parsedCount ?: 0,
+            docs.map { it.data.orEmpty()["backupGeneration"]?.toString() ?: "ABSENT" }.toSet(),
+            previous?.fieldTypes ?: docs.firstOrNull()?.data?.let(::safeFieldTypes).orEmpty(),
+            legacy, typed.count { expected != null && it < expected }, typed.count { it == expected },
+            typed.count { expected != null && it > expected }, previous?.parseFailureCount ?: 0,
+        )
+    }
+    fun capture(name: String, docs: List<DocumentSnapshot>, parsed: Int = 0) {
+        val generations = docs.map { it.getLong("backupGeneration")?.toString() ?: "ABSENT" }.toSet()
+        currentFieldTypes = docs.firstOrNull()?.data?.let(::safeFieldTypes).orEmpty()
+        val previous = collections[name]
+        collections[name] = RestoreCollectionDiagnostic(metadata?.counts?.get(name), docs.size, parsed, generations, currentFieldTypes,
+            previous?.legacyUntaggedCount ?: 0, previous?.olderGenerationCount ?: 0, docs.size,
+            previous?.newerGenerationCount ?: 0, previous?.parseFailureCount ?: 0)
+    }
+    inline fun <T> parse(name: String, docs: List<DocumentSnapshot>, parser: (DocumentSnapshot) -> T): List<T> {
+        capture(name, docs)
+        val result = ArrayList<T>(docs.size)
+        docs.forEach { doc ->
+            currentFieldTypes = safeFieldTypes(doc.data.orEmpty())
+            try {
+                result += parser(doc)
+            } catch (error: Throwable) {
+                collections[name] = collections.getValue(name).copy(
+                    parsedCount = result.size,
+                    parseFailureCount = collections.getValue(name).parseFailureCount + 1,
+                    fieldTypes = currentFieldTypes,
+                )
+                throw error
+            }
+            collections[name] = collections.getValue(name).copy(parsedCount = result.size, fieldTypes = currentFieldTypes)
+        }
+        return result
+    }
+    suspend inline fun <T> readParse(
+        root: com.google.firebase.firestore.DocumentReference,
+        name: String,
+        next: RestorePreviewStage,
+        parser: (DocumentSnapshot) -> T,
+    ): List<T> {
+        return parse(name, readCurrent(root, name, next), parser)
+    }
+    suspend fun readCurrent(root: com.google.firebase.firestore.DocumentReference, name: String, next: RestorePreviewStage): List<DocumentSnapshot> {
+        read(next, path(name))
+        val collection = root.collection(name)
+        val all = collection.get(Source.SERVER).await().documents
+        capturePhysical(name, all)
+        val generation = metadata?.generation ?: error("metadata_invalid")
+        return collection.whereEqualTo("backupGeneration", generation).get(Source.SERVER).await().documents
+    }
+    fun validateCount(name: String, actual: Int) {
+        val expected = metadata?.counts?.get(name)
+        val previous = collections[name] ?: RestoreCollectionDiagnostic(expected, actual, actual, emptySet(), emptyMap())
+        collections[name] = previous.copy(expectedCount = expected, actualCount = actual)
+        if (expected != actual) {
+            reason = "CURRENT_GENERATION_COUNT_MISMATCH"
+            throw IllegalArgumentException("count_mismatch")
+        }
+    }
+    fun build(error: Throwable): RestoreFailureDiagnostic {
+        val firestore = error as? FirebaseFirestoreException
+        val rawReason = reason ?: when (error.message) {
+            "generation_changed" -> "ROOT_CHANGED_DURING_READ"
+            "legacy_v2_child_generation_missing" -> "LEGACY_V2_CHILD_GENERATION_MISSING"
+            "settings_generation_mismatch" -> "SETTINGS_GENERATION_MISMATCH"
+            "backup_updating" -> "ROOT_NOT_COMPLETE"
+            "unsupported_schema" -> "UNSUPPORTED_SCHEMA"
+            "metadata_invalid" -> "INVALID_ROOT_METADATA"
+            else -> error.message?.takeIf { it.matches(Regex("[A-Za-z0-9_]+")) }?.uppercase() ?: error::class.java.simpleName.uppercase()
+        }
+        val missing = error.message?.takeIf { it.endsWith("_missing") }?.removeSuffix("_missing")
+        return RestoreFailureDiagnostic(
+            stage, operation, pathTemplate, firestore?.code?.name, sanitizeFirestoreMessage(firestore?.message),
+            metadata?.schemaVersion?.toLong(), metadata?.generation, rawReason, missing,
+            if (missing != null) "RequiredField" else null,
+            if (missing != null) currentFieldTypes[missing] ?: "Absent" else null,
+            rootChanged, collections.toMap(),
+        )
+    }
+}
+
+private fun path(collection: String) = "userBackups/{uid}/versions/v2/$collection/{documentId}"
 
 private fun DocumentSnapshot.restoreMetadata(): RestoreMetadata {
     require(exists()) { "backup_missing" }
@@ -186,6 +328,8 @@ private fun DocumentSnapshot.restoreMetadata(): RestoreMetadata {
     val schema = getLong("schemaVersion")?.toInt() ?: error("metadata_invalid")
     require(schema in 1..BACKUP_SCHEMA_VERSION) { "unsupported_schema" }
     val generation = getLong("backupGeneration")?.takeIf { it > 0 } ?: error("metadata_invalid")
+    val childGenerationVersion = getLong("childGenerationVersion")?.toInt()
+    if (schema == 2) require(childGenerationVersion == CHILD_GENERATION_VERSION) { "legacy_v2_child_generation_missing" }
     val completed = getTimestamp("backupCompletedAt")?.toDate()?.toInstant() ?: error("metadata_invalid")
     val counts = mapOf(
         "daily" to count("dailyCount"), "hourly" to count("hourlyCount"), "sessions" to count("sessionCount"),
@@ -194,7 +338,7 @@ private fun DocumentSnapshot.restoreMetadata(): RestoreMetadata {
         "seasonHistory" to count("seasonHistoryCount"), "integritySegments" to count("integritySegmentCount"),
         "leagueParticipants" to count("leagueParticipantCount"),
     )
-    return RestoreMetadata(generation, completed, schema, counts)
+    return RestoreMetadata(generation, completed, schema, counts, childGenerationVersion)
 }
 private fun DocumentSnapshot.count(key: String): Int = (getLong(key) ?: 0).also { require(it in 0..Int.MAX_VALUE) }.toInt()
 private fun DocumentSnapshot.toAchievement(schema: Int): RestoreAchievement {
@@ -318,6 +462,7 @@ private fun DocumentSnapshot.toIntegrity(): CompetitiveIntegritySegmentEntity {
         int("classifierVersion"), long("createdAtEpochMillis"))
 }
 private fun Throwable.restoreCategory(): RestoreErrorCategory = when (this) {
+    is RestoreDiagnosticException -> cause?.restoreCategory() ?: RestoreErrorCategory.INTEGRITY
     is FirebaseNetworkException -> RestoreErrorCategory.NETWORK
     is FirebaseFirestoreException -> when (code) {
         FirebaseFirestoreException.Code.UNAUTHENTICATED -> RestoreErrorCategory.AUTHENTICATION
