@@ -23,6 +23,8 @@ beforeEach(async () => {
 const db = uid => env.authenticatedContext(uid).firestore();
 const anon = () => env.unauthenticatedContext().firestore();
 const timestamps = () => ({ createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+const op1 = '11111111-1111-4111-8111-111111111111';
+const op2 = '22222222-2222-4222-8222-222222222222';
 const daily = (overrides = {}) => ({
   schemaVersion: 2, backupGeneration: 1, stableId: '0123456789abcdef0123456789abcdef', roomId: 'daily-room',
   localDate: '2026-08-03', zoneId: 'Asia/Tokyo', steps: 100, unclassifiedSteps: 0,
@@ -36,6 +38,7 @@ const daily = (overrides = {}) => ({
 const root = (overrides = {}) => ({
   schemaVersion: 2, childGenerationVersion: 1, minimumRestoreVersion: 2, appVersionName: '1.0.0-qa', appVersionCode: 1, databaseVersion: 10,
   backupGeneration: 1, backupStatus: 'in_progress', backupStartedAt: serverTimestamp(),
+  leaseVersion: 1, backupOperationId: op1, leaseUpdatedAt: serverTimestamp(),
   localTimeZone: 'Asia/Tokyo', dailyCount: 1, hourlyCount: 1, sessionCount: 1,
   challengeResultCount: 1, leagueHistoryCount: 1, leagueParticipantCount: 1, seasonHistoryCount: 1,
   integritySegmentCount: 1, achievementCount: 1, settingsCount: 1,
@@ -84,7 +87,7 @@ test('valid completed session is allowed', async () => assertSucceeds(setDoc(doc
 test('active session is denied', async () => assertFails(setDoc(doc(db('a'), v2(`/sessions/${id}`)), session({ status: 'ACTIVE' }))));
 test('valid settings is allowed', async () => assertSucceeds(setDoc(doc(db('a'), v2('/settings/current')), { schemaVersion: 2, backupGeneration: 1, heightCm: 170, weightKg: 60, manualStepLengthMeters: null, useAutomaticStepLength: true, dailyStepGoal: 10000, ...timestamps() })));
 test('complete root update is allowed', async () => { const ref = doc(db('a'), v2()); const snap = await getDoc(ref); await assertSucceeds(setDoc(ref, { ...snap.data(), backupStatus: 'complete', backupCompletedAt: serverTimestamp(), updatedAt: serverTimestamp() })); });
-test('next generation can return root to in progress', async () => { const ref = doc(db('a'), v2()); let snap = await getDoc(ref); await assertSucceeds(setDoc(ref, { ...snap.data(), backupStatus: 'complete', backupCompletedAt: serverTimestamp(), updatedAt: serverTimestamp() })); snap = await getDoc(ref); await assertSucceeds(setDoc(ref, { ...snap.data(), backupGeneration: 2, backupStatus: 'in_progress', backupStartedAt: serverTimestamp(), backupCompletedAt: deleteField(), updatedAt: serverTimestamp() }, { merge: true })); });
+test('next generation can return root to in progress', async () => { const ref = doc(db('a'), v2()); let snap = await getDoc(ref); await assertSucceeds(setDoc(ref, { ...snap.data(), backupStatus: 'complete', backupCompletedAt: serverTimestamp(), updatedAt: serverTimestamp() })); snap = await getDoc(ref); await assertSucceeds(setDoc(ref, { ...snap.data(), backupGeneration: 2, backupOperationId: op2, backupStatus: 'in_progress', backupStartedAt: serverTimestamp(), leaseUpdatedAt: serverTimestamp(), backupCompletedAt: deleteField(), updatedAt: serverTimestamp() }, { merge: true })); });
 test('cloud generation five advances consistently to six and completes', async () => {
   const ref = doc(db('a'), v2());
   await env.withSecurityRulesDisabled(async c => setDoc(doc(c.firestore(), v2()), {
@@ -94,7 +97,7 @@ test('cloud generation five advances consistently to six and completes', async (
   }));
   let snap = await getDoc(ref);
   await assertSucceeds(setDoc(ref, {
-    ...snap.data(), backupGeneration: 6, backupStatus: 'in_progress', backupStartedAt: serverTimestamp(),
+    ...snap.data(), backupGeneration: 6, backupOperationId: op2, backupStatus: 'in_progress', backupStartedAt: serverTimestamp(), leaseUpdatedAt: serverTimestamp(),
     backupCompletedAt: deleteField(), updatedAt: serverTimestamp(),
   }, { merge: true }));
   await assertSucceeds(setDoc(doc(db('a'), v2('/daily/2026-08-03')), daily({ backupGeneration: 6 })));
@@ -118,9 +121,8 @@ test('cloud generation five rejects a generation one restart', async () => {
   }, { merge: true }));
 });
 test('root complete rejects a generation different from in progress', async () => {
-  await env.clearFirestore();
   const ref = doc(db('a'), v2());
-  await assertSucceeds(setDoc(ref, root({ backupGeneration: 6 })));
+  await env.withSecurityRulesDisabled(async c => setDoc(doc(c.firestore(), v2()), { ...root({ backupGeneration: 6 }), backupStartedAt: Timestamp.now(), leaseUpdatedAt: Timestamp.now(), createdAt: Timestamp.now(), updatedAt: Timestamp.now() }));
   const snap = await getDoc(ref);
   await assertFails(setDoc(ref, {
     ...snap.data(), backupGeneration: 7, backupStatus: 'complete',
@@ -154,9 +156,9 @@ test('untagged child create is denied', async()=>{ const value=daily(); delete v
 test('wrong generation child create is denied', async()=>assertFails(setDoc(doc(db('a'),v2('/daily/2026-08-03')),daily({backupGeneration:2}))));
 test('child write while parent complete is denied', async()=>{ const ref=doc(db('a'),v2()); const snap=await getDoc(ref); await assertSucceeds(setDoc(ref,{...snap.data(),backupStatus:'complete',backupCompletedAt:serverTimestamp(),updatedAt:serverTimestamp()})); await assertFails(setDoc(doc(db('a'),v2('/daily/2026-08-03')),daily())); });
 test('legacy v2 root migrates to generation tagged in progress', async()=>{
-  await env.withSecurityRulesDisabled(async c=>{ const legacy=root({backupGeneration:7,backupStatus:'complete'}); delete legacy.childGenerationVersion; legacy.backupStartedAt=Timestamp.fromMillis(1); legacy.backupCompletedAt=Timestamp.fromMillis(2); legacy.createdAt=Timestamp.fromMillis(1); legacy.updatedAt=Timestamp.fromMillis(2); await setDoc(doc(c.firestore(),v2()),legacy); });
+  await env.withSecurityRulesDisabled(async c=>{ const legacy=root({backupGeneration:7,backupStatus:'complete'}); delete legacy.childGenerationVersion; delete legacy.leaseVersion; delete legacy.backupOperationId; delete legacy.leaseUpdatedAt; legacy.backupStartedAt=Timestamp.fromMillis(1); legacy.backupCompletedAt=Timestamp.fromMillis(2); legacy.createdAt=Timestamp.fromMillis(1); legacy.updatedAt=Timestamp.fromMillis(2); await setDoc(doc(c.firestore(),v2()),legacy); });
   const snap=await getDoc(doc(db('a'),v2()));
-  await assertSucceeds(setDoc(doc(db('a'),v2()),{...snap.data(),childGenerationVersion:1,backupGeneration:8,backupStatus:'in_progress',backupStartedAt:serverTimestamp(),backupCompletedAt:deleteField(),updatedAt:serverTimestamp()},{merge:true}));
+  await assertSucceeds(setDoc(doc(db('a'),v2()),{...snap.data(),childGenerationVersion:1,leaseVersion:1,backupOperationId:op2,leaseUpdatedAt:serverTimestamp(),backupGeneration:8,backupStatus:'in_progress',backupStartedAt:serverTimestamp(),backupCompletedAt:deleteField(),updatedAt:serverTimestamp()},{merge:true}));
 });
 test('legacy untagged child can be upgraded to current generation', async()=>{
   const ref=doc(db('a'),v2('/daily/2026-08-03'));
@@ -165,3 +167,25 @@ test('legacy untagged child can be upgraded to current generation', async()=>{
   await assertSucceeds(setDoc(ref,{...daily(),createdAt:snap.data().createdAt,updatedAt:serverTimestamp()}));
 });
 test('complete transition cannot remove child generation version', async()=>{ const ref=doc(db('a'),v2()); const value=(await getDoc(ref)).data(); delete value.childGenerationVersion; await assertFails(setDoc(ref,{...value,backupStatus:'complete',backupCompletedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+
+async function seedRoot(value) {
+  await env.withSecurityRulesDisabled(async c => setDoc(doc(c.firestore(), v2()), value));
+}
+const fixedRoot = overrides => ({ ...root(overrides), backupStartedAt: Timestamp.fromMillis(1), leaseUpdatedAt: Timestamp.fromMillis(1), createdAt: Timestamp.fromMillis(1), updatedAt: Timestamp.fromMillis(1) });
+
+test('active lease takeover is denied', async()=>{ const ref=doc(db('a'),v2()); const now=Timestamp.now(); await seedRoot({...fixedRoot(),backupStartedAt:now,leaseUpdatedAt:now}); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:2,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('stale lease takeover is allowed', async()=>{ const ref=doc(db('a'),v2()); await seedRoot(fixedRoot()); const s=(await getDoc(ref)).data(); await assertSucceeds(setDoc(ref,{...s,backupGeneration:2,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('stale takeover requires generation plus one', async()=>{ const ref=doc(db('a'),v2()); await seedRoot(fixedRoot()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:3,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('stale takeover requires new operation id', async()=>{ const ref=doc(db('a'),v2()); await seedRoot(fixedRoot()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('takeover requires server lease timestamp', async()=>{ const ref=doc(db('a'),v2()); await seedRoot(fixedRoot()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:2,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:Timestamp.fromMillis(2),updatedAt:serverTimestamp()})); });
+test('current lease heartbeat is allowed', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertSucceeds(setDoc(ref,{...s,leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('heartbeat with old generation is denied', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:0,leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('heartbeat with old operation is denied', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupOperationId:op2,leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('takeover fences old generation child and allows new generation child', async()=>{ const ref=doc(db('a'),v2()); await seedRoot(fixedRoot()); let s=(await getDoc(ref)).data(); await assertSucceeds(setDoc(ref,{...s,backupGeneration:2,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); await assertFails(setDoc(doc(db('a'),v2('/daily/2026-08-03')),daily({backupGeneration:1}))); await assertSucceeds(setDoc(doc(db('a'),v2('/daily/2026-08-03')),daily({backupGeneration:2}))); });
+test('takeover fences old generation complete', async()=>{ const ref=doc(db('a'),v2()); await seedRoot(fixedRoot()); let s=(await getDoc(ref)).data(); await assertSucceeds(setDoc(ref,{...s,backupGeneration:2,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:1,backupOperationId:op1,backupStatus:'complete',backupCompletedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('current generation and operation complete is allowed', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertSucceeds(setDoc(ref,{...s,backupStatus:'complete',backupCompletedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('complete with changed operation is denied', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupOperationId:op2,backupStatus:'complete',backupCompletedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('lease unknown root field is denied', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,leaseOwner:'device',leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('lease version change is denied on complete', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,leaseVersion:2,backupStatus:'complete',backupCompletedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('legacy stale in progress with valid timestamp can migrate', async()=>{ const legacy=fixedRoot(); delete legacy.leaseVersion; delete legacy.backupOperationId; delete legacy.leaseUpdatedAt; await seedRoot(legacy); const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertSucceeds(setDoc(ref,{...s,backupGeneration:2,leaseVersion:1,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+test('legacy in progress missing timestamp is denied', async()=>{ const legacy=fixedRoot(); delete legacy.leaseVersion; delete legacy.backupOperationId; delete legacy.leaseUpdatedAt; delete legacy.backupStartedAt; await seedRoot(legacy); const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:2,leaseVersion:1,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });

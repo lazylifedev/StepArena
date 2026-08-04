@@ -9,6 +9,8 @@ import com.lazyapps.steparena.core.database.model.*
 import com.lazyapps.steparena.game.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 import java.time.LocalDate
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import kotlinx.coroutines.runBlocking
@@ -50,6 +52,12 @@ class CloudBackupV2QaTest {
         val backup = app.cloudBackupRepository.backupNow()
         assertTrue("QA Google-linked authentication and cloud backup are required: $backup", backup is BackupResult.Success)
         val backupSuccess = backup as BackupResult.Success
+        val root = FirebaseFirestore.getInstance().collection("userBackups").document(requireNotNull(user).uid)
+            .collection("versions").document("v2").get(Source.SERVER).await()
+        assertEquals("complete", root.getString("backupStatus"))
+        assertEquals(BACKUP_LEASE_VERSION.toLong(), root.getLong("leaseVersion"))
+        assertFalse(root.getString("backupOperationId").isNullOrBlank())
+        assertNotNull(root.getTimestamp("leaseUpdatedAt"))
         deleteFixture(db)
         val preview = app.cloudRestoreRepository.check()
         assertEquals(RestoreStatus.AVAILABLE, preview.status)
@@ -70,7 +78,7 @@ class CloudBackupV2QaTest {
         assertEquals(activeSessionsBefore, db.sessions().activeSessions())
         assertEquals(integrityBefore, db.competitiveIntegritySegments().allForBackup().filterNot { it.id.startsWith(prefix) })
         println("QA_V2_BACKUP generation=${backupSuccess.generation} rootComplete=true documents=${backupSuccess.documentCount} " +
-            "firstRestoreAdded=${firstSuccess.added} secondRestoreAdded=${secondSuccess.added} " +
+            "leaseVersion=${root.getLong("leaseVersion")} leasePresent=true firstRestoreAdded=${firstSuccess.added} secondRestoreAdded=${secondSuccess.added} " +
             "todaySteps=${todayBefore.sumOf { it.steps }} today_steps=${trackingBefore.accumulatedTodaySteps} " +
             "lastCounter=${processingBefore?.lastCounterValue} activeSessions=${activeSessionsBefore.size} " +
             "integritySegments=${integrityBefore.size} serviceRunning=${trackingBefore.serviceRunning}")

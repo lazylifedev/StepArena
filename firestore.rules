@@ -9,6 +9,7 @@ service cloud.firestore {
     function optnn(v) { return v == null || nn(v); }
     function date(v) { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
     function sid(v) { return v is string && v.matches('^[0-9a-f]{32}$'); }
+    function operationId(v) { return v is string && v.matches('^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'); }
     function v2(d) { return d.schemaVersion == 2 && sid(d.stableId) && d.backupGeneration is int && d.backupGeneration >= 1; }
     function currentGeneration(uid, d) {
       let parent = get(/databases/$(database)/documents/userBackups/$(uid)/versions/v2).data;
@@ -19,20 +20,64 @@ service cloud.firestore {
 
     function validRoot() {
         let d=request.resource.data;
-        return d.keys().hasOnly(['schemaVersion','childGenerationVersion','minimumRestoreVersion','appVersionName','appVersionCode','databaseVersion','backupGeneration','backupStatus','backupStartedAt','backupCompletedAt','localTimeZone','dailyCount','hourlyCount','sessionCount','challengeResultCount','leagueHistoryCount','leagueParticipantCount','seasonHistoryCount','integritySegmentCount','achievementCount','settingsCount','newestLocalDate','createdAt','updatedAt'])
-          && d.keys().hasAll(['schemaVersion','childGenerationVersion','minimumRestoreVersion','appVersionName','appVersionCode','databaseVersion','backupGeneration','backupStatus','backupStartedAt','localTimeZone','dailyCount','hourlyCount','sessionCount','challengeResultCount','leagueHistoryCount','leagueParticipantCount','seasonHistoryCount','integritySegmentCount','achievementCount','settingsCount','createdAt','updatedAt'])
+        return d.keys().hasOnly(['schemaVersion','childGenerationVersion','minimumRestoreVersion','appVersionName','appVersionCode','databaseVersion','backupGeneration','backupStatus','backupStartedAt','backupCompletedAt','leaseVersion','backupOperationId','leaseUpdatedAt','localTimeZone','dailyCount','hourlyCount','sessionCount','challengeResultCount','leagueHistoryCount','leagueParticipantCount','seasonHistoryCount','integritySegmentCount','achievementCount','settingsCount','newestLocalDate','createdAt','updatedAt'])
+          && d.keys().hasAll(['schemaVersion','childGenerationVersion','minimumRestoreVersion','appVersionName','appVersionCode','databaseVersion','backupGeneration','backupStatus','backupStartedAt','leaseVersion','backupOperationId','leaseUpdatedAt','localTimeZone','dailyCount','hourlyCount','sessionCount','challengeResultCount','leagueHistoryCount','leagueParticipantCount','seasonHistoryCount','integritySegmentCount','achievementCount','settingsCount','createdAt','updatedAt'])
           && d.schemaVersion == 2 && d.childGenerationVersion == 1 && d.minimumRestoreVersion == 2 && d.databaseVersion == 10
           && d.appVersionName is string && nn(d.appVersionCode) && d.backupGeneration is int && d.backupGeneration > 0
           && d.backupStatus in ['in_progress','complete'] && d.backupStartedAt is timestamp && d.localTimeZone is string
+          && d.leaseVersion == 1 && operationId(d.backupOperationId) && d.leaseUpdatedAt is timestamp
           && nn(d.dailyCount) && nn(d.hourlyCount) && nn(d.sessionCount) && nn(d.challengeResultCount)
           && nn(d.leagueHistoryCount) && nn(d.leagueParticipantCount) && nn(d.seasonHistoryCount) && nn(d.integritySegmentCount) && nn(d.achievementCount) && nn(d.settingsCount)
           && (!('newestLocalDate' in d) || d.newestLocalDate == null || date(d.newestLocalDate))
-          && (resource == null
-            ? d.backupStatus == 'in_progress' && d.backupStartedAt == request.time
-            : (d.backupStatus == 'in_progress'
-              ? d.backupGeneration == resource.data.backupGeneration + 1 && d.backupStartedAt == request.time
-              : d.backupGeneration == resource.data.backupGeneration && d.backupStartedAt == resource.data.backupStartedAt))
+          && (resource == null ? rootCreate(d) : rootUpdate(d))
           && (d.backupStatus == 'complete' ? d.backupCompletedAt == request.time : !('backupCompletedAt' in d));
+    }
+
+    function rootCreate(d) {
+      return d.backupStatus == 'in_progress' && d.backupGeneration == 1
+        && d.backupStartedAt == request.time && d.leaseUpdatedAt == request.time;
+    }
+    function staleLease() {
+      return (('leaseVersion' in resource.data && resource.data.leaseVersion == 1
+          && 'backupOperationId' in resource.data && operationId(resource.data.backupOperationId)
+          && 'leaseUpdatedAt' in resource.data && resource.data.leaseUpdatedAt is timestamp
+          && request.time >= resource.data.leaseUpdatedAt + duration.value(30, 'm'))
+        || (!('leaseVersion' in resource.data) && !('backupOperationId' in resource.data)
+          && !('leaseUpdatedAt' in resource.data) && resource.data.backupStartedAt is timestamp
+          && request.time >= resource.data.backupStartedAt + duration.value(30, 'm')));
+    }
+    function rootUpdate(d) {
+      return resource.data.schemaVersion == 2
+        && (d.backupStatus == 'complete' ? rootComplete(d)
+          : (resource.data.backupStatus == 'complete' ? rootBegin(d)
+            : (rootHeartbeat(d) || rootTakeover(d))));
+    }
+    function rootBegin(d) {
+      return d.backupGeneration == resource.data.backupGeneration + 1
+        && (!('backupOperationId' in resource.data) || d.backupOperationId != resource.data.backupOperationId)
+        && d.backupStartedAt == request.time && d.leaseUpdatedAt == request.time;
+    }
+    function rootTakeover(d) {
+      return resource.data.backupStatus == 'in_progress' && staleLease()
+        && d.backupGeneration == resource.data.backupGeneration + 1
+        && (!('backupOperationId' in resource.data) || d.backupOperationId != resource.data.backupOperationId)
+        && d.backupStartedAt == request.time && d.leaseUpdatedAt == request.time;
+    }
+    function rootHeartbeat(d) {
+      return resource.data.backupStatus == 'in_progress'
+        && d.backupGeneration == resource.data.backupGeneration
+        && d.backupOperationId == resource.data.backupOperationId
+        && d.backupStartedAt == resource.data.backupStartedAt
+        && d.leaseUpdatedAt == request.time
+        && d.diff(resource.data).affectedKeys().hasOnly(['leaseUpdatedAt','updatedAt']);
+    }
+    function rootComplete(d) {
+      return resource.data.backupStatus == 'in_progress'
+        && d.backupGeneration == resource.data.backupGeneration
+        && d.backupOperationId == resource.data.backupOperationId
+        && d.leaseVersion == resource.data.leaseVersion
+        && d.backupStartedAt == resource.data.backupStartedAt
+        && d.leaseUpdatedAt == resource.data.leaseUpdatedAt;
     }
 
     match /userBackups/{uid} {

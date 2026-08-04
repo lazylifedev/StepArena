@@ -70,6 +70,9 @@ class VersionedCloudBackupQaTest {
         assertTrue(v2Root.exists())
         assertEquals(2L, v2Root.getLong("schemaVersion"))
         assertEquals(1L, v2Root.getLong("childGenerationVersion"))
+        assertEquals(BACKUP_LEASE_VERSION.toLong(), v2Root.getLong("leaseVersion"))
+        assertTrue(!v2Root.getString("backupOperationId").isNullOrBlank())
+        assertNotNull(v2Root.getTimestamp("leaseUpdatedAt"))
         assertEquals("complete", v2Root.getString("backupStatus"))
         val currentGeneration = requireNotNull(v2Root.getLong("backupGeneration"))
         val v2Counts = V2_COLLECTIONS.associateWith {
@@ -104,7 +107,7 @@ class VersionedCloudBackupQaTest {
         assertTrue(FirebaseAppCheck.getInstance().getAppCheckToken(true).await().token.isNotBlank())
         println("QA_VERSIONED_BACKUP uidSuffix=${uid.takeLast(4)} v1Documents=${before.entries.size} " +
             "v1Hash=${before.digest} v2Documents=$v2Count cloudGenerationBefore=$cloudGenerationBefore " +
-            "cloudGenerationAfter=${v2Root.getLong("backupGeneration")} authMaintained=true appCheckPost=true " +
+            "cloudGenerationAfter=${v2Root.getLong("backupGeneration")} leaseVersion=${v2Root.getLong("leaseVersion")} leasePresent=true authMaintained=true appCheckPost=true " +
             "challengePhysical=${physicalChallengeAfter.size} challengeCurrent=${v2Counts.getValue("challengeResults")} " +
             "legacyUntaggedChallenge=${physicalChallengeAfter.count { !it.data.orEmpty().containsKey("backupGeneration") }} " +
             "todaySteps=${dailyBefore.sumOf { it.steps }} today_steps=${trackingBefore.accumulatedTodaySteps} " +

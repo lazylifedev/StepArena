@@ -8,12 +8,14 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.Timestamp
 import com.lazyapps.steparena.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
@@ -33,26 +35,31 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
         // Schema v1 remains at userBackups/{uid}; every v2 write is isolated below versions/v2.
         val root = firestore.collection("userBackups").document(uid)
             .collection("versions").document("v2")
-        val generation = beginRoot(root, snapshot)
+        val lease = beginRoot(root, snapshot)
         snapshot.documents.groupBy { it.collection }.forEach { (collection, documents) ->
           documents.chunked(MAX_TRANSACTION_DOCUMENTS).forEach { chunk ->
-            writeDocumentChunk(root, collection, chunk, generation)
+            heartbeat(root, lease)
+            writeDocumentChunk(root, collection, chunk, lease)
           }
         }
-        completeRoot(root, snapshot, generation)
-        return generation
+        heartbeat(root, lease)
+        completeRoot(root, snapshot, lease)
+        return lease.generation
     }
 
     private suspend fun beginRoot(
         root: com.google.firebase.firestore.DocumentReference,
         snapshot: BackupSnapshot,
-    ): Long {
+    ): BackupLease {
         val context = DiagnosticContext(BackupWriteStage.READ_ROOT, FirestoreOperation.TRANSACTION_READ, ROOT_PATH, generation = 0)
         try {
             return firestore.runTransaction { transaction ->
                 val existing = transaction.get(root)
-                val generation = existing.nextCloudBackupGeneration()
+                val operationId = UUID.randomUUID().toString()
+                val decision = existing.rootMetadata().beginDecision(Timestamp.now())
+                val generation = decision.generation
                 context.stage = BackupWriteStage.ROOT_BEGIN
+                if (decision.takeover) context.stage = BackupWriteStage.LEASE_TAKEOVER
                 context.generation = generation
                 val fields = mapOf(
             "schemaVersion" to BACKUP_SCHEMA_VERSION, "appVersionName" to BuildConfig.VERSION_NAME,
@@ -61,6 +68,8 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
             "backupGeneration" to generation, "childGenerationVersion" to CHILD_GENERATION_VERSION,
             "backupStatus" to "in_progress",
             "backupStartedAt" to FieldValue.serverTimestamp(), "localTimeZone" to snapshot.localTimeZone,
+            "leaseVersion" to BACKUP_LEASE_VERSION, "backupOperationId" to operationId,
+            "leaseUpdatedAt" to FieldValue.serverTimestamp(),
             "backupCompletedAt" to FieldValue.delete(),
             "dailyCount" to (snapshot.counts["daily"] ?: 0), "hourlyCount" to (snapshot.counts["hourly"] ?: 0),
             "sessionCount" to (snapshot.counts["sessions"] ?: 0),
@@ -79,7 +88,7 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
                 context.operation = FirestoreOperation.TRANSACTION_WRITE
                 transaction.set(root, fields, SetOptions.merge())
                 context.operation = FirestoreOperation.COMMIT
-                generation
+                BackupLease(generation, operationId)
             }.await()
         } catch (error: Throwable) {
             if (error is CloudBackupAlreadyInProgressException || error is InvalidCloudBackupRootException) throw error
@@ -91,20 +100,21 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
         root: com.google.firebase.firestore.DocumentReference,
         collection: String,
         chunk: List<BackupDocument>,
-        generation: Long,
+        lease: BackupLease,
     ) {
             val stage = collection.toBackupWriteStage()
             val pathTemplate = collection.toPathTemplate()
-            val context = DiagnosticContext(stage, FirestoreOperation.TRANSACTION_READ, pathTemplate, generation = generation)
+            val context = DiagnosticContext(stage, FirestoreOperation.TRANSACTION_READ, pathTemplate, generation = lease.generation)
             try {
               firestore.runTransaction { transaction ->
                 val references = chunk.map { item -> root.collection(item.collection).document(item.id) }
                 val existingDocuments = references.map(transaction::get)
+                validateLease(snapshot = transaction.get(root), lease = lease, fencedStage = BackupWriteStage.FENCED_CHILD_WRITE)
                 chunk.indices.forEach { index ->
                     val item = chunk[index]
                     val reference = references[index]
                     val existing = existingDocuments[index]
-                    val fields = childPayloadForGeneration(item.fields, generation).toMutableMap().apply {
+                    val fields = childPayloadForGeneration(item.fields, lease.generation).toMutableMap().apply {
                         put("createdAt", existing.get("createdAt") ?: FieldValue.serverTimestamp())
                         put("updatedAt", FieldValue.serverTimestamp())
                     }
@@ -117,6 +127,7 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
                 context.operation = FirestoreOperation.COMMIT
               }.await()
             } catch (error: Throwable) {
+                if (error is FencedCloudBackupException) context.stage = error.stage
                 throw context.wrap(error)
             }
     }
@@ -124,13 +135,13 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
     private suspend fun completeRoot(
         root: com.google.firebase.firestore.DocumentReference,
         snapshot: BackupSnapshot,
-        generation: Long,
+        lease: BackupLease,
     ) {
         updateRoot(root, mapOf(
             "schemaVersion" to BACKUP_SCHEMA_VERSION, "appVersionName" to BuildConfig.VERSION_NAME,
             "minimumRestoreVersion" to MINIMUM_RESTORE_VERSION,
             "appVersionCode" to BuildConfig.VERSION_CODE, "databaseVersion" to 10,
-            "backupGeneration" to generation, "childGenerationVersion" to CHILD_GENERATION_VERSION,
+            "backupGeneration" to lease.generation, "childGenerationVersion" to CHILD_GENERATION_VERSION,
             "backupStatus" to "complete",
             "backupCompletedAt" to FieldValue.serverTimestamp(),
             "localTimeZone" to snapshot.localTimeZone, "dailyCount" to (snapshot.counts["daily"] ?: 0),
@@ -142,7 +153,7 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
             "integritySegmentCount" to (snapshot.counts["integritySegments"] ?: 0),
             "achievementCount" to (snapshot.counts["achievements"] ?: 0),
             "settingsCount" to (snapshot.counts["settings"] ?: 0), "newestLocalDate" to snapshot.newestLocalDate,
-        ), BackupWriteStage.ROOT_COMPLETE, ROOT_PATH, generation)
+        ), BackupWriteStage.ROOT_COMPLETE, ROOT_PATH, lease)
     }
 
     private suspend fun updateRoot(
@@ -150,13 +161,13 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
         values: Map<String, Any?>,
         stage: BackupWriteStage,
         pathTemplate: String,
-        generation: Long,
+        lease: BackupLease,
     ) {
-        val context = DiagnosticContext(BackupWriteStage.READ_ROOT, FirestoreOperation.TRANSACTION_READ, pathTemplate, generation = generation)
+        val context = DiagnosticContext(BackupWriteStage.READ_ROOT, FirestoreOperation.TRANSACTION_READ, pathTemplate, generation = lease.generation)
         try {
             firestore.runTransaction { transaction ->
                 val existing = transaction.get(reference)
-                validateRootForCompletion(existing, generation)
+                validateLease(existing, lease, BackupWriteStage.FENCED_ROOT_COMPLETE)
                 context.stage = stage
                 val fields = values.toMutableMap().apply {
                     put("createdAt", existing.get("createdAt") ?: FieldValue.serverTimestamp())
@@ -165,6 +176,26 @@ class FirestoreBackupDataSource(private val firestore: FirebaseFirestore) {
                 context.capture(existing, fields)
                 context.operation = FirestoreOperation.TRANSACTION_WRITE
                 transaction.set(reference, fields, SetOptions.merge())
+                context.operation = FirestoreOperation.COMMIT
+            }.await()
+        } catch (error: Throwable) {
+            if (error is FencedCloudBackupException) context.stage = error.stage
+            throw context.wrap(error)
+        }
+    }
+
+    private suspend fun heartbeat(
+        root: com.google.firebase.firestore.DocumentReference,
+        lease: BackupLease,
+    ) {
+        val context = DiagnosticContext(BackupWriteStage.LEASE_HEARTBEAT, FirestoreOperation.TRANSACTION_READ, ROOT_PATH, lease.generation)
+        try {
+            firestore.runTransaction { transaction ->
+                val existing = transaction.get(root)
+                validateLease(existing, lease, BackupWriteStage.LEASE_HEARTBEAT)
+                context.capture(existing, mapOf("leaseUpdatedAt" to FieldValue.serverTimestamp()))
+                context.operation = FirestoreOperation.TRANSACTION_WRITE
+                transaction.update(root, mapOf("leaseUpdatedAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()))
                 context.operation = FirestoreOperation.COMMIT
             }.await()
         } catch (error: Throwable) {
@@ -262,11 +293,19 @@ private fun Throwable.toCategory(): BackupErrorCategory = when (this) {
 internal class CloudBackupAlreadyInProgressException : IllegalStateException("Cloud backup is already in progress")
 internal class InvalidCloudBackupRootException : IllegalStateException("Invalid cloud backup root")
 
+internal data class BackupLease(val generation: Long, val operationId: String)
+internal data class BeginLeaseDecision(val generation: Long, val takeover: Boolean)
+
 internal data class CloudRootMetadata(
     val exists: Boolean,
     val schemaVersion: Long? = null,
     val backupGeneration: Long? = null,
     val backupStatus: String? = null,
+    val leaseVersion: Long? = null,
+    val backupOperationId: String? = null,
+    val leaseUpdatedAt: Timestamp? = null,
+    val backupStartedAt: Timestamp? = null,
+    val hasAnyLeaseField: Boolean = false,
     val hasRequiredFields: Boolean = false,
 )
 
@@ -284,6 +323,32 @@ internal fun CloudRootMetadata.nextGeneration(): Long {
     }
 }
 
+internal fun CloudRootMetadata.beginDecision(now: Timestamp): BeginLeaseDecision {
+    if (!exists) return BeginLeaseDecision(1L, false)
+    if (!hasRequiredFields || schemaVersion != BACKUP_SCHEMA_VERSION.toLong() ||
+        backupGeneration == null || backupGeneration < 1L || backupStatus == null
+    ) throw InvalidCloudBackupRootException()
+    if (backupStatus == "complete") return BeginLeaseDecision(incrementGeneration(backupGeneration), false)
+    if (backupStatus != "in_progress") throw InvalidCloudBackupRootException()
+    val timestamp = if (hasAnyLeaseField) {
+        if (leaseVersion != BACKUP_LEASE_VERSION.toLong() || backupOperationId.isNullOrBlank()) {
+            throw InvalidCloudBackupRootException()
+        }
+        leaseUpdatedAt ?: throw InvalidCloudBackupRootException()
+    } else {
+        backupStartedAt ?: throw InvalidCloudBackupRootException()
+    }
+    val ageSeconds = now.seconds - timestamp.seconds
+    if (ageSeconds < BACKUP_LEASE_DURATION_MINUTES * 60L) throw CloudBackupAlreadyInProgressException()
+    return BeginLeaseDecision(incrementGeneration(backupGeneration), true)
+}
+
+private fun incrementGeneration(value: Long): Long = try {
+    Math.addExact(value, 1L)
+} catch (_: ArithmeticException) {
+    throw InvalidCloudBackupRootException()
+}
+
 private fun DocumentSnapshot.rootMetadata(): CloudRootMetadata {
     if (!exists()) return CloudRootMetadata(exists = false)
     val fields = data.orEmpty()
@@ -292,19 +357,27 @@ private fun DocumentSnapshot.rootMetadata(): CloudRootMetadata {
         schemaVersion = fields["schemaVersion"] as? Long,
         backupGeneration = fields["backupGeneration"] as? Long,
         backupStatus = fields["backupStatus"] as? String,
+        leaseVersion = fields["leaseVersion"] as? Long,
+        backupOperationId = fields["backupOperationId"] as? String,
+        leaseUpdatedAt = fields["leaseUpdatedAt"] as? Timestamp,
+        backupStartedAt = fields["backupStartedAt"] as? Timestamp,
+        hasAnyLeaseField = listOf("leaseVersion", "backupOperationId", "leaseUpdatedAt").any(fields::containsKey),
         hasRequiredFields = ROOT_REQUIRED_FIELDS.all(fields::containsKey),
     )
 }
 
 private fun DocumentSnapshot.nextCloudBackupGeneration(): Long = rootMetadata().nextGeneration()
 
-private fun validateRootForCompletion(snapshot: DocumentSnapshot, generation: Long) {
+private fun validateLease(snapshot: DocumentSnapshot, lease: BackupLease, fencedStage: BackupWriteStage) {
     val root = snapshot.rootMetadata()
     if (!root.exists || !root.hasRequiredFields || root.schemaVersion != BACKUP_SCHEMA_VERSION.toLong() ||
-        root.backupStatus != "in_progress" || root.backupGeneration != generation ||
+        root.backupStatus != "in_progress" || root.backupGeneration != lease.generation ||
+        root.backupOperationId != lease.operationId || root.leaseVersion != BACKUP_LEASE_VERSION.toLong() ||
         snapshot.getLong("childGenerationVersion") != CHILD_GENERATION_VERSION.toLong()
-    ) throw InvalidCloudBackupRootException()
+    ) throw FencedCloudBackupException(fencedStage)
 }
+
+internal class FencedCloudBackupException(val stage: BackupWriteStage) : IllegalStateException("Cloud backup lease was fenced")
 
 private val ROOT_REQUIRED_FIELDS = setOf(
     "schemaVersion", "minimumRestoreVersion", "appVersionName", "appVersionCode", "databaseVersion",
