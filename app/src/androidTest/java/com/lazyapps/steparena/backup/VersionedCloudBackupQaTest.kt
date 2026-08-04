@@ -45,6 +45,7 @@ class VersionedCloudBackupQaTest {
         val dailyBefore = app.database.daily().all().filter { it.localDate == today }
         val processingBefore = app.database.processingState().get()
         val trackingBefore = TrackingStateRepository(app).current()
+        val finalizedChallengeCountBefore = app.database.dailyMatches().finalizedForBackup().size
 
         val versionedReference = legacy.collection("versions").document("v2")
         val v2Before = versionedReference.get(Source.SERVER).await()
@@ -79,7 +80,7 @@ class VersionedCloudBackupQaTest {
         val physicalChallengeAfter = versionedReference.collection("challengeResults").get(Source.SERVER).await().documents
         assertEquals(legacyUntaggedChallengeBefore, physicalChallengeAfter.count { !it.data.orEmpty().containsKey("backupGeneration") })
         assertEquals(v2Root.getLong("challengeResultCount")?.toInt(), v2Counts.getValue("challengeResults"))
-        assertEquals(0, v2Counts.getValue("challengeResults"))
+        assertEquals(finalizedChallengeCountBefore, v2Counts.getValue("challengeResults"))
         assertEquals(1, v2Counts.getValue("settings"))
         val v2Count = v2Counts.values.sum()
         assertTrue("v2 backup must contain data", v2Count > 0)
