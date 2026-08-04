@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import com.lazyapps.steparena.backup.*
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -19,10 +20,14 @@ class CloudBackupSectionTest {
     }
 
     @Test fun linkedUserCanRequestBackup() {
-        var clicks = 0
-        compose.setContent { StepArenaTheme { CloudBackupSection(true, BackupState()) { clicks++ } } }
-        compose.onNodeWithTag("backup_now_button").assertIsEnabled().performClick()
-        assertEquals(1, clicks)
+        val clicks = AtomicInteger(0)
+        compose.setContent {
+            StepArenaTheme {
+                CloudBackupSection(true, BackupState(), onBackupNow = { clicks.incrementAndGet() })
+            }
+        }
+        compose.onNodeWithTag("backup_now_button").assertIsDisplayed().assertIsEnabled().performClick()
+        assertEquals(1, clicks.get())
     }
 
     @Test fun runningBackupDisablesDuplicateAction() {
