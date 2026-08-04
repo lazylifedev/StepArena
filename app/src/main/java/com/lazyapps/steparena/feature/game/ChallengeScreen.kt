@@ -88,7 +88,7 @@ data class ChallengeUiState(
     val todayMatch: DailyMatchEntity? = null,
     val recentMatches: List<DailyMatchEntity> = emptyList(),
     val currentMeasuredSteps: Long = 0,
-    val currentEligibleSteps: Long = currentMeasuredSteps.coerceAtMost(30_000),
+    val currentEligibleSteps: Long = com.lazyapps.steparena.game.OfficialSteps.fromEligible(currentMeasuredSteps),
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
     val displayName: String? = null,
@@ -369,13 +369,13 @@ private fun ChallengeComparisonCard(
             ParticipantProgress(
                 label = playerName,
                 steps = userSteps,
-                progress = comparison.eligibleSteps.toFloat()
-                    .div(comparison.partnerTargetSteps)
-                    .coerceIn(0f, 1f),
+                progress = comparison.segmentProgress,
                 color = StepArenaColors.Cyan,
                 isUser = true,
                 compactTypography = compactTypography,
                 motionLevel = motionLevel,
+                completedSegments = comparison.completedSegments,
+                segmentProgress = comparison.segmentProgress,
                 modifier = Modifier.weight(1f),
             )
             Icon(
@@ -398,11 +398,13 @@ private fun ChallengeComparisonCard(
             ParticipantProgress(
                 label = stringResource(R.string.game_partner),
                 steps = partnerSteps,
-                progress = 1f,
+                progress = 0f,
                 color = StepArenaColors.Violet,
                 isUser = false,
                 compactTypography = compactTypography,
                 motionLevel = motionLevel,
+                completedSegments = 0,
+                segmentProgress = 0f,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -496,6 +498,8 @@ private fun ParticipantProgress(
     isUser: Boolean,
     compactTypography: Boolean,
     motionLevel: MotionLevel,
+    completedSegments: Int,
+    segmentProgress: Float,
     modifier: Modifier = Modifier,
 ) {
     val animatedProgress by animateFloatAsState(
@@ -543,22 +547,27 @@ private fun ParticipantProgress(
             textAlign = TextAlign.Center,
             maxLines = 1,
         )
-        LinearProgressIndicator(
-            progress = { animatedProgress },
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.extraLarge)
-                .testTag(
-                    if (isUser) {
-                        ChallengeTestTags.USER_PROGRESS
-                    } else {
-                        ChallengeTestTags.PARTNER_PROGRESS
-                    },
-                ),
-            color = color,
-            trackColor = StepArenaColors.Gray800,
-            strokeCap = StrokeCap.Round,
-        )
+        Row(
+            Modifier.fillMaxWidth().testTag(
+                if (isUser) ChallengeTestTags.USER_PROGRESS else ChallengeTestTags.PARTNER_PROGRESS,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            repeat(10) { index ->
+                val fill = when {
+                    index < completedSegments -> 1f
+                    index == completedSegments -> segmentProgress
+                    else -> 0f
+                }
+                LinearProgressIndicator(
+                    progress = { fill },
+                    modifier = Modifier.weight(1f).clip(MaterialTheme.shapes.extraLarge),
+                    color = color,
+                    trackColor = StepArenaColors.Gray800,
+                    strokeCap = StrokeCap.Round,
+                )
+            }
+        }
     }
 }
 

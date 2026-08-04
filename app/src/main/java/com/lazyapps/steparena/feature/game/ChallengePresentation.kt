@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.lazyapps.steparena.game.OfficialSteps
 
 data class ChallengeComparison(
     val totalSteps: Long,
@@ -15,6 +16,9 @@ data class ChallengeComparison(
 ) {
     val goalAchieved: Boolean get() = eligibleSteps >= partnerTargetSteps
     val showsTotalBreakdown: Boolean get() = totalSteps != eligibleSteps
+    val completedSegments: Int get() = (eligibleSteps / OfficialSteps.SEGMENT_SIZE).toInt()
+    val remainderSteps: Long get() = eligibleSteps % OfficialSteps.SEGMENT_SIZE
+    val segmentProgress: Float get() = remainderSteps.toFloat() / OfficialSteps.SEGMENT_SIZE
 }
 
 data class ChallengeCelebration(val matchId: String)
@@ -30,9 +34,9 @@ fun challengeComparison(
     val target = partnerTargetSteps.coerceAtLeast(1)
     return ChallengeComparison(
         totalSteps = total,
-        eligibleSteps = current.eligibleSteps.coerceAtLeast(0),
+        eligibleSteps = OfficialSteps.fromEligible(current.eligibleSteps),
         partnerTargetSteps = target,
-        remainingSteps = (target - current.eligibleSteps.coerceAtLeast(0)).coerceAtLeast(0),
+        remainingSteps = (target - OfficialSteps.fromEligible(current.eligibleSteps)).coerceAtLeast(0),
         healthConnectAddedSteps = added,
         isFinalized = current.isFinalized,
     )

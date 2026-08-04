@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import com.lazyapps.steparena.core.database.model.DataQuality
+import com.lazyapps.steparena.game.OfficialSteps
+import com.lazyapps.steparena.game.competitiveSummary
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class HomeViewModel(
@@ -31,14 +33,15 @@ class HomeViewModel(
 ) : AndroidViewModel(application) {
     constructor(application: Application) : this(application, InMemoryMotionSettingsRepository())
     private val trackingRepository = TrackingStateRepository(application)
-    private val activityRepository = (application as StepArenaApplication).activityRepository
-    private val gameRepository = (application as StepArenaApplication).gameRepository
+    private val stepArenaApplication = application as StepArenaApplication
+    private val activityRepository = stepArenaApplication.activityRepository
+    private val gameRepository = stepArenaApplication.gameRepository
     private val recoverySettingsRepository =
         (application as StepArenaApplication).recoverySettingsRepository
     private val dailyStepGoalRepository =
         (application as StepArenaApplication).dailyStepGoalRepository
-    private val currentLocalDay = (application as StepArenaApplication).currentLocalDayProvider.current
-    private val isolatedScenario = (application as StepArenaApplication).isolatedScenario
+    private val currentLocalDay = stepArenaApplication.currentLocalDayProvider.current
+    private val isolatedScenario = stepArenaApplication.isolatedScenario
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -88,13 +91,20 @@ class HomeViewModel(
                 )
             }.combine(currentLocalDay) { sources, day -> sources to day }
                 .flatMapLatest { (sources, day) ->
-                activityRepository.observeToday(day.date, day.zoneId).map { daily ->
-                    Triple(sources, day, daily)
-                }
-            }.collect { (sources, day, daily) ->
+                activityRepository.observeToday(day.date, day.zoneId)
+                    .combine(
+                        stepArenaApplication.database.competitiveIntegritySegments()
+                            .observeDate(day.date.toString(), day.zoneId.id),
+                    ) { daily, integrity -> daily to integrity }
+                    .map { dailyAndIntegrity -> Triple(sources, day, dailyAndIntegrity) }
+            }.collect { (sources, day, dailyAndIntegrity) ->
+                val daily = dailyAndIntegrity.first
+                val integrity = dailyAndIntegrity.second
                 val tracking = sources.tracking
                 val manual = sources.manual
-                val measuredToday = daily?.steps ?: 0
+                val measuredToday = OfficialSteps.fromEligible(
+                    competitiveSummary(daily, integrity).eligibleSteps,
+                )
                 val status = when (tracking.trackingStatus) {
                     PersistentTrackingStatus.TRACKING, PersistentTrackingStatus.RESTARTED ->
                         if (hasFreshTrackingHeartbeat(tracking, Instant.now())) {
