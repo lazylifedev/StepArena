@@ -4,6 +4,11 @@ import android.annotation.SuppressLint
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.lazyapps.steparena.game.OfficialSteps
+import com.lazyapps.steparena.game.PartnerProgress
+import com.lazyapps.steparena.game.PartnerSyncState
+import com.lazyapps.steparena.game.ChallengeResult
+import com.lazyapps.steparena.game.outcome
 
 data class ChallengeComparison(
     val totalSteps: Long,
@@ -12,9 +17,14 @@ data class ChallengeComparison(
     val remainingSteps: Long,
     val healthConnectAddedSteps: Long,
     val isFinalized: Boolean,
+    val partner: PartnerProgress? = null,
 ) {
-    val goalAchieved: Boolean get() = eligibleSteps >= partnerTargetSteps
+    val goalAchieved: Boolean get() = partner?.officialSteps?.let { eligibleSteps >= it } ?: false
     val showsTotalBreakdown: Boolean get() = totalSteps != eligibleSteps
+    val completedSegments: Int get() = (eligibleSteps / OfficialSteps.SEGMENT_SIZE).toInt()
+    val remainderSteps: Long get() = eligibleSteps % OfficialSteps.SEGMENT_SIZE
+    val segmentProgress: Float get() = remainderSteps.toFloat() / OfficialSteps.SEGMENT_SIZE
+    val leadDifference: Long? get() = partner?.officialSteps?.let { eligibleSteps - it }
 }
 
 data class ChallengeCelebration(val matchId: String)
@@ -23,19 +33,27 @@ fun challengeComparison(
     current: CurrentChallengeSteps,
     healthConnectAddedSteps: Long,
     partnerTargetSteps: Long,
+    partner: PartnerProgress? = null,
 ): ChallengeComparison {
     val added = healthConnectAddedSteps.coerceAtLeast(0).takeUnless { current.isFinalized } ?: 0
     val displayed = current.displayedUserSteps.coerceAtLeast(0)
     val total = if (Long.MAX_VALUE - displayed < added) Long.MAX_VALUE else displayed + added
-    val target = partnerTargetSteps.coerceAtLeast(1)
+    val target = partner?.officialSteps?.coerceAtLeast(1) ?: partnerTargetSteps.coerceAtLeast(1)
     return ChallengeComparison(
         totalSteps = total,
-        eligibleSteps = current.eligibleSteps.coerceAtLeast(0),
+        eligibleSteps = OfficialSteps.fromEligible(current.eligibleSteps),
         partnerTargetSteps = target,
-        remainingSteps = (target - current.eligibleSteps.coerceAtLeast(0)).coerceAtLeast(0),
+        remainingSteps = (target - OfficialSteps.fromEligible(current.eligibleSteps)).coerceAtLeast(0),
         healthConnectAddedSteps = added,
         isFinalized = current.isFinalized,
+        partner = partner,
     )
+}
+
+fun challengeResult(myEligibleSteps: Long, opponentEligibleSteps: Long, blocked: Boolean = false): ChallengeResult {
+    val mine = OfficialSteps.competition(myEligibleSteps)
+    val opponent = OfficialSteps.competition(opponentEligibleSteps)
+    return ChallengeResult(mine, opponent, OfficialSteps.reward(mine), OfficialSteps.reward(opponent), outcome(mine, opponent, blocked))
 }
 
 internal fun shouldCelebrateChallenge(

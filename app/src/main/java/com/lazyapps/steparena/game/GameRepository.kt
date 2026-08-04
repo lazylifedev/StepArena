@@ -94,15 +94,42 @@ class LocalGameRepository(
         val date = targetDate.toString()
         val rank = RankSystem.definition(profile.rating)
         val recent = database.daily().recentNow(28)
-        val median = recent.map { it.steps }.sorted().let { values ->
+        val median = recent.map { daily ->
+            OfficialSteps.fromEligible(
+                competitiveSummary(
+                    daily,
+                    database.competitiveIntegritySegments().forDate(daily.localDate, daily.zoneId),
+                ).eligibleSteps,
+            )
+        }.sorted().let { values ->
             values.takeIf { it.isNotEmpty() }?.get(values.size / 2)
         }
-        val opponent = opponentGenerator.generate(
-            OpponentGenerationInput(
+        val generationInput = OpponentGenerationInput(
                 installationId, seasonId(targetDate), targetDate, rank, median,
                 profile.currentLossStreak, profile.beginnerMatchesRemaining > 0,
-            ),
+            )
+        val userCandidate = MatchCandidate(
+            id = "player", type = MatchCandidateType.REAL,
+            rankTier = rank.tier, rankDivision = rank.division,
+            recentOfficialSteps = median, personalGoalBand = goalBand(median),
+            timezone = targetZone.id, lastActiveAtEpochMillis = now,
+            recentOpponentIds = database.dailyMatches().recentNow(3).map { it.opponentId }.toSet(),
         )
+        val opponent = MatchCandidateScoring.rank(
+            opponentGenerator.generateCandidates(generationInput).map { bot ->
+                val botSteps = OfficialSteps.fromEligible(
+                    opponentGenerator.progress(bot, 1_440),
+                )
+                MatchCandidate(
+                    id = bot.id, type = MatchCandidateType.BOT,
+                    rankTier = bot.rankTier, rankDivision = bot.rankDivision,
+                    recentOfficialSteps = botSteps, personalGoalBand = goalBand(bot.targetSteps),
+                    timezone = targetZone.id, lastActiveAtEpochMillis = 0L,
+                )
+            }, userCandidate,
+        ).first().let { selected ->
+            generationInput.let { opponentGenerator.generateCandidates(it).first { it.id == selected.id } }
+        }
         database.dailyMatches().insert(
             DailyMatchEntity(
                 id = "daily-${seasonId(targetDate)}-$date-${targetZone.id.hashCode()}",
@@ -520,6 +547,16 @@ internal fun competitiveSummary(
         DataQuality.MIXED -> CompetitiveStepInput(measured = steps, recovered = recovered)
     }
     return calculator.calculate(input)
+}
+
+private fun goalBand(steps: Long?): Int = when (steps?.coerceAtLeast(0) ?: 0L) {
+    in 0..4_999 -> 0
+    in 5_000..6_999 -> 1
+    in 7_000..8_999 -> 2
+    in 9_000..10_999 -> 3
+    in 11_000..12_999 -> 4
+    in 13_000..19_999 -> 5
+    else -> 6
 }
 
 private fun safeStepSum(first: Long, second: Long): Long =

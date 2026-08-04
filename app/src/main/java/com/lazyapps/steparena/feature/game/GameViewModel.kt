@@ -8,6 +8,7 @@ import com.lazyapps.steparena.core.database.entity.*
 import com.lazyapps.steparena.tracking.TrackingStateRepository
 import com.lazyapps.steparena.game.MatchStatus
 import com.lazyapps.steparena.game.competitiveSummary
+import com.lazyapps.steparena.game.OfficialSteps
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -21,7 +22,7 @@ data class GameUiState(
     val achievements: List<AchievementUnlockEntity> = emptyList(),
     val notificationEvents: List<GameNotificationEventEntity> = emptyList(),
     val currentMeasuredSteps: Long = 0,
-    val currentEligibleSteps: Long = currentMeasuredSteps.coerceAtMost(30_000),
+    val currentEligibleSteps: Long = OfficialSteps.fromEligible(currentMeasuredSteps),
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
     val recentDailyActivity: List<DailyActivityRecordEntity> = emptyList(),
@@ -191,13 +192,13 @@ data class CurrentChallengeSteps(
 fun currentChallengeSteps(
     match: DailyMatchEntity,
     measuredSteps: Long,
-    eligibleSteps: Long = measuredSteps.coerceAtMost(30_000),
+    eligibleSteps: Long = OfficialSteps.fromEligible(measuredSteps),
 ): CurrentChallengeSteps =
     if (match.status == MatchStatus.FINALIZED) {
         CurrentChallengeSteps(match.totalUserSteps, match.eligibleUserSteps, true)
     } else {
         val current = measuredSteps.coerceAtLeast(0)
-        CurrentChallengeSteps(current, eligibleSteps.coerceIn(0, minOf(current, 30_000)), false)
+        CurrentChallengeSteps(current, eligibleSteps.coerceIn(0, OfficialSteps.DAILY_LIMIT), false)
     }
 
 private data class TodayActivity(

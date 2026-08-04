@@ -94,10 +94,73 @@ data class CompetitiveStepPolicy(
     val recoveredRate: Double = 0.0,
     val externalRecoveredRate: Double = 0.0,
     val estimatedRate: Double = 0.0,
-    val unknownRate: Double = 0.0,
+    val unknownRate: Double = 1.0,
     val maxExternalRecoveredStepsPerDay: Long = 10_000,
-    val maxEligibleStepsPerDay: Long = 30_000,
+    val maxEligibleStepsPerDay: Long = 100_000,
 )
+
+/** User-facing, integrity-approved steps. Raw values remain in the audit model. */
+object OfficialSteps {
+    const val DAILY_LIMIT = 100_000L
+    const val SEGMENT_SIZE = 10_000L
+    const val REWARD_LIMIT = 30_000L
+
+    fun fromEligible(eligibleSteps: Long): Long = eligibleSteps.coerceAtLeast(0).coerceAtMost(DAILY_LIMIT)
+    fun competition(eligibleSteps: Long): Long = fromEligible(eligibleSteps)
+    fun reward(eligibleSteps: Long): Long = fromEligible(eligibleSteps).coerceAtMost(REWARD_LIMIT)
+}
+
+enum class MatchCandidateType { BOT, REAL }
+enum class PartnerSyncState { SYNCED, STALE, NO_TODAY_DATA, UNKNOWN }
+
+data class PartnerProgress(
+    val officialSteps: Long?,
+    val updatedAtEpochMillis: Long?,
+    val localDate: String?,
+    val timezone: String?,
+    val syncState: PartnerSyncState,
+)
+
+data class ChallengeResult(
+    val myCompetitionSteps: Long,
+    val opponentCompetitionSteps: Long,
+    val myRewardSteps: Long,
+    val opponentRewardSteps: Long,
+    val winner: MatchOutcome,
+) {
+    val difference: Long get() = myCompetitionSteps - opponentCompetitionSteps
+}
+
+data class MatchCandidate(
+    val id: String,
+    val type: MatchCandidateType,
+    val rankTier: RankTier,
+    val rankDivision: Int?,
+    val recentOfficialSteps: Long?,
+    val personalGoalBand: Int,
+    val timezone: String?,
+    val lastActiveAtEpochMillis: Long?,
+    val recentOpponentIds: Set<String> = emptySet(),
+    val availability: Boolean = true,
+)
+
+object MatchCandidateScoring {
+    fun score(candidate: MatchCandidate, player: MatchCandidate): Long {
+        val rankDistance = kotlin.math.abs(candidate.rankTier.ordinal - player.rankTier.ordinal) * 100L +
+            kotlin.math.abs((candidate.rankDivision ?: 0) - (player.rankDivision ?: 0))
+        val stepDistance = if (candidate.recentOfficialSteps == null || player.recentOfficialSteps == null) 50_000L
+            else kotlin.math.abs(candidate.recentOfficialSteps - player.recentOfficialSteps).coerceAtMost(100_000L)
+        val goalDistance = kotlin.math.abs(candidate.personalGoalBand - player.personalGoalBand).toLong()
+        val timezonePenalty = if (candidate.timezone == player.timezone) 0L else 10L
+        val stalePenalty = if (!candidate.availability || candidate.lastActiveAtEpochMillis == null) 100_000L else 0L
+        val repeatPenalty = if (candidate.id in player.recentOpponentIds) 25_000L else 0L
+        return rankDistance * 1_000_000L + stepDistance * 1_000L + goalDistance * 100L +
+            timezonePenalty + stalePenalty + repeatPenalty
+    }
+
+    fun rank(candidates: List<MatchCandidate>, player: MatchCandidate): List<MatchCandidate> =
+        candidates.sortedWith(compareBy<MatchCandidate> { score(it, player) }.thenBy { it.id })
+}
 
 data class CompetitiveIntegrityPolicy(
     val maxStepsPerMinute: Long = 250,
@@ -142,7 +205,7 @@ class CompetitiveStepCalculator(private val policy: CompetitiveStepPolicy = Comp
                 Long.MAX_VALUE
             } else acc + value
         }
-        if (input.integrityViolation || total > CompetitiveIntegrityPolicy().maxStepsPerDay || input.debugData) {
+        if (input.integrityViolation || input.debugData) {
             reasons += if (input.debugData) CompetitiveStepRestrictionReason.DEBUG_DATA
                 else CompetitiveStepRestrictionReason.INTEGRITY_LIMIT
             return CompetitiveStepSummary(total, 0, 0, total, CompetitiveStepQuality.EXCLUDED, reasons)
@@ -158,7 +221,9 @@ class CompetitiveStepCalculator(private val policy: CompetitiveStepPolicy = Comp
         if (values[1] > 0) reasons += CompetitiveStepRestrictionReason.RECOVERED_LIMITED
         if (values[2] > 0) reasons += CompetitiveStepRestrictionReason.EXTERNAL_RECOVERY_LIMITED
         if (values[3] > 0) reasons += CompetitiveStepRestrictionReason.ESTIMATED_LIMITED
-        if (values[4] > 0) reasons += CompetitiveStepRestrictionReason.UNKNOWN_EXCLUDED
+        if (values[4] > 0 && policy.unknownRate == 0.0) {
+            reasons += CompetitiveStepRestrictionReason.UNKNOWN_EXCLUDED
+        }
         if (eligible > policy.maxEligibleStepsPerDay) reasons += CompetitiveStepRestrictionReason.DAILY_ELIGIBLE_LIMIT
         eligible = eligible.coerceAtMost(policy.maxEligibleStepsPerDay)
         val excluded = values[4] + (values[2] - external) + values[6]
@@ -193,8 +258,13 @@ data class OpponentGenerationInput(
 
 class LocalOpponentGenerator {
     private val names = listOf("Aoi", "Ren", "Sora", "Hina", "Riku", "Yui", "Kai", "Mio")
-    fun generate(input: OpponentGenerationInput): LocalOpponent {
-        val seedText = "${input.seasonId}|${input.localDate}|${input.rank.tier}|${input.rank.division}|${input.installationId}"
+    fun generate(input: OpponentGenerationInput): LocalOpponent = generate(input, 0)
+
+    fun generateCandidates(input: OpponentGenerationInput, count: Int = 8): List<LocalOpponent> =
+        (0 until count.coerceAtLeast(1)).map { generate(input, it) }
+
+    private fun generate(input: OpponentGenerationInput, variant: Int): LocalOpponent {
+        val seedText = "${input.seasonId}|${input.localDate}|${input.rank.tier}|${input.rank.division}|${input.installationId}|$variant"
         val seed = seedText.fold(1125899906842597L) { acc, char -> acc * 31 + char.code }
         val random = java.util.Random(seed)
         val personality = OpponentPersonality.entries[random.nextInt(OpponentPersonality.entries.size)]

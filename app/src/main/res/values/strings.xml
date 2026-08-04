@@ -398,6 +398,12 @@
     <string name="game_goal_achieved">目標を達成しました</string>
     <string name="game_goal_achieved_compact">達成</string>
     <string name="game_steps_remaining">あと%1$s歩</string>
+    <string name="game_steps_behind">あと%1$s歩で追いつく</string>
+    <string name="game_steps_ahead">%1$s歩リード</string>
+    <string name="game_steps_tied">同点</string>
+    <string name="game_partner_sync_waiting">相手の更新待ち</string>
+    <string name="game_partner_no_today_data">今日のデータなし</string>
+    <string name="game_partner_updated_at">最終更新 %1$s</string>
     <string name="game_total_eligible_compact">合計 %1$s　対象 %2$s</string>
     <string name="game_eligible_steps">チャレンジ対象歩数 %1$s歩</string>
     <string name="game_finalized_eligible_steps">確定時の対象歩数 %1$s歩</string>
@@ -410,8 +416,8 @@
     <string name="game_today_loading">今日のチャレンジを準備しています。</string>
     <string name="game_past_title">過去のチャレンジ</string>
     <string name="game_history_title">履歴</string>
-    <string name="game_history_steps_compact">%1$s歩 ／ 目標%2$s歩</string>
-    <string name="game_history_accessibility">%1$s、%2$s、自分%3$s歩、目標%4$s歩、レート差%5$s</string>
+    <string name="game_history_steps_compact">自分%1$s歩</string>
+    <string name="game_history_accessibility">%1$s、%2$s、自分%3$s歩、レート差%4$s</string>
     <string name="game_history_detail_title">チャレンジ詳細</string>
     <string name="game_history_detail_date">日付：%1$s</string>
     <string name="game_history_detail_result">結果：%1$s</string>
