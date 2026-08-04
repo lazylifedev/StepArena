@@ -12,7 +12,9 @@ import com.lazyapps.steparena.tracking.TrackingStateRepository
 import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.TreeMap
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -37,11 +39,14 @@ class VersionedCloudBackupQaTest {
         val trackingBefore = TrackingStateRepository(app).current()
 
         val versionedReference = legacy.collection("versions").document("v2")
-        val existingV2 = versionedReference.get(Source.SERVER).await()
-        if (!existingV2.exists()) {
-            val backup = app.cloudBackupRepository.backupNow()
-            assertTrue("Explicit versioned backup must succeed: $backup", backup is BackupResult.Success)
+        val startupCheck = app.cloudRestoreRepository.check()
+        if (startupCheck.status == RestoreStatus.CHECKING) {
+            withTimeout(30_000) {
+                app.cloudRestoreRepository.state.first { it.status != RestoreStatus.CHECKING }
+            }
         }
+        val backup = app.cloudBackupRepository.backupNow()
+        assertTrue("Explicit versioned backup must succeed: $backup", backup is BackupResult.Success)
         val after = legacyFingerprint(legacy)
         assertEquals(before, after)
 

@@ -96,6 +96,7 @@ open class StepArenaApplication : Application(), AppGraph {
 
     override fun onCreate() {
         super.onCreate()
+        AppCheckInitialization.initialize()
         scheduleBackgroundWork()
         accountAuthRepository.initialize()
         applicationScope.launch {
