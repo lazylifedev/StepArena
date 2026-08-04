@@ -97,6 +97,8 @@ data class ChallengeUiState(
     val currentHealthConnectAddedSteps: Long = 0,
     val challengeCelebration: ChallengeCelebration? = null,
     val displayName: String? = null,
+    val partnerProgress: PartnerProgress? = null,
+    val partnerProgressProvided: Boolean = false,
 )
 
 @Composable
@@ -109,7 +111,7 @@ fun ChallengeScreen(
     var showInformation by rememberSaveable { mutableStateOf(false) }
     var selectedHistoryId by rememberSaveable { mutableStateOf<String?>(null) }
     val match = state.todayMatch
-    val partnerProgress = match?.let {
+    val generatedPartnerProgress = match?.let {
         val now = java.time.ZonedDateTime.now()
         val steps = LocalOpponentGenerator().progress(
             LocalOpponent(
@@ -119,12 +121,13 @@ fun ChallengeScreen(
         )
         PartnerProgress(OfficialSteps.fromEligible(steps), now.toInstant().toEpochMilli(), it.localDate, it.zoneId, PartnerSyncState.SYNCED)
     }
+    val effectivePartnerProgress = if (state.partnerProgressProvided) state.partnerProgress else generatedPartnerProgress
     val comparison = match?.let {
         challengeComparison(
             current = currentChallengeSteps(it, state.currentMeasuredSteps, state.currentEligibleSteps),
             healthConnectAddedSteps = state.currentHealthConnectAddedSteps,
             partnerTargetSteps = it.opponentTargetSteps,
-            partner = partnerProgress,
+            partner = effectivePartnerProgress,
         )
     }
     val finalized = state.recentMatches

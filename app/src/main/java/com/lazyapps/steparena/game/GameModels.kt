@@ -141,6 +141,7 @@ data class MatchCandidate(
     val timezone: String?,
     val lastActiveAtEpochMillis: Long?,
     val recentOpponentIds: Set<String> = emptySet(),
+    val availability: Boolean = true,
 )
 
 object MatchCandidateScoring {
@@ -151,7 +152,7 @@ object MatchCandidateScoring {
             else kotlin.math.abs(candidate.recentOfficialSteps - player.recentOfficialSteps).coerceAtMost(100_000L)
         val goalDistance = kotlin.math.abs(candidate.personalGoalBand - player.personalGoalBand).toLong()
         val timezonePenalty = if (candidate.timezone == player.timezone) 0L else 10L
-        val stalePenalty = if (candidate.lastActiveAtEpochMillis == null) 100_000L else 0L
+        val stalePenalty = if (!candidate.availability || candidate.lastActiveAtEpochMillis == null) 100_000L else 0L
         val repeatPenalty = if (candidate.id in player.recentOpponentIds) 25_000L else 0L
         return rankDistance * 1_000_000L + stepDistance * 1_000L + goalDistance * 100L +
             timezonePenalty + stalePenalty + repeatPenalty
@@ -257,8 +258,13 @@ data class OpponentGenerationInput(
 
 class LocalOpponentGenerator {
     private val names = listOf("Aoi", "Ren", "Sora", "Hina", "Riku", "Yui", "Kai", "Mio")
-    fun generate(input: OpponentGenerationInput): LocalOpponent {
-        val seedText = "${input.seasonId}|${input.localDate}|${input.rank.tier}|${input.rank.division}|${input.installationId}"
+    fun generate(input: OpponentGenerationInput): LocalOpponent = generate(input, 0)
+
+    fun generateCandidates(input: OpponentGenerationInput, count: Int = 8): List<LocalOpponent> =
+        (0 until count.coerceAtLeast(1)).map { generate(input, it) }
+
+    private fun generate(input: OpponentGenerationInput, variant: Int): LocalOpponent {
+        val seedText = "${input.seasonId}|${input.localDate}|${input.rank.tier}|${input.rank.division}|${input.installationId}|$variant"
         val seed = seedText.fold(1125899906842597L) { acc, char -> acc * 31 + char.code }
         val random = java.util.Random(seed)
         val personality = OpponentPersonality.entries[random.nextInt(OpponentPersonality.entries.size)]
