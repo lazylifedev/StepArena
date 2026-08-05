@@ -57,7 +57,7 @@ private val RealUserSyncState.resource get() = when (this) {
     RealUserSyncState.UNKNOWN -> R.string.real_user_challenge_sync_unknown
 }
 
-private fun String?.toRealUserResult() = when (this) {
+internal fun String?.toRealUserResult() = when (this) {
     "win" -> RealUserResult.WIN
     "loss" -> RealUserResult.LOSS
     "draw" -> RealUserResult.DRAW
@@ -65,18 +65,32 @@ private fun String?.toRealUserResult() = when (this) {
     else -> RealUserResult.UNKNOWN
 }
 
-private fun String?.toRealUserSyncState() = when (this) {
+internal fun String?.toRealUserSyncState() = when (this) {
     "finalized" -> RealUserSyncState.FINALIZED
     "synced" -> RealUserSyncState.SYNCED
     "pending" -> RealUserSyncState.PENDING
     else -> RealUserSyncState.UNKNOWN
 }
 
-private fun String?.toRealUserChallengeStatus() = when (this) {
+internal fun String?.toRealUserChallengeStatus() = when (this) {
     "active" -> RealUserChallengeStatus.ACTIVE
     "finalized", "completed" -> RealUserChallengeStatus.FINALIZED
     else -> RealUserChallengeStatus.UNKNOWN
 }
+
+internal fun realUserPartnerProgressFromFirestore(data: Map<String, Any?>) = RealUserPartnerProgress(
+    officialSteps = (data["officialSteps"] as? Number)?.toLong() ?: 0,
+    competitionSteps = (data["competitionSteps"] as? Number)?.toLong() ?: 0,
+    rewardSteps = (data["rewardSteps"] as? Number)?.toLong() ?: 0,
+    result = (data["result"] as? String).toRealUserResult(),
+    syncState = (data["syncState"] as? String).toRealUserSyncState(),
+)
+
+internal fun realUserDisplayedSteps(progress: RealUserPartnerProgress, status: RealUserChallengeStatus) =
+    if (status == RealUserChallengeStatus.ACTIVE) progress.officialSteps else progress.competitionSteps
+
+internal fun realUserShowsFinalizedDetails(status: RealUserChallengeStatus) =
+    status == RealUserChallengeStatus.FINALIZED
 
 data class RealUserChallengeState(
     val challengeId: String? = null,
@@ -116,14 +130,7 @@ class RealUserChallengeRemoteDataSource(
             val participantsUnchanged=ids==latestIds && selfRegistration!=null && opponentRegistration!=null
             if(!participantsUnchanged){latestIds=ids; selfRegistration?.remove(); opponentRegistration?.remove(); latestSelf=null; latestOpponent=null}
             val collection=firestore.collection("challenges").document(challengeId).collection("participants")
-            fun progress(snapshot: com.google.firebase.firestore.DocumentSnapshot) = RealUserPartnerProgress(
-                officialSteps = snapshot.getLong("officialSteps") ?: 0,
-                competitionSteps = snapshot.getLong("competitionSteps") ?: 0,
-                rewardSteps = snapshot.getLong("rewardSteps") ?: 0,
-                result = snapshot.getString("result").toRealUserResult(),
-                syncState = snapshot.getString("syncState").toRealUserSyncState(),
-                progressUpdatedAt = snapshot.getTimestamp("progressUpdatedAt"),
-            )
+            fun progress(snapshot: com.google.firebase.firestore.DocumentSnapshot) = realUserPartnerProgressFromFirestore(snapshot.data.orEmpty()).copy(progressUpdatedAt = snapshot.getTimestamp("progressUpdatedAt"))
             fun emit(){ val s=latestSelf; val o=latestOpponent; onState(RealUserChallengeState(challengeId,latestStatus,o?.getString("publicDisplayName") ?: "Opponent",o?.let(::progress),selfDisplayName=s?.getString("publicDisplayName") ?: "You",selfProgress=s?.let(::progress),challengeStatus=latestStatus)) }
             if(participantsUnchanged){emit();return@addSnapshotListener}
             selfRegistration=collection.document(me).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="listener_error")) else {latestSelf=participant;emit()} }
@@ -199,7 +206,7 @@ fun RealUserChallengeScreen() {
                     fun progress(name: String, value: RealUserPartnerProgress) {
                         Text(name)
                         Text("${stringResource(R.string.real_user_challenge_official_steps)}: ${value.officialSteps}")
-                        if (state.challengeStatus == RealUserChallengeStatus.FINALIZED) {
+                        if (realUserShowsFinalizedDetails(state.challengeStatus)) {
                             Text("${stringResource(R.string.real_user_challenge_competition_steps)}: ${value.competitionSteps}")
                             Text("${stringResource(R.string.real_user_challenge_reward_steps)}: ${value.rewardSteps}")
                             Text("${stringResource(R.string.real_user_challenge_result)}: ${stringResource(value.result.resource)}")
