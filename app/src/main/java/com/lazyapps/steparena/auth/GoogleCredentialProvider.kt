@@ -19,6 +19,10 @@ sealed interface GoogleCredentialResult {
 class GoogleCredentialProvider(private val activity: Activity) {
     private val manager = CredentialManager.create(activity)
 
+    suspend fun clearState() {
+        manager.clearCredentialState(androidx.credentials.ClearCredentialStateRequest())
+    }
+
     suspend fun request(serverClientId: String): GoogleCredentialResult {
         if (serverClientId.isBlank()) return GoogleCredentialResult.ConfigurationError
         return try {

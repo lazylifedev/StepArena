@@ -77,19 +77,24 @@ describe('Functions emulator integration', {timeout: 30000}, () => {
       seed(`matchProfiles/${otherDivision.localId}`, {matchingStatus: 'available', league: 'silver', division: 3, recentOfficialSteps: 10001, lastActiveAt: now}),
     ]);
     const result = await call('findChallengePartner', me.idToken, {});
-    expect(result.body.result?.uid).toBe(partner.localId);
+    expect(result.body.result?.status).toBe('reserved');
+    expect(result.body.result?.reservationId).toEqual(expect.any(String));
+    expect(result.body.result?.uid).toBeUndefined();
+    expect(result.body.result?.opponentUid).toBeUndefined();
   });
 
   it('creates one challenge transactionally and rejects a duplicate request', async () => {
     const a = await createUser();
     const b = await createUser();
     created.push(a.localId, b.localId);
-    await Promise.all([seed(`matchProfiles/${a.localId}`, {matchingStatus: 'available', league: 'gold', division: 1}), seed(`matchProfiles/${b.localId}`, {matchingStatus: 'available', league: 'gold', division: 1})]);
-    const requestId = `challenge-${a.localId}`;
-    const first = await call('createChallengeCallable', a.idToken, {partnerUid: b.localId, requestId});
+    await Promise.all([seed(`matchProfiles/${a.localId}`, {matchingStatus: 'available', league: 'gold', division: 1, recentOfficialSteps: 10, lastActiveAt: new Date()}), seed(`matchProfiles/${b.localId}`, {matchingStatus: 'available', league: 'gold', division: 1, recentOfficialSteps: 11, lastActiveAt: new Date()})]);
+    const found = await call('findChallengePartner', a.idToken, {});
+    const reservationId = found.body.result?.reservationId as string;
+    const requestId = '6f1f6f1f-1111-4111-8111-111111111111';
+    const first = await call('createChallengeCallable', a.idToken, {reservationId, requestId});
     expect(first.body.result?.challengeId).toEqual(expect.any(String));
-    const second = await call('createChallengeCallable', a.idToken, {partnerUid: b.localId, requestId});
-    expect(second.body.error?.status).toBe('FAILED_PRECONDITION');
+    const second = await call('createChallengeCallable', a.idToken, {reservationId, requestId});
+    expect(second.body.result?.challengeId).toBe(first.body.result?.challengeId);
     const challenge = await db.collection('challenges').doc(first.body.result?.challengeId as string).get();
     expect(challenge.data()?.participantIds).toEqual([a.localId, b.localId]);
     expect(challenge.data()?.status).toBe('active');
@@ -99,14 +104,17 @@ describe('Functions emulator integration', {timeout: 30000}, () => {
     const a = await createUser();
     const b = await createUser();
     created.push(a.localId, b.localId);
-    await Promise.all([seed(`matchProfiles/${a.localId}`, {matchingStatus: 'available', league: 'race', division: 1}), seed(`matchProfiles/${b.localId}`, {matchingStatus: 'available', league: 'race', division: 1})]);
+    await Promise.all([seed(`matchProfiles/${a.localId}`, {matchingStatus: 'available', league: 'race', division: 1, recentOfficialSteps: 1, lastActiveAt: new Date()}), seed(`matchProfiles/${b.localId}`, {matchingStatus: 'available', league: 'race', division: 1, recentOfficialSteps: 2, lastActiveAt: new Date()})]);
+    const reservation = await call('findChallengePartner', a.idToken, {});
+    const reservationId = reservation.body.result?.reservationId as string;
+    const requestId = '7f2f7f2f-2222-4222-8222-222222222222';
     const [left, right] = await Promise.all([
-      call('createChallengeCallable', a.idToken, {partnerUid: b.localId, requestId: `race-a-${a.localId}`}),
-      call('createChallengeCallable', b.idToken, {partnerUid: a.localId, requestId: `race-b-${b.localId}`}),
+      call('createChallengeCallable', a.idToken, {reservationId, requestId}),
+      call('createChallengeCallable', a.idToken, {reservationId, requestId}),
     ]);
     const successes = [left, right].filter(result => typeof result.body.result?.challengeId === 'string');
-    expect(successes).toHaveLength(1);
-    expect([left, right].some(result => result.body.error?.status === 'FAILED_PRECONDITION')).toBe(true);
+    expect(successes).toHaveLength(2);
+    expect([left, right].every(result => typeof result.body.result?.challengeId === 'string')).toBe(true);
     const challenges = await db.collection('challenges').where('participantIds', 'array-contains', a.localId).get();
     expect(challenges.docs.filter(doc => (doc.data().participantIds as string[]).includes(b.localId))).toHaveLength(1);
   });

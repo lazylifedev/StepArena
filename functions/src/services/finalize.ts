@@ -1,4 +1,4 @@
-import {Firestore, Timestamp} from 'firebase-admin/firestore';
+import {FieldValue, Firestore, Timestamp} from 'firebase-admin/firestore';
 import {competitionSteps, rewardSteps} from '../domain/models';
 
 export async function finalizeExpiredChallenges(db: Firestore, now = Timestamp.now()): Promise<number> {
@@ -16,6 +16,7 @@ export async function finalizeExpiredChallenges(db: Firestore, now = Timestamp.n
       const winners = values.filter(v => v.steps === max).map(v => v.uid);
       tx.update(challenge.ref, {status: 'finalized', winnerUid: winners.length === 1 ? winners[0] : null, finalizedAt: now, updatedAt: now});
       for (const v of values) tx.update(challenge.ref.collection('participants').doc(v.uid), {competitionSteps: v.steps, rewardSteps: rewardSteps(v.steps), result: winners.length === 1 ? (winners.includes(v.uid) ? 'win' : 'loss') : 'draw', syncState: 'finalized', progressUpdatedAt: now});
+      for (const v of values) tx.set(db.doc(`matchProfiles/${v.uid}`), {activeChallengeId: FieldValue.delete(), reservationId: FieldValue.delete(), reservationExpiresAt: FieldValue.delete(), matchingStatus: 'available', updatedAt: now}, {merge: true});
       return true;
     });
     if (changed) finalized++;

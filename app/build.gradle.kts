@@ -63,6 +63,9 @@ android {
     sourceSets {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
+    lint {
+        baseline = file("lint-baseline.xml")
+    }
 }
 
 androidComponents {
