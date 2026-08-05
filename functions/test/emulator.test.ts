@@ -20,7 +20,10 @@ async function call(name: string, token: string, data: Record<string, unknown>) 
   return {status: response.status, body};
 }
 
-describe('Functions emulator integration', () => {
+async function seed(path: string, data: Record<string, unknown>) { await dbForTest().doc(path).set(data); }
+let dbForTest: () => ReturnType<typeof getFirestore>;
+
+describe('Functions emulator integration', {timeout: 30000}, () => {
   let db: ReturnType<typeof getFirestore>;
   const created: string[] = [];
   beforeAll(() => {
@@ -28,6 +31,7 @@ describe('Functions emulator integration', () => {
     process.env.GOOGLE_CLOUD_PROJECT = projectId;
     if (!getApps().length) initializeApp({projectId});
     db = getFirestore();
+    dbForTest = () => db;
   });
   afterAll(async () => {
     await Promise.all(created.map(uid => db.doc(`officialProgress/${uid}/days/2026-08-05`).delete()));
@@ -47,5 +51,46 @@ describe('Functions emulator integration', () => {
     const result = await call('submitOfficialProgress', '', {localDate: '2026-08-05', timezone: 'Asia/Tokyo', totalSteps: 0, eligibleSteps: 0, restrictedSteps: 0, excludedSteps: 0, integrityVersion: 1, sourceRevision: '1', requestId: 'unauthenticated'});
     expect(result.status).toBe(401);
     expect(result.body.error?.status).toBe('UNAUTHENTICATED');
+  });
+
+  it('preserves idempotency and rejects stale revisions without changing the stored document', async () => {
+    const user = await createUser();
+    created.push(user.localId);
+    const base = {localDate: '2026-08-05', timezone: 'Asia/Tokyo', totalSteps: 1200, eligibleSteps: 1000, restrictedSteps: 200, excludedSteps: 0, integrityVersion: 1, sourceRevision: '2', requestId: `revision-${user.localId}`};
+    expect((await call('submitOfficialProgress', user.idToken, base)).body.result?.status).toBe('accepted');
+    expect((await call('submitOfficialProgress', user.idToken, base)).body.result?.status).toBe('duplicate');
+    const stale = {...base, sourceRevision: '1', requestId: `revision-stale-${user.localId}`, eligibleSteps: 900, restrictedSteps: 300};
+    expect((await call('submitOfficialProgress', user.idToken, stale)).body.result?.status).toBe('stale');
+    expect((await db.doc(`officialProgress/${user.localId}/days/2026-08-05`).get()).data()?.officialSteps).toBe(1000);
+  });
+
+  it('finds a same-division partner using Firestore emulator data and excludes the caller', async () => {
+    const me = await createUser();
+    const partner = await createUser();
+    const otherDivision = await createUser();
+    created.push(me.localId, partner.localId, otherDivision.localId);
+    const now = new Date();
+    await Promise.all([
+      seed(`matchProfiles/${me.localId}`, {matchingStatus: 'available', league: 'silver', division: 2, recentOfficialSteps: 10000, lastActiveAt: now}),
+      seed(`matchProfiles/${partner.localId}`, {matchingStatus: 'available', league: 'silver', division: 2, recentOfficialSteps: 10050, lastActiveAt: now}),
+      seed(`matchProfiles/${otherDivision.localId}`, {matchingStatus: 'available', league: 'silver', division: 3, recentOfficialSteps: 10001, lastActiveAt: now}),
+    ]);
+    const result = await call('findChallengePartner', me.idToken, {});
+    expect(result.body.result?.uid).toBe(partner.localId);
+  });
+
+  it('creates one challenge transactionally and rejects a duplicate request', async () => {
+    const a = await createUser();
+    const b = await createUser();
+    created.push(a.localId, b.localId);
+    await Promise.all([seed(`matchProfiles/${a.localId}`, {matchingStatus: 'available', league: 'gold', division: 1}), seed(`matchProfiles/${b.localId}`, {matchingStatus: 'available', league: 'gold', division: 1})]);
+    const requestId = `challenge-${a.localId}`;
+    const first = await call('createChallengeCallable', a.idToken, {partnerUid: b.localId, requestId});
+    expect(first.body.result?.challengeId).toEqual(expect.any(String));
+    const second = await call('createChallengeCallable', a.idToken, {partnerUid: b.localId, requestId});
+    expect(second.body.error?.status).toBe('FAILED_PRECONDITION');
+    const challenge = await db.collection('challenges').doc(first.body.result?.challengeId as string).get();
+    expect(challenge.data()?.participantIds).toEqual([a.localId, b.localId]);
+    expect(challenge.data()?.status).toBe('active');
   });
 });

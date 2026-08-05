@@ -189,3 +189,23 @@ test('lease unknown root field is denied', async()=>{ const ref=doc(db('a'),v2()
 test('lease version change is denied on complete', async()=>{ const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,leaseVersion:2,backupStatus:'complete',backupCompletedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
 test('legacy stale in progress with valid timestamp can migrate', async()=>{ const legacy=fixedRoot(); delete legacy.leaseVersion; delete legacy.backupOperationId; delete legacy.leaseUpdatedAt; await seedRoot(legacy); const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertSucceeds(setDoc(ref,{...s,backupGeneration:2,leaseVersion:1,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
 test('legacy in progress missing timestamp is denied', async()=>{ const legacy=fixedRoot(); delete legacy.leaseVersion; delete legacy.backupOperationId; delete legacy.leaseUpdatedAt; delete legacy.backupStartedAt; await seedRoot(legacy); const ref=doc(db('a'),v2()); const s=(await getDoc(ref)).data(); await assertFails(setDoc(ref,{...s,backupGeneration:2,leaseVersion:1,backupOperationId:op2,backupStartedAt:serverTimestamp(),leaseUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()})); });
+
+test('backend official progress is readable only by its owner', async()=>{
+  await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'officialProgress/a/days/2026-08-05'),{uid:'a',officialSteps:10}));
+  await assertSucceeds(getDoc(doc(db('a'),'officialProgress/a/days/2026-08-05')));
+  await assertFails(getDoc(doc(db('b'),'officialProgress/a/days/2026-08-05')));
+});
+test('backend challenge is readable only by participants', async()=>{
+  await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'challenges/challenge-a'),{participantIds:['a','b'],status:'active'}));
+  await assertSucceeds(getDoc(doc(db('a'),'challenges/challenge-a')));
+  await assertFails(getDoc(doc(db('c'),'challenges/challenge-a')));
+});
+test('backend participant subdocument follows the parent participant list', async()=>{
+  await env.withSecurityRulesDisabled(async c=>{ await setDoc(doc(c.firestore(),'challenges/challenge-a'),{participantIds:['a','b'],status:'active'}); await setDoc(doc(c.firestore(),'challenges/challenge-a/participants/b'),{uid:'b',competitionSteps:10}); });
+  await assertSucceeds(getDoc(doc(db('a'),'challenges/challenge-a/participants/b')));
+  await assertFails(getDoc(doc(db('c'),'challenges/challenge-a/participants/b')));
+});
+test('backend client writes and request deduplication reads are denied', async()=>{
+  await assertFails(setDoc(doc(db('a'),'officialProgress/a/days/2026-08-05'),{uid:'a',officialSteps:10}));
+  await assertFails(getDoc(doc(db('a'),'requestDeduplication/a/requests/request-a')));
+});
