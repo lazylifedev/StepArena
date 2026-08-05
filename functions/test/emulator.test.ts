@@ -1,6 +1,7 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {getApps, initializeApp} from 'firebase-admin/app';
-import {getFirestore} from 'firebase-admin/firestore';
+import {getFirestore, Timestamp} from 'firebase-admin/firestore';
+import {finalizeExpiredChallenges} from '../src/services/finalize';
 
 const projectId = 'demo-steparena-backend';
 const functionsUrl = 'http://127.0.0.1:5001/demo-steparena-backend/us-central1';
@@ -92,5 +93,51 @@ describe('Functions emulator integration', {timeout: 30000}, () => {
     const challenge = await db.collection('challenges').doc(first.body.result?.challengeId as string).get();
     expect(challenge.data()?.participantIds).toEqual([a.localId, b.localId]);
     expect(challenge.data()?.status).toBe('active');
+  });
+
+  it('allows only one active challenge when two requests race for the same users', async () => {
+    const a = await createUser();
+    const b = await createUser();
+    created.push(a.localId, b.localId);
+    await Promise.all([seed(`matchProfiles/${a.localId}`, {matchingStatus: 'available', league: 'race', division: 1}), seed(`matchProfiles/${b.localId}`, {matchingStatus: 'available', league: 'race', division: 1})]);
+    const [left, right] = await Promise.all([
+      call('createChallengeCallable', a.idToken, {partnerUid: b.localId, requestId: `race-a-${a.localId}`}),
+      call('createChallengeCallable', b.idToken, {partnerUid: a.localId, requestId: `race-b-${b.localId}`}),
+    ]);
+    const successes = [left, right].filter(result => typeof result.body.result?.challengeId === 'string');
+    expect(successes).toHaveLength(1);
+    expect([left, right].some(result => result.body.error?.status === 'FAILED_PRECONDITION')).toBe(true);
+    const challenges = await db.collection('challenges').where('participantIds', 'array-contains', a.localId).get();
+    expect(challenges.docs.filter(doc => (doc.data().participantIds as string[]).includes(b.localId))).toHaveLength(1);
+  });
+
+  it('finalizes expired challenges through the production service and is idempotent', async () => {
+    const now = Timestamp.fromMillis(Date.now());
+    const seedChallenge = async (id: string, a: number, b: number, endsAt = now) => {
+      const ref = db.doc(`challenges/${id}`);
+      await ref.set({participantIds: [`${id}-a`, `${id}-b`], status: 'active', endsAt, startedAt: now});
+      await Promise.all([
+        ref.collection('participants').doc(`${id}-a`).set({uid: `${id}-a`, officialSteps: a, result: 'pending', syncState: 'pending'}),
+        ref.collection('participants').doc(`${id}-b`).set({uid: `${id}-b`, officialSteps: b, result: 'pending', syncState: 'pending'}),
+      ]);
+      return ref;
+    };
+    const notExpired = await seedChallenge('not-expired', 32000, 38000, Timestamp.fromMillis(now.toMillis() + 60000));
+    const win = await seedChallenge('winner', 32000, 38000);
+    const draw = await seedChallenge('draw', 100000, 120000);
+    const malformed = db.doc('challenges/malformed');
+    await malformed.set({participantIds: ['malformed-a'], status: 'active', endsAt: now});
+    const count = await finalizeExpiredChallenges(db, now);
+    expect(count).toBe(2);
+    expect((await notExpired.get()).data()?.status).toBe('active');
+    const winData = (await win.get()).data();
+    expect(winData?.status).toBe('finalized');
+    expect(winData?.winnerUid).toBe('winner-b');
+    expect((await win.collection('participants').doc('winner-a').get()).data()).toMatchObject({competitionSteps: 32000, rewardSteps: 30000, result: 'loss'});
+    expect((await win.collection('participants').doc('winner-b').get()).data()).toMatchObject({competitionSteps: 38000, rewardSteps: 30000, result: 'win'});
+    expect((await draw.get()).data()).toMatchObject({status: 'finalized', winnerUid: null});
+    expect((await draw.collection('participants').doc('draw-b').get()).data()).toMatchObject({competitionSteps: 100000, rewardSteps: 30000, result: 'draw'});
+    expect((await malformed.get()).data()?.status).toBe('active');
+    expect(await finalizeExpiredChallenges(db, now)).toBe(0);
   });
 });
