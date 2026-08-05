@@ -32,6 +32,7 @@ import java.time.Instant
 import java.util.UUID
 
 data class RealUserPartnerProgress(
+    val officialSteps: Long = 0,
     val competitionSteps: Long = 0,
     val rewardSteps: Long = 0,
     val result: RealUserResult = RealUserResult.PENDING,
@@ -116,6 +117,7 @@ class RealUserChallengeRemoteDataSource(
             if(!participantsUnchanged){latestIds=ids; selfRegistration?.remove(); opponentRegistration?.remove(); latestSelf=null; latestOpponent=null}
             val collection=firestore.collection("challenges").document(challengeId).collection("participants")
             fun progress(snapshot: com.google.firebase.firestore.DocumentSnapshot) = RealUserPartnerProgress(
+                officialSteps = snapshot.getLong("officialSteps") ?: 0,
                 competitionSteps = snapshot.getLong("competitionSteps") ?: 0,
                 rewardSteps = snapshot.getLong("rewardSteps") ?: 0,
                 result = snapshot.getString("result").toRealUserResult(),
@@ -187,22 +189,26 @@ fun RealUserChallengeScreen() {
                 }
                 message?.let { Text(it) }
                 if (uiState is RealUserUiState.Active) {
-                    state.selfProgress?.let { Text("${state.selfDisplayName}: ${it.competitionSteps}") }
-                    state.opponentProgress?.let { Text("${state.opponentName}: ${it.competitionSteps}") }
                     val statusLabel = when (state.challengeStatus) {
                         RealUserChallengeStatus.ACTIVE -> stringResource(R.string.real_user_challenge_status_active)
                         RealUserChallengeStatus.FINALIZED -> stringResource(R.string.real_user_challenge_status_finalized)
                         RealUserChallengeStatus.UNKNOWN -> stringResource(R.string.real_user_challenge_status_unknown)
                     }
                     Text("${stringResource(R.string.real_user_challenge_status)}: $statusLabel")
-                }
-                state.opponentProgress?.let {
-                    Text("${stringResource(R.string.real_user_challenge_opponent)}: ${state.opponentName}")
-                    Text("${stringResource(R.string.real_user_challenge_competition_steps)}: ${it.competitionSteps}")
-                    Text("${stringResource(R.string.real_user_challenge_reward_steps)}: ${it.rewardSteps}")
-                    Text("${stringResource(R.string.real_user_challenge_result)}: ${stringResource(it.result.resource)}")
-                    Text("${stringResource(R.string.real_user_challenge_sync_state)}: ${stringResource(it.syncState.resource)}")
-                    Text("${stringResource(R.string.real_user_challenge_updated)}: ${it.progressUpdatedAt?.toDate()?.toInstant() ?: stringResource(R.string.real_user_challenge_unknown)}")
+                    @Composable
+                    fun progress(name: String, value: RealUserPartnerProgress) {
+                        Text(name)
+                        Text("${stringResource(R.string.real_user_challenge_official_steps)}: ${value.officialSteps}")
+                        if (state.challengeStatus == RealUserChallengeStatus.FINALIZED) {
+                            Text("${stringResource(R.string.real_user_challenge_competition_steps)}: ${value.competitionSteps}")
+                            Text("${stringResource(R.string.real_user_challenge_reward_steps)}: ${value.rewardSteps}")
+                            Text("${stringResource(R.string.real_user_challenge_result)}: ${stringResource(value.result.resource)}")
+                        }
+                        Text("${stringResource(R.string.real_user_challenge_sync_state)}: ${stringResource(value.syncState.resource)}")
+                        Text("${stringResource(R.string.real_user_challenge_updated)}: ${value.progressUpdatedAt?.toDate()?.toInstant() ?: stringResource(R.string.real_user_challenge_unknown)}")
+                    }
+                    state.selfProgress?.let { progress(state.selfDisplayName, it) }
+                    state.opponentProgress?.let { progress(state.opponentName, it) }
                 }
                 if (uiState !is RealUserUiState.Active) Button(enabled = uiState !is RealUserUiState.SubmittingProgress && uiState !is RealUserUiState.SearchingPartner && uiState !is RealUserUiState.CreatingChallenge, onClick = {
                     uiState = RealUserUiState.SubmittingProgress

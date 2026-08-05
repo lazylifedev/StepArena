@@ -17,6 +17,7 @@
     <string name="real_user_challenge_you">自分</string>
     <string name="real_user_challenge_opponent">相手</string>
     <string name="real_user_challenge_competition_steps">対戦判定歩数</string>
+    <string name="real_user_challenge_official_steps">公式歩数</string>
     <string name="real_user_challenge_reward_steps">報酬対象歩数</string>
     <string name="real_user_challenge_result">結果</string>
     <string name="real_user_challenge_result_win">勝利</string>

@@ -618,6 +618,7 @@
     <string name="real_user_challenge_you">You</string>
     <string name="real_user_challenge_opponent">Opponent</string>
     <string name="real_user_challenge_competition_steps">Competition steps</string>
+    <string name="real_user_challenge_official_steps">Official steps</string>
     <string name="real_user_challenge_reward_steps">Reward steps</string>
     <string name="real_user_challenge_result">Result</string>
     <string name="real_user_challenge_result_win">Win</string>
