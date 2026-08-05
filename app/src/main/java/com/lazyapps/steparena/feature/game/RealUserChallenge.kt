@@ -67,7 +67,7 @@ class RealUserChallengeRemoteDataSource(
         var latestSelf: com.google.firebase.firestore.DocumentSnapshot?=null; var latestOpponent: com.google.firebase.firestore.DocumentSnapshot?=null
         var latestStatus="unknown"; var latestIds: List<String> = emptyList()
         val challengeRegistration=firestore.collection("challenges").document(challengeId).addSnapshotListener { snapshot, error ->
-            if (error != null) { onState(RealUserChallengeState(error = "challenge_read_failed")); return@addSnapshotListener }
+            if (error != null) { onState(RealUserChallengeState(error = "listener_error")); return@addSnapshotListener }
             val data = snapshot?.data ?: return@addSnapshotListener
             latestStatus=data["status"] as? String ?: "unknown"; val ids = (data["participantIds"] as? List<*>)?.filterIsInstance<String>().orEmpty()
             val me = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: run { onState(RealUserChallengeState(error="authentication_required")); return@addSnapshotListener }
@@ -77,8 +77,8 @@ class RealUserChallengeRemoteDataSource(
             val collection=firestore.collection("challenges").document(challengeId).collection("participants")
             fun emit(){ val s=latestSelf; val o=latestOpponent; onState(RealUserChallengeState(challengeId,latestStatus,o?.getString("publicDisplayName") ?: "Opponent",o?.let { RealUserPartnerProgress(it.getLong("officialSteps") ?: 0,it.getString("syncState") ?: "unknown",it.getTimestamp("progressUpdatedAt"))},selfDisplayName=s?.getString("publicDisplayName") ?: "You",selfProgress=s?.let { RealUserPartnerProgress(it.getLong("officialSteps") ?: 0,it.getString("syncState") ?: "unknown",it.getTimestamp("progressUpdatedAt"))},challengeStatus=latestStatus)) }
             if(participantsUnchanged){emit();return@addSnapshotListener}
-            selfRegistration=collection.document(me).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="participant_read_failed")) else {latestSelf=participant;emit()} }
-            opponentRegistration=collection.document(opponentUid).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="participant_read_failed")) else {latestOpponent=participant;emit()} }
+            selfRegistration=collection.document(me).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="listener_error")) else {latestSelf=participant;emit()} }
+            opponentRegistration=collection.document(opponentUid).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="listener_error")) else {latestOpponent=participant;emit()} }
         }
         return object: ListenerRegistration { override fun remove(){challengeRegistration.remove();selfRegistration?.remove();opponentRegistration?.remove()} }
     }
@@ -87,11 +87,12 @@ class RealUserChallengeRemoteDataSource(
 class RealUserChallengeRepository(
     private val remote: RealUserChallengeRemoteDataSource = RealUserChallengeRemoteDataSource(),
 ) {
+    private var activeReservationId: String? = null
     private var activeRequestId: String? = null
     suspend fun findAndCreate(submit: suspend () -> Unit): String {
         com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: error("auth_required")
         submit()
-        return when(val partner=remote.findPartner()){is FindPartnerResult.Existing -> partner.challengeId.also { activeRequestId=null }; FindPartnerResult.NoPartner -> {activeRequestId=null;error("no_partner")}; FindPartnerResult.Waiting -> error("waiting"); is FindPartnerResult.Reserved -> {val id=activeRequestId ?: UUID.randomUUID().toString().also {activeRequestId=it}; try {remote.createChallenge(partner.reservationId,id)} catch (e: Exception) { activeRequestId=id; throw e }; activeRequestId=null; id}; FindPartnerResult.InvalidResponse -> error("invalid_response")}
+        return when(val partner=remote.findPartner()){is FindPartnerResult.Existing -> partner.challengeId.also { activeReservationId=null; activeRequestId=null }; FindPartnerResult.NoPartner -> {activeReservationId=null;activeRequestId=null;error("no_partner")}; FindPartnerResult.Waiting -> error("waiting"); is FindPartnerResult.Reserved -> {if (activeReservationId != partner.reservationId) { activeReservationId=partner.reservationId; activeRequestId=UUID.randomUUID().toString() }; val requestId=requireNotNull(activeRequestId); val challengeId=try {remote.createChallenge(partner.reservationId,requestId)} catch (e: Exception) { throw e }; activeReservationId=null; activeRequestId=null; challengeId}; FindPartnerResult.InvalidResponse -> error("invalid_response")}
     }
 
     fun observe(challengeId: String, onState: (RealUserChallengeState) -> Unit) = remote.observeChallenge(challengeId, onState)
@@ -139,17 +140,17 @@ fun RealUserChallengeScreen() {
                     Text("${stringResource(R.string.real_user_challenge_sync_state)}: ${it.syncState}")
                     Text("${stringResource(R.string.real_user_challenge_updated)}: ${it.progressUpdatedAt?.toDate()?.toInstant() ?: "unknown"}")
                 }
-                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(enabled = uiState !is RealUserUiState.SubmittingProgress && uiState !is RealUserUiState.SearchingPartner && uiState !is RealUserUiState.CreatingChallenge, onClick = {
+                if (uiState !is RealUserUiState.Active) Button(enabled = uiState !is RealUserUiState.SubmittingProgress && uiState !is RealUserUiState.SearchingPartner && uiState !is RealUserUiState.CreatingChallenge, onClick = {
                     uiState = RealUserUiState.SubmittingProgress
                     scope.launch {
                         uiState = RealUserUiState.SearchingPartner
+                        uiState = RealUserUiState.CreatingChallenge
                         state = runCatching { repository.findAndCreate { com.lazyapps.steparena.official.OfficialProgressRepository(app.activityRepository).submitToday() } }.fold(
-                            onSuccess = { id -> listener?.remove(); listener = repository.observe(id) { state = it; uiState = RealUserUiState.Active(id) }; uiState = RealUserUiState.Active(id); RealUserChallengeState(id, "active") },
-                            onFailure = { when (it.message) { "no_partner" -> uiState = RealUserUiState.NoPartner; "waiting" -> uiState = RealUserUiState.WaitingForPartner; "auth_required" -> uiState = RealUserUiState.AuthenticationRequired; else -> uiState = RealUserUiState.RetryableError }; state },
+                            onSuccess = { id -> listener?.remove(); listener = repository.observe(id) { observed -> if (observed.error != null) { state = observed.copy(error=null); uiState = RealUserUiState.RetryableError } else { state = observed; uiState = RealUserUiState.Active(id) } }; uiState = RealUserUiState.Active(id); RealUserChallengeState(id, "active") },
+                            onFailure = { when (it.message) { "no_partner" -> uiState = RealUserUiState.NoPartner; "waiting" -> uiState = RealUserUiState.WaitingForPartner; "auth_required" -> uiState = RealUserUiState.AuthenticationRequired; else -> uiState = RealUserUiState.RetryableError }; state.copy(error=null) },
                         )
                     }
-                }) { Text(stringResource(if (uiState != RealUserUiState.Idle) R.string.real_user_challenge_starting else R.string.real_user_challenge_start)) }
+                }) { Text(stringResource(when (uiState) { RealUserUiState.SubmittingProgress -> R.string.real_user_challenge_syncing; RealUserUiState.SearchingPartner -> R.string.real_user_challenge_searching; RealUserUiState.CreatingChallenge -> R.string.real_user_challenge_creating; RealUserUiState.WaitingForPartner -> R.string.real_user_challenge_waiting; else -> R.string.real_user_challenge_start })) }
             }
         }
     }
