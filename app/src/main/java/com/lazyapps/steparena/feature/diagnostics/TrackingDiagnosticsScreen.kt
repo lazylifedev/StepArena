@@ -47,6 +47,8 @@ import com.lazyapps.steparena.release.safeDiagnosticLines
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.lazyapps.steparena.R
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 object DiagnosticsTestTags { const val SCREEN = "tracking_diagnostics" }
 
@@ -78,6 +80,8 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         TrackingHealthStatus.STOPPED,
     )
     val unset = stringResource(R.string.state_unset)
+    var submitState by remember { mutableStateOf<String?>(null) }
+    val submitScope = rememberCoroutineScope()
     var diagnosticExportText by remember { mutableStateOf("") }
     val exportDiagnostics = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
@@ -94,6 +98,23 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(stringResource(R.string.diagnostics_title), style = MaterialTheme.typography.headlineMedium)
+        if (BuildConfig.FLAVOR == "qa") {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Submit official progress to QA", style = MaterialTheme.typography.titleMedium)
+                    Text("Submit today's integrity-checked steps to QA.")
+                    Button(onClick = {
+                        submitState = "Submitting..."
+                        submitScope.launch {
+                            submitState = runCatching {
+                                app.officialProgressRepository.submitToday().let { "${it.status}: ${it.officialSteps ?: "-"}" }
+                            }.getOrElse { "Submit failed: ${it.message ?: "unknown"}" }
+                        }
+                    }, enabled = submitState != "Submitting...") { Text("Submit to QA") }
+                    submitState?.let { Text(it) }
+                }
+            }
+        }
         DiagnosticRow(R.string.diagnostics_health_connect, stringResource(healthConnectAvailability.labelRes()))
         DiagnosticRow(
             R.string.diagnostics_health_permission,
