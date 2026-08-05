@@ -100,6 +100,7 @@ data class RealUserChallengeState(
     val selfDisplayName: String = "You",
     val selfProgress: RealUserPartnerProgress? = null,
     val challengeStatus: RealUserChallengeStatus = status,
+    val recoveryError: RealUserChallengeRecoveryError? = null,
 )
 
 sealed interface RealUserUiState { data object Idle: RealUserUiState; data object SubmittingProgress: RealUserUiState; data object SearchingPartner: RealUserUiState; data object WaitingForPartner: RealUserUiState; data object CreatingChallenge: RealUserUiState; data object NoPartner: RealUserUiState; data class Active(val challengeId:String):RealUserUiState; data object AuthenticationRequired:RealUserUiState; data object RetryableError:RealUserUiState; data object NonRetryableError:RealUserUiState }
@@ -121,20 +122,29 @@ class RealUserChallengeRemoteDataSource(
         var latestSelf: com.google.firebase.firestore.DocumentSnapshot?=null; var latestOpponent: com.google.firebase.firestore.DocumentSnapshot?=null
         var latestStatus = RealUserChallengeStatus.UNKNOWN; var latestIds: List<String> = emptyList()
         val challengeRegistration=firestore.collection("challenges").document(challengeId).addSnapshotListener { snapshot, error ->
-            if (error != null) { onState(RealUserChallengeState(error = "listener_error")); return@addSnapshotListener }
+            if (error != null) { onState(RealUserChallengeState(recoveryError = RealUserChallengeRecoveryError.TRANSIENT)); return@addSnapshotListener }
             val data = snapshot?.data
-            if (data == null) { onState(RealUserChallengeState(challengeId = challengeId, error = "challenge_missing")); return@addSnapshotListener }
-            latestStatus = (data["status"] as? String).toRealUserChallengeStatus(); val ids = (data["participantIds"] as? List<*>)?.filterIsInstance<String>().orEmpty()
-            val me = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: run { onState(RealUserChallengeState(error="authentication_required")); return@addSnapshotListener }
-            val opponentUid = ids.firstOrNull { it != me } ?: return@addSnapshotListener
+            if (data == null) { onState(RealUserChallengeState(challengeId = challengeId, recoveryError = RealUserChallengeRecoveryError.PERMANENT)); return@addSnapshotListener }
+            latestStatus = (data["status"] as? String).toRealUserChallengeStatus(); val rawIds = (data["participantIds"] as? List<*>) ?: emptyList<Any?>()
+            val me = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: run { onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return@addSnapshotListener }
+            val validatedIds = validateRealUserParticipantIds(rawIds, me)
+            val ids = rawIds.filterIsInstance<String>()
+            val opponentUid = validatedIds?.opponentUid
+                ?: run { onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return@addSnapshotListener }
             val participantsUnchanged=ids==latestIds && selfRegistration!=null && opponentRegistration!=null
             if(!participantsUnchanged){latestIds=ids; selfRegistration?.remove(); opponentRegistration?.remove(); latestSelf=null; latestOpponent=null}
             val collection=firestore.collection("challenges").document(challengeId).collection("participants")
             fun progress(snapshot: com.google.firebase.firestore.DocumentSnapshot) = realUserPartnerProgressFromFirestore(snapshot.data.orEmpty()).copy(progressUpdatedAt = snapshot.getTimestamp("progressUpdatedAt"))
-            fun emit(){ val s=latestSelf; val o=latestOpponent; onState(RealUserChallengeState(challengeId,latestStatus,o?.getString("publicDisplayName") ?: "Opponent",o?.let(::progress),selfDisplayName=s?.getString("publicDisplayName") ?: "You",selfProgress=s?.let(::progress),challengeStatus=latestStatus)) }
+            fun emit(){
+                val s=latestSelf; val o=latestOpponent
+                if (s == null || o == null || !s.exists() || !o.exists()) {
+                    onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return
+                }
+                onState(RealUserChallengeState(challengeId,latestStatus,o.getString("publicDisplayName") ?: "Opponent",progress(o),selfDisplayName=s.getString("publicDisplayName") ?: "You",selfProgress=progress(s),challengeStatus=latestStatus))
+            }
             if(participantsUnchanged){emit();return@addSnapshotListener}
-            selfRegistration=collection.document(me).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="listener_error")) else {latestSelf=participant;emit()} }
-            opponentRegistration=collection.document(opponentUid).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="listener_error")) else {latestOpponent=participant;emit()} }
+            selfRegistration=collection.document(me).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.TRANSIENT)) else {latestSelf=participant;emit()} }
+            opponentRegistration=collection.document(opponentUid).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.TRANSIENT)) else {latestOpponent=participant;emit()} }
         }
         return object: ListenerRegistration { override fun remove(){challengeRegistration.remove();selfRegistration?.remove();opponentRegistration?.remove()} }
     }
@@ -178,14 +188,14 @@ fun RealUserChallengeScreen() {
             localStore.clear()
             return@LaunchedEffect
         }
-        listener = RealUserChallengeRepository().observe(saved.challengeId) { observed ->
-            if (observed.error == "challenge_missing") {
+        listener = repository.observe(saved.challengeId) { observed ->
+            if (observed.recoveryError == RealUserChallengeRecoveryError.PERMANENT) {
                 scope.launch { localStore.clear() }
                 listener?.remove(); listener = null
                 state = RealUserChallengeState()
                 uiState = RealUserUiState.Idle
-            } else if (observed.error != null) {
-                state = observed.copy(error = null)
+            } else if (observed.recoveryError == RealUserChallengeRecoveryError.TRANSIENT) {
+                state = observed.copy(recoveryError = null)
                 uiState = RealUserUiState.RetryableError
             } else {
                 state = observed
@@ -241,6 +251,9 @@ fun RealUserChallengeScreen() {
                     }
                     state.selfProgress?.let { progress(state.selfDisplayName, it) }
                     state.opponentProgress?.let { progress(state.opponentName, it) }
+                    if (realUserShouldShowNextChallenge(state.challengeStatus)) {
+                        Button(onClick = { RealUserChallengeSession.reset() }) { Text(stringResource(R.string.real_user_challenge_next)) }
+                    }
                 }
                 if (uiState !is RealUserUiState.Active) Button(enabled = uiState !is RealUserUiState.SubmittingProgress && uiState !is RealUserUiState.SearchingPartner && uiState !is RealUserUiState.CreatingChallenge, onClick = {
                     uiState = RealUserUiState.SubmittingProgress
@@ -249,15 +262,17 @@ fun RealUserChallengeScreen() {
                         uiState = RealUserUiState.CreatingChallenge
                         state = runCatching { repository.findAndCreate { com.lazyapps.steparena.official.OfficialProgressRepository(app.activityRepository).submitToday() } }.fold(
                             onSuccess = { id ->
-                                scope.launch { localStore.save(id, requireNotNull(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser).uid) }
+                                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                                    ?: error("auth_required")
+                                localStore.save(id, user.uid)
                                 listener?.remove()
                                 listener = repository.observe(id) { observed ->
-                                    if (observed.error == "challenge_missing") {
+                                    if (observed.recoveryError == RealUserChallengeRecoveryError.PERMANENT) {
                                         scope.launch { localStore.clear() }
                                         listener?.remove(); listener = null
                                         state = RealUserChallengeState(); uiState = RealUserUiState.Idle
-                                    } else if (observed.error != null) {
-                                        state = observed.copy(error=null); uiState = RealUserUiState.RetryableError
+                                    } else if (observed.recoveryError == RealUserChallengeRecoveryError.TRANSIENT) {
+                                        state = observed.copy(recoveryError=null); uiState = RealUserUiState.RetryableError
                                     } else { state = observed; uiState = RealUserUiState.Active(id) }
                                 }
                                 uiState = RealUserUiState.Active(id); RealUserChallengeState(id, RealUserChallengeStatus.ACTIVE)

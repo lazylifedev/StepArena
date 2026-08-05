@@ -32,6 +32,7 @@
     <string name="real_user_challenge_unknown">不明</string>
     <string name="real_user_challenge_sync_state">同期状態</string>
     <string name="real_user_challenge_updated">最終更新</string>
+    <string name="real_user_challenge_next">次の対戦へ</string>
     <string name="account_switch_google">Googleアカウントを切り替える</string>
     <string name="account_switch_confirm_title">アカウントを切り替えますか？</string>
     <string name="account_switch_confirm_message">現在の対戦状態は終了します。歩数データは削除されません。選択したGoogleアカウントに切り替えます。</string>
