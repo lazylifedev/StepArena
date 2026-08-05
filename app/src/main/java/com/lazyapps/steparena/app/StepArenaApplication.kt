@@ -26,6 +26,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.lazyapps.steparena.auth.AccountAuthState
 import com.lazyapps.steparena.backup.*
 import java.time.Duration
+import com.lazyapps.steparena.official.OfficialProgressRepository
 
 interface AppGraph {
     val database: StepArenaDatabase
@@ -87,6 +88,7 @@ open class StepArenaApplication : Application(), AppGraph {
             dailyStepGoalRepository, clock, backupOperationGate,
         )
     }
+    val officialProgressRepository by lazy { OfficialProgressRepository(activityRepository) }
     override val installationId: String? = null
     override val isolatedScenario: Boolean = false
     override val gameRepository by lazy {

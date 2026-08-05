@@ -51,6 +51,7 @@ androidx-fragment = { group = "androidx.fragment", name = "fragment", version.re
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
+firebase-functions = { group = "com.google.firebase", name = "firebase-functions" }
 firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appcheck-debug" }
 firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }

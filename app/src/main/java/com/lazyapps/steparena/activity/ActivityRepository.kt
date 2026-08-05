@@ -57,6 +57,15 @@ data class MotionRepositorySnapshot(
     val pendingSegments: Int,
 )
 
+data class OfficialProgressStorageSnapshot(
+    val totalSteps: Long,
+    val eligibleSteps: Long,
+    val restrictedSteps: Long,
+    val excludedSteps: Long,
+    val integrityVersion: Int,
+    val sourceRevision: String,
+)
+
 class ActivityRepository(
     private val database: StepArenaDatabase,
     private val profileRepository: UserProfileRepository,
@@ -67,6 +76,19 @@ class ActivityRepository(
         WalkingDurationCalculator(policy.activeGapThresholdSeconds),
     private val integrityClassifier: CompetitiveIntegrityClassifier = CompetitiveIntegrityClassifier(),
 ) {
+    suspend fun officialProgressSnapshot(date: LocalDate, zoneId: ZoneId): com.lazyapps.steparena.official.OfficialProgressSnapshot {
+        val daily = database.daily().get(date.toString(), zoneId.id)
+        val segments = database.competitiveIntegritySegments().forDate(date.toString(), zoneId.id)
+        val total = daily?.steps ?: segments.sumOf { it.totalSteps }
+        val eligible = segments.sumOf { it.eligibleSteps }.coerceAtMost(total)
+        val restricted = segments.sumOf { it.restrictedSteps }.coerceAtMost(total - eligible)
+        val excluded = (total - eligible - restricted).coerceAtLeast(0)
+        val revision = maxOf(daily?.updatedAtEpochMillis ?: 0L, segments.maxOfOrNull { it.createdAtEpochMillis } ?: 0L)
+        return com.lazyapps.steparena.official.OfficialProgressSnapshot(
+            date, zoneId.id, total, eligible, restricted, excluded,
+            segments.maxOfOrNull { it.classifierVersion } ?: 0, revision.toString(),
+        )
+    }
     private val writer = Mutex()
     private val detectorEvents = ArrayDeque<DetectorEvidence>()
     private val pendingMotionAllocations = ArrayDeque<PendingMotionAllocation>()

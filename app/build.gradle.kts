@@ -80,6 +80,7 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.functions)
     debugImplementation(libs.firebase.appcheck.debug)
     releaseImplementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.androidx.credentials)
