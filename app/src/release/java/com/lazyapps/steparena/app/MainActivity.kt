@@ -16,6 +16,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lazyapps.steparena.app.navigation.StepArenaApp
+import com.lazyapps.steparena.BuildConfig
+import com.lazyapps.steparena.feature.game.RealUserChallengeScreen
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaTheme
 import com.lazyapps.steparena.feature.home.HomeViewModel
 import com.lazyapps.steparena.feature.home.HomeAction
@@ -129,6 +131,9 @@ class MainActivity : ComponentActivity() {
                             lifecycleScope.launch { repository.update { it.copy(onboardingComplete = false, onboardingStep = 0) } }
                         },
                         onAllDataDeleted = { recreate() },
+                        challengeContent = if (BuildConfig.FLAVOR == "qa") {
+                            { RealUserChallengeScreen() }
+                        } else null,
                     )
                 }
             }
