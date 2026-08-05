@@ -49,8 +49,8 @@ class RealUserChallengeRemoteDataSource(
 ) {
     suspend fun findPartner(): Map<*, *>? = functions.getHttpsCallable("findChallengePartner").call().await().data as? Map<*, *>
 
-    suspend fun createChallenge(partnerUid: String, requestId: String): String =
-        (functions.getHttpsCallable("createChallengeCallable").call(mapOf("partnerUid" to partnerUid, "requestId" to requestId)).await().data as? Map<*, *>)
+    suspend fun createChallenge(reservationId: String, requestId: String): String =
+        (functions.getHttpsCallable("createChallengeCallable").call(mapOf("reservationId" to reservationId, "requestId" to requestId)).await().data as? Map<*, *>)
             ?.get("challengeId") as? String ?: error("missing_challenge_id")
 
     fun observeChallenge(challengeId: String, onState: (RealUserChallengeState) -> Unit): ListenerRegistration =
@@ -60,15 +60,13 @@ class RealUserChallengeRemoteDataSource(
             val ids = (data["participantIds"] as? List<*>)?.filterIsInstance<String>().orEmpty()
             val me = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
             val opponentUid = ids.firstOrNull { it != me } ?: return@addSnapshotListener
-            firestore.collection("matchProfiles").document(opponentUid).get().addOnSuccessListener { profile ->
-                val name = profile.getString("displayName")?.takeIf { it.isNotBlank() } ?: "Opponent"
+                val name = "Opponent"
                 firestore.collection("challenges").document(challengeId).collection("participants").document(opponentUid)
                     .addSnapshotListener { participant, participantError ->
                         if (participantError != null) return@addSnapshotListener
-                        onState(RealUserChallengeState(challengeId, data["status"] as? String ?: "unknown", name,
+                    onState(RealUserChallengeState(challengeId, data["status"] as? String ?: "unknown", participant?.getString("publicDisplayName") ?: name,
                             participant?.let { RealUserPartnerProgress(it.getLong("officialSteps") ?: 0, it.getString("syncState") ?: "unknown", it.getTimestamp("progressUpdatedAt")) }))
                     }
-            }
         }
 }
 
@@ -77,8 +75,8 @@ class RealUserChallengeRepository(
 ) {
     suspend fun findAndCreate(): String {
         val partner = remote.findPartner() ?: error("no_partner_found")
-        val uid = partner["uid"] as? String ?: error("invalid_partner")
-        return remote.createChallenge(uid, UUID.randomUUID().toString())
+        val reservationId = partner["reservationId"] as? String ?: error("invalid_reservation")
+        return remote.createChallenge(reservationId, UUID.randomUUID().toString())
     }
 
     fun observe(challengeId: String, onState: (RealUserChallengeState) -> Unit) = remote.observeChallenge(challengeId, onState)
