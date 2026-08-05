@@ -64,7 +64,7 @@ android {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
     lint {
-        disable += "MissingTranslation"
+        baseline = file("lint-baseline.xml")
     }
 }
 

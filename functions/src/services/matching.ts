@@ -12,7 +12,7 @@ async function releaseExpired(db:Firestore,uid:string){
 export async function findPartner(db:Firestore,uid:string){
  const meRef=db.doc(`matchProfiles/${uid}`); const me=(await meRef.get()).data(); if(!me) return {status:'no_partner'};
  if(me.activeChallengeId && (await db.doc(`challenges/${me.activeChallengeId}`).get()).data()?.status==='active') return {status:'existing',challengeId:me.activeChallengeId};
- if(me.matchingStatus==='reserved'&&me.reservationId){const current=await releaseExpired(db,uid);if(current?.matchingStatus==='reserved')return {status:'no_partner'};}
+ if(me.matchingStatus==='reserved'&&me.reservationId){const reservation=await db.doc(`matchReservations/${me.reservationId}`).get();const rd=reservation.data();if(reservation.exists&&rd?.status==='reserved'&&rd.expiresAt.toMillis()>Date.now()){if(rd.requesterUid===uid){const opponent=await db.doc(`matchProfiles/${rd.partnerUid}`).get();return {status:'reserved',reservationId:me.reservationId,opponentDisplayName:opponent.data()?.publicDisplayName||displayName()};}return {status:'waiting'};}await releaseExpired(db,uid);}
  const now=Timestamp.now(); await meRef.update({matchingStatus:'available',updatedAt:now});
  const snap=await db.collection('matchProfiles').where('matchingStatus','==','available').where('league','==',me.league).where('division','==',me.division).orderBy('lastActiveAt','desc').limit(20).get();
  const candidates=snap.docs.filter(d=>d.id!==uid).map(d=>({ref:d,data:d.data()})).filter(c=>!c.data.lastActiveAt||Date.now()-c.data.lastActiveAt.toMillis()<7*86400000);
