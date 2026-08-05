@@ -102,15 +102,15 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Submit official progress to QA", style = MaterialTheme.typography.titleMedium)
-                    Text("当日の整合性済み歩数をQAへ送信します。")
+                    Text("Submit today's integrity-checked steps to QA.")
                     Button(onClick = {
-                        submitState = "送信中…"
+                        submitState = "Submitting..."
                         submitScope.launch {
                             submitState = runCatching {
                                 app.officialProgressRepository.submitToday().let { "${it.status}: ${it.officialSteps ?: "-"}" }
-                            }.getOrElse { "送信失敗: ${it.message ?: "unknown"}" }
+                            }.getOrElse { "Submit failed: ${it.message ?: "unknown"}" }
                         }
-                    }, enabled = submitState != "送信中…") { Text("QAへ送信") }
+                    }, enabled = submitState != "Submitting...") { Text("Submit to QA") }
                     submitState?.let { Text(it) }
                 }
             }
