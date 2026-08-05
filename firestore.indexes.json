@@ -1,4 +1,8 @@
 {
-  "indexes": [],
+  "indexes": [
+    {"collectionGroup":"matchProfiles","queryScope":"COLLECTION","fields":[{"fieldPath":"matchingStatus","order":"ASCENDING"},{"fieldPath":"league","order":"ASCENDING"},{"fieldPath":"division","order":"ASCENDING"},{"fieldPath":"lastActiveAt","order":"DESCENDING"}]},
+    {"collectionGroup":"challenges","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"endsAt","order":"ASCENDING"}]},
+    {"collectionGroup":"matchQueue","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"league","order":"ASCENDING"},{"fieldPath":"requestedAt","order":"ASCENDING"}]}
+  ],
   "fieldOverrides": []
 }

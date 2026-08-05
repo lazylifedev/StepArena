@@ -131,5 +131,12 @@ service cloud.firestore {
     function validAchievement(id) { let d=request.resource.data; return sid(id)&&v2(d)&&d.stableId==id&&d.keys().hasOnly(['schemaVersion','backupGeneration','stableId','achievementKey','unlockedAtEpochMillis','progressValue','seasonId','seasonStableId','acknowledged','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','backupGeneration','stableId','achievementKey','unlockedAtEpochMillis','progressValue','acknowledged','createdAt','updatedAt'])&&d.achievementKey is string&&nn(d.unlockedAtEpochMillis)&&nn(d.progressValue)&&d.acknowledged is bool; }
     function validSettings() { let d=request.resource.data; return d.schemaVersion==2&&d.backupGeneration is int&&d.backupGeneration>=1&&d.keys().hasOnly(['schemaVersion','backupGeneration','heightCm','weightKg','manualStepLengthMeters','useAutomaticStepLength','dailyStepGoal','createdAt','updatedAt'])&&d.keys().hasAll(['schemaVersion','backupGeneration','useAutomaticStepLength','dailyStepGoal','createdAt','updatedAt'])&&optnn(d.heightCm)&&optnn(d.weightKg)&&optnn(d.manualStepLengthMeters)&&d.useAutomaticStepLength is bool&&d.dailyStepGoal is int&&d.dailyStepGoal>=1000&&d.dailyStepGoal<=100000; }
     match /{document=**} { allow read,write: if false; }
+    match /matchProfiles/{uid} { allow read: if owns(uid); allow write: if false; }
+    match /officialProgress/{uid}/days/{localDate} { allow read: if owns(uid); allow write: if false; }
+    match /matchQueue/{uid} { allow read: if owns(uid); allow write: if false; }
+    match /challenges/{challengeId} { allow read: if request.auth != null && request.auth.uid in resource.data.participantIds; allow write: if false;
+      match /participants/{uid} { allow read: if request.auth != null && request.auth.uid in get(/databases/$(database)/documents/challenges/$(challengeId)).data.participantIds; allow write: if false; }
+    }
+    match /requestDeduplication/{uid}/requests/{requestId} { allow read,write: if false; }
   }
 }

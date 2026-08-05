@@ -5,6 +5,13 @@
   },
   "emulators": {
     "firestore": { "port": 8080 },
+    "functions": { "port": 5001 },
+    "auth": { "port": 9099 },
     "ui": { "enabled": false }
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs22",
+    "predeploy": ["npm --prefix functions run build"]
   }
 }
