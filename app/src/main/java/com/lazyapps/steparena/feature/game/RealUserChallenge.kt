@@ -48,7 +48,7 @@ data class RealUserChallengeState(
     val challengeStatus: String = status,
 )
 
-sealed interface RealUserUiState { data object Idle: RealUserUiState; data object SubmittingProgress: RealUserUiState; data object SearchingPartner: RealUserUiState; data object CreatingChallenge: RealUserUiState; data object NoPartner: RealUserUiState; data class Active(val challengeId:String):RealUserUiState; data object AuthenticationRequired:RealUserUiState; data object RetryableError:RealUserUiState; data object NonRetryableError:RealUserUiState }
+sealed interface RealUserUiState { data object Idle: RealUserUiState; data object SubmittingProgress: RealUserUiState; data object SearchingPartner: RealUserUiState; data object WaitingForPartner: RealUserUiState; data object CreatingChallenge: RealUserUiState; data object NoPartner: RealUserUiState; data class Active(val challengeId:String):RealUserUiState; data object AuthenticationRequired:RealUserUiState; data object RetryableError:RealUserUiState; data object NonRetryableError:RealUserUiState }
 
 sealed interface FindPartnerResult { data class Existing(val challengeId: String): FindPartnerResult; data object NoPartner: FindPartnerResult; data object Waiting: FindPartnerResult; data class Reserved(val reservationId: String, val opponentDisplayName: String): FindPartnerResult; data object InvalidResponse: FindPartnerResult }
 
@@ -56,7 +56,7 @@ class RealUserChallengeRemoteDataSource(
     private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("us-central1"),
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
 ) {
-    suspend fun findPartner(): FindPartnerResult { val d=functions.getHttpsCallable("findChallengePartner").call(mapOf<String,Any>()).await().data as? Map<*, *> ?: return FindPartnerResult.InvalidResponse; return when(d["status"]){"existing" -> (d["challengeId"] as? String)?.let { FindPartnerResult.Existing(it) } ?: FindPartnerResult.InvalidResponse; "no_partner" -> FindPartnerResult.NoPartner; "reserved" -> { val r=d["reservationId"] as? String; if(r==null) FindPartnerResult.InvalidResponse else FindPartnerResult.Reserved(r,d["opponentDisplayName"] as? String ?: "Opponent") }; else -> FindPartnerResult.InvalidResponse} }
+    suspend fun findPartner(): FindPartnerResult { val d=functions.getHttpsCallable("findChallengePartner").call(mapOf<String,Any>()).await().data as? Map<*, *> ?: return FindPartnerResult.InvalidResponse; return when(d["status"]){"existing" -> (d["challengeId"] as? String)?.let { FindPartnerResult.Existing(it) } ?: FindPartnerResult.InvalidResponse; "no_partner" -> FindPartnerResult.NoPartner; "waiting" -> FindPartnerResult.Waiting; "reserved" -> { val r=d["reservationId"] as? String; if(r==null) FindPartnerResult.InvalidResponse else FindPartnerResult.Reserved(r,d["opponentDisplayName"] as? String ?: "Opponent") }; else -> FindPartnerResult.InvalidResponse} }
 
     suspend fun createChallenge(reservationId: String, requestId: String): String =
         (functions.getHttpsCallable("createChallengeCallable").call(mapOf("reservationId" to reservationId, "requestId" to requestId)).await().data as? Map<*, *>)
@@ -91,7 +91,7 @@ class RealUserChallengeRepository(
     suspend fun findAndCreate(submit: suspend () -> Unit): String {
         com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: error("auth_required")
         submit()
-        return when(val partner=remote.findPartner()){is FindPartnerResult.Existing -> partner.challengeId; FindPartnerResult.NoPartner -> {activeRequestId=null;error("no_partner")}; FindPartnerResult.Waiting -> error("waiting"); is FindPartnerResult.Reserved -> {val id=activeRequestId ?: UUID.randomUUID().toString().also {activeRequestId=it}; try {remote.createChallenge(partner.reservationId,id)} finally {activeRequestId=null}}; FindPartnerResult.InvalidResponse -> error("invalid_response")}
+        return when(val partner=remote.findPartner()){is FindPartnerResult.Existing -> partner.challengeId.also { activeRequestId=null }; FindPartnerResult.NoPartner -> {activeRequestId=null;error("no_partner")}; FindPartnerResult.Waiting -> error("waiting"); is FindPartnerResult.Reserved -> {val id=activeRequestId ?: UUID.randomUUID().toString().also {activeRequestId=it}; try {remote.createChallenge(partner.reservationId,id)} catch (e: Exception) { activeRequestId=id; throw e }; activeRequestId=null; id}; FindPartnerResult.InvalidResponse -> error("invalid_response")}
     }
 
     fun observe(challengeId: String, onState: (RealUserChallengeState) -> Unit) = remote.observeChallenge(challengeId, onState)
@@ -103,7 +103,7 @@ fun RealUserChallengeScreen() {
     val repository = remember { RealUserChallengeRepository() }
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(RealUserChallengeState()) }
-    var loading by remember { mutableStateOf(false) }
+    var uiState by remember { mutableStateOf<RealUserUiState>(RealUserUiState.Idle) }
     var listener by remember { mutableStateOf<ListenerRegistration?>(null) }
     LaunchedEffect(Unit) { listener?.remove() }
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -115,7 +115,24 @@ fun RealUserChallengeScreen() {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("QA Functions: us-central1")
-                Text("${stringResource(R.string.real_user_challenge_sync_state)}: ${state.status}")
+                val message = when (uiState) {
+                    RealUserUiState.NoPartner -> stringResource(R.string.real_user_challenge_no_partner)
+                    RealUserUiState.WaitingForPartner -> stringResource(R.string.real_user_challenge_waiting)
+                    RealUserUiState.AuthenticationRequired -> stringResource(R.string.real_user_challenge_auth)
+                    RealUserUiState.RetryableError -> stringResource(R.string.real_user_challenge_retry)
+                    else -> null
+                }
+                message?.let { Text(it) }
+                if (uiState is RealUserUiState.Active) {
+                    state.selfProgress?.let { Text("${state.selfDisplayName}: ${it.officialSteps}") }
+                    state.opponentProgress?.let { Text("${state.opponentName}: ${it.officialSteps}") }
+                    val statusLabel = when (state.challengeStatus) {
+                        "active" -> stringResource(R.string.real_user_challenge_status_active)
+                        "completed" -> stringResource(R.string.real_user_challenge_status_completed)
+                        else -> stringResource(R.string.real_user_challenge_status_unknown)
+                    }
+                    Text("${stringResource(R.string.real_user_challenge_status)}: $statusLabel")
+                }
                 state.opponentProgress?.let {
                     Text("${stringResource(R.string.real_user_challenge_opponent)}: ${state.opponentName}")
                     Text("${stringResource(R.string.real_user_challenge_official_steps)}: ${it.officialSteps}")
@@ -123,16 +140,16 @@ fun RealUserChallengeScreen() {
                     Text("${stringResource(R.string.real_user_challenge_updated)}: ${it.progressUpdatedAt?.toDate()?.toInstant() ?: "unknown"}")
                 }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(enabled = !loading, onClick = {
-                    loading = true
+                Button(enabled = uiState !is RealUserUiState.SubmittingProgress && uiState !is RealUserUiState.SearchingPartner && uiState !is RealUserUiState.CreatingChallenge, onClick = {
+                    uiState = RealUserUiState.SubmittingProgress
                     scope.launch {
+                        uiState = RealUserUiState.SearchingPartner
                         state = runCatching { repository.findAndCreate { com.lazyapps.steparena.official.OfficialProgressRepository(app.activityRepository).submitToday() } }.fold(
-                            onSuccess = { id -> listener?.remove(); listener = repository.observe(id) { state = it }; RealUserChallengeState(id, "active") },
-                            onFailure = { RealUserChallengeState(error = it.message ?: "challenge_failed") },
+                            onSuccess = { id -> listener?.remove(); listener = repository.observe(id) { state = it; uiState = RealUserUiState.Active(id) }; uiState = RealUserUiState.Active(id); RealUserChallengeState(id, "active") },
+                            onFailure = { when (it.message) { "no_partner" -> uiState = RealUserUiState.NoPartner; "waiting" -> uiState = RealUserUiState.WaitingForPartner; "auth_required" -> uiState = RealUserUiState.AuthenticationRequired; else -> uiState = RealUserUiState.RetryableError }; state },
                         )
-                        loading = false
                     }
-                }) { Text(stringResource(if (loading) R.string.real_user_challenge_starting else R.string.real_user_challenge_start)) }
+                }) { Text(stringResource(if (uiState != RealUserUiState.Idle) R.string.real_user_challenge_starting else R.string.real_user_challenge_start)) }
             }
         }
     }

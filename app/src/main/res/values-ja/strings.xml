@@ -6,6 +6,11 @@
     <string name="real_user_challenge_searching">対戦相手を検索中</string>
     <string name="real_user_challenge_creating">対戦を作成中</string>
     <string name="real_user_challenge_no_partner">現在マッチング可能な相手がいません</string>
+    <string name="real_user_challenge_waiting">相手の対戦開始を待っています</string>
+    <string name="real_user_challenge_status">対戦状態</string>
+    <string name="real_user_challenge_status_active">対戦中</string>
+    <string name="real_user_challenge_status_completed">対戦終了</string>
+    <string name="real_user_challenge_status_unknown">更新状態不明</string>
     <string name="real_user_challenge_reconnect">既存対戦へ再接続しました</string>
     <string name="real_user_challenge_retry">通信状態を確認してください</string>
     <string name="real_user_challenge_auth">ログインが必要です</string>
