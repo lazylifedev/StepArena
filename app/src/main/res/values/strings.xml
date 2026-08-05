@@ -106,6 +106,9 @@
     <string name="account_conflict_title">既存のStepArenaアカウントが見つかりました</string>
     <string name="account_conflict">このGoogleアカウントには、以前のStepArenaデータが保存されています。\n\n既存アカウントでログインすると、クラウドバックアップを確認できます。\n\nこの端末のデータは自動的に削除・上書きされません。</string>
     <string name="account_sign_in_existing">既存アカウントでログイン</string>
+    <string name="account_switch_google">Googleアカウントを切り替える</string>
+    <string name="account_switch_confirm_title">アカウントを切り替えますか？</string>
+    <string name="account_switch_confirm_message">現在の対戦状態は終了します。歩数データは削除されません。選択したGoogleアカウントに切り替えます。</string>
     <string name="account_existing_sign_in_error">Googleアカウントへログインできませんでした。もう一度お試しください。</string>
     <string name="account_network_error">通信できませんでした。時間をおいて再度お試しください。</string>
     <string name="account_general_error">アカウントを連携できませんでした。設定を確認して再度お試しください。</string>

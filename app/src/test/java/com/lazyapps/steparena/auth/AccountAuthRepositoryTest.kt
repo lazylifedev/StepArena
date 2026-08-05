@@ -162,6 +162,7 @@ private class FakeAuthGateway(private var user: AccountProfile?) : AuthGateway {
         signInCalls++
         return signedInUser.also { user = it }
     }
+    override suspend fun signOut() { user = null }
     fun releaseLink() = linkGate.countDown()
     override fun addUserListener(listener: (AccountProfile?) -> Unit) = AutoCloseable { listenerClosed = true }
 }

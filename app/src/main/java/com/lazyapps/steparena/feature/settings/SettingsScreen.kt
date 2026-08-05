@@ -38,9 +38,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import com.lazyapps.steparena.R
+import com.lazyapps.steparena.BuildConfig
 import com.lazyapps.steparena.core.designsystem.component.GlassSurface
 import com.lazyapps.steparena.core.designsystem.theme.StepArenaSpacing
 import com.lazyapps.steparena.game.GameNotificationDispatcher
+import com.lazyapps.steparena.feature.game.RealUserChallengeSession
 import com.lazyapps.steparena.app.StepArenaApplication
 import com.lazyapps.steparena.auth.AccountAuthState
 import com.lazyapps.steparena.auth.GoogleCredentialProvider
@@ -76,6 +78,19 @@ fun SettingsScreen(
     val restoreState by restoreRepository.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val serverClientId = stringResource(R.string.default_web_client_id)
+    var showSwitchConfirm by remember { mutableStateOf(false) }
+    val confirmSwitchAccount: () -> Unit = {
+        context.findActivity()?.let { activity -> scope.launch {
+            RealUserChallengeSession.reset()
+            if (!repository.switchAccount()) return@launch
+            runCatching { GoogleCredentialProvider(activity).clearState() }
+            when (val result = GoogleCredentialProvider(activity).request(serverClientId)) {
+                is GoogleCredentialResult.Success -> repository.signInSwitchedAccount(result.idToken)
+                GoogleCredentialResult.Cancelled -> repository.googleSelectionCancelled()
+                GoogleCredentialResult.ConfigurationError, GoogleCredentialResult.GeneralError -> repository.credentialFailed()
+            }
+        } }
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())
             .padding(StepArenaSpacing.md).testTag("settings_list"),
@@ -117,6 +132,8 @@ fun SettingsScreen(
                     }
                 }
             },
+            onSwitchAccount = if (BuildConfig.FLAVOR == "qa") {{ showSwitchConfirm = true }} else ({}),
+            onConfirmSwitchAccount = confirmSwitchAccount,
             onCancelConflict = repository::dismissAccountConflict,
         )
         CloudBackupSection(
@@ -152,6 +169,13 @@ fun SettingsScreen(
         SettingRow(Icons.Default.Info, R.string.info_licenses_title, R.string.settings_licenses_summary, onLicenses)
         SettingRow(Icons.Default.Info, R.string.settings_about, R.string.settings_about_summary, onAbout)
     }
+    if (showSwitchConfirm) AlertDialog(
+        onDismissRequest = { showSwitchConfirm = false },
+        title = { Text(stringResource(R.string.account_switch_confirm_title)) },
+        text = { Text(stringResource(R.string.account_switch_confirm_message)) },
+        confirmButton = { Button(onClick = { showSwitchConfirm = false; confirmSwitchAccount() }) { Text(stringResource(R.string.account_switch_google)) } },
+        dismissButton = { Button(onClick = { showSwitchConfirm = false }) { Text(stringResource(android.R.string.cancel)) } },
+    )
 }
 
 @Composable
@@ -237,6 +261,8 @@ internal fun AccountSection(
     onSignInExisting: () -> Unit = {},
     onCancelConflict: () -> Unit = {},
     onLinkGoogle: () -> Unit = {},
+    onSwitchAccount: () -> Unit = {},
+    onConfirmSwitchAccount: () -> Unit = {},
 ) {
     val linked = when (state) {
         is AccountAuthState.GoogleLinked -> state.account
@@ -311,6 +337,10 @@ internal fun AccountSection(
                             strokeWidth = 2.dp,
                         )
                     }
+                }
+            } else if (BuildConfig.FLAVOR == "qa") {
+                Button(onClick = onSwitchAccount, enabled = !busy, modifier = Modifier.testTag("switch_google_account_button")) {
+                    Text(stringResource(R.string.account_switch_google))
                 }
             }
         }

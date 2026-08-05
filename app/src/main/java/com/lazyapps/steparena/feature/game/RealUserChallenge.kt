@@ -89,6 +89,7 @@ class RealUserChallengeRepository(
 ) {
     private var activeReservationId: String? = null
     private var activeRequestId: String? = null
+    fun reset() { activeReservationId = null; activeRequestId = null }
     suspend fun findAndCreate(submit: suspend () -> Unit): String {
         com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: error("auth_required")
         submit()
@@ -96,6 +97,11 @@ class RealUserChallengeRepository(
     }
 
     fun observe(challengeId: String, onState: (RealUserChallengeState) -> Unit) = remote.observeChallenge(challengeId, onState)
+}
+
+object RealUserChallengeSession {
+    var resetActiveChallenge: (() -> Unit)? = null
+    fun reset() { resetActiveChallenge?.invoke() }
 }
 
 @Composable
@@ -108,7 +114,16 @@ fun RealUserChallengeScreen() {
     var listener by remember { mutableStateOf<ListenerRegistration?>(null) }
     LaunchedEffect(Unit) { listener?.remove() }
     androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { listener?.remove() }
+        RealUserChallengeSession.resetActiveChallenge = {
+            listener?.remove(); listener = null
+            repository.reset()
+            state = RealUserChallengeState()
+            uiState = RealUserUiState.Idle
+        }
+        onDispose {
+            listener?.remove()
+            if (RealUserChallengeSession.resetActiveChallenge != null) RealUserChallengeSession.resetActiveChallenge = null
+        }
     }
     if (BuildConfig.FLAVOR != "qa") return
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -69,6 +69,7 @@ interface AuthGateway {
     suspend fun signInAnonymously(): AccountProfile
     suspend fun linkGoogle(idToken: String): AccountProfile
     suspend fun signInGoogle(idToken: String): AccountProfile
+    suspend fun signOut()
     fun addUserListener(listener: (AccountProfile?) -> Unit): AutoCloseable
 }
 
@@ -169,6 +170,26 @@ class AccountAuthRepository(
         mutableState.value = AccountAuthState.SigningIntoExistingAccount(conflict)
         return true
     }
+
+    suspend fun switchAccount(): Boolean {
+        val current = gateway.currentUser() ?: return false
+        if (!current.isGoogleLinked || !operationInProgress.compareAndSet(false, true)) return false
+        gateway.signOut()
+        mutableState.value = AccountAuthState.Anonymous()
+        return true
+    }
+
+    suspend fun signInSwitchedAccount(idToken: String): ExistingAccountSignInResult = try {
+        val signedIn = gateway.signInGoogle(idToken)
+        mutableState.value = AccountAuthState.ExistingAccountSignedIn(signedIn)
+        ExistingAccountSignInResult.SignedIn
+    } catch (_: AuthNetworkException) {
+        mutableState.value = AccountAuthState.Anonymous(AuthError.NETWORK)
+        ExistingAccountSignInResult.NetworkFailure
+    } catch (_: Throwable) {
+        mutableState.value = AccountAuthState.Anonymous(AuthError.GENERAL)
+        ExistingAccountSignInResult.GeneralFailure
+    } finally { operationInProgress.set(false) }
 
     suspend fun signInExistingAccount(idToken: String): ExistingAccountSignInResult {
         val original = conflictAccount ?: return ExistingAccountSignInResult.Ignored
@@ -284,6 +305,8 @@ class FirebaseAuthGateway(private val auth: FirebaseAuth) : AuthGateway {
             throw AuthNetworkException(error)
         }
     }
+
+    override suspend fun signOut() { auth.signOut() }
 
     override fun addUserListener(listener: (AccountProfile?) -> Unit): AutoCloseable {
         val firebaseListener = FirebaseAuth.AuthStateListener { listener(it.currentUser?.toProfile()) }
