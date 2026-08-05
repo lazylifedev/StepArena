@@ -2,9 +2,17 @@ import {Firestore, Timestamp, FieldValue} from 'firebase-admin/firestore';
 import {randomBytes} from 'crypto';
 
 const displayName=()=>`Walker-${randomBytes(4).toString('hex').toUpperCase()}`;
+async function releaseExpired(db:Firestore,uid:string){
+ const ref=db.doc(`matchProfiles/${uid}`); return db.runTransaction(async tx=>{const p=await tx.get(ref),d=p.data(),rid=d?.reservationId;if(d?.matchingStatus!=='reserved'||typeof rid!=='string')return d;
+  const rr=db.doc(`matchReservations/${rid}`),r=await tx.get(rr),rd=r.data(); if(!r.exists||rd?.expiresAt?.toMillis()>Date.now())return d;
+  tx.set(rr,{status:'expired',expiredAt:Timestamp.now()},{merge:true}); const ids=[rd?.requesterUid,rd?.partnerUid].filter((x):x is string=>typeof x==='string');
+  for(const id of ids){const pr=db.doc(`matchProfiles/${id}`),s=await tx.get(pr);if(s.data()?.reservationId===rid)tx.update(pr,{matchingStatus:'available',reservationId:FieldValue.delete(),reservationExpiresAt:FieldValue.delete(),updatedAt:Timestamp.now()});} return undefined;
+ });
+}
 export async function findPartner(db:Firestore,uid:string){
  const meRef=db.doc(`matchProfiles/${uid}`); const me=(await meRef.get()).data(); if(!me) return {status:'no_partner'};
  if(me.activeChallengeId && (await db.doc(`challenges/${me.activeChallengeId}`).get()).data()?.status==='active') return {status:'existing',challengeId:me.activeChallengeId};
+ if(me.matchingStatus==='reserved'&&me.reservationId){const current=await releaseExpired(db,uid);if(current?.matchingStatus==='reserved')return {status:'no_partner'};}
  const now=Timestamp.now(); await meRef.update({matchingStatus:'available',updatedAt:now});
  const snap=await db.collection('matchProfiles').where('matchingStatus','==','available').where('league','==',me.league).where('division','==',me.division).orderBy('lastActiveAt','desc').limit(20).get();
  const candidates=snap.docs.filter(d=>d.id!==uid).map(d=>({ref:d,data:d.data()})).filter(c=>!c.data.lastActiveAt||Date.now()-c.data.lastActiveAt.toMillis()<7*86400000);

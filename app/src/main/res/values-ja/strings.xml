@@ -1,0 +1,17 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="real_user_challenge_title">リアルユーザー対戦</string>
+    <string name="real_user_challenge_start">リアルユーザー対戦を開始</string>
+    <string name="real_user_challenge_starting">開始中…</string>
+    <string name="real_user_challenge_syncing">公式歩数を同期中</string>
+    <string name="real_user_challenge_searching">対戦相手を検索中</string>
+    <string name="real_user_challenge_creating">対戦を作成中</string>
+    <string name="real_user_challenge_no_partner">現在マッチング可能な相手がいません</string>
+    <string name="real_user_challenge_reconnect">既存対戦へ再接続しました</string>
+    <string name="real_user_challenge_retry">通信状態を確認してください</string>
+    <string name="real_user_challenge_auth">ログインが必要です</string>
+    <string name="real_user_challenge_you">自分</string>
+    <string name="real_user_challenge_opponent">相手</string>
+    <string name="real_user_challenge_official_steps">公式歩数</string>
+    <string name="real_user_challenge_sync_state">同期状態</string>
+    <string name="real_user_challenge_updated">最終更新</string>
+</resources>

@@ -597,4 +597,19 @@
     <string name="backup_error_integrity">データ整合性を確認できませんでした</string>
     <string name="backup_error_permission">バックアップ権限を確認できませんでした</string>
     <string name="backup_error_configuration">バックアップ設定を確認できませんでした</string>
+    <string name="real_user_challenge_title">Real-user challenge</string>
+    <string name="real_user_challenge_start">Start real-user challenge</string>
+    <string name="real_user_challenge_starting">Starting...</string>
+    <string name="real_user_challenge_syncing">Syncing official steps</string>
+    <string name="real_user_challenge_searching">Searching for an opponent</string>
+    <string name="real_user_challenge_creating">Creating challenge</string>
+    <string name="real_user_challenge_no_partner">No opponent is currently available</string>
+    <string name="real_user_challenge_reconnect">Reconnected to existing challenge</string>
+    <string name="real_user_challenge_retry">Check your network connection</string>
+    <string name="real_user_challenge_auth">Login required</string>
+    <string name="real_user_challenge_you">You</string>
+    <string name="real_user_challenge_opponent">Opponent</string>
+    <string name="real_user_challenge_official_steps">Official steps</string>
+    <string name="real_user_challenge_sync_state">Sync state</string>
+    <string name="real_user_challenge_updated">Last updated</string>
 </resources>
