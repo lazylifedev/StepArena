@@ -28,24 +28,79 @@ import com.lazyapps.steparena.BuildConfig
 import com.lazyapps.steparena.app.StepArenaApplication
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import java.time.Instant
 import java.util.UUID
 
 data class RealUserPartnerProgress(
     val officialSteps: Long = 0,
-    val syncState: String = "pending",
+    val competitionSteps: Long = 0,
+    val rewardSteps: Long = 0,
+    val result: RealUserResult = RealUserResult.PENDING,
+    val syncState: RealUserSyncState = RealUserSyncState.PENDING,
     val progressUpdatedAt: com.google.firebase.Timestamp? = null,
 )
 
+enum class RealUserResult { WIN, LOSS, DRAW, PENDING, UNKNOWN }
+enum class RealUserSyncState { FINALIZED, SYNCED, PENDING, UNKNOWN }
+enum class RealUserChallengeStatus { ACTIVE, FINALIZED, UNKNOWN }
+private val RealUserResult.resource get() = when (this) {
+    RealUserResult.WIN -> R.string.real_user_challenge_result_win
+    RealUserResult.LOSS -> R.string.real_user_challenge_result_loss
+    RealUserResult.DRAW -> R.string.real_user_challenge_result_draw
+    RealUserResult.PENDING -> R.string.real_user_challenge_result_pending
+    RealUserResult.UNKNOWN -> R.string.real_user_challenge_result_unknown
+}
+private val RealUserSyncState.resource get() = when (this) {
+    RealUserSyncState.FINALIZED -> R.string.real_user_challenge_sync_finalized
+    RealUserSyncState.SYNCED -> R.string.real_user_challenge_sync_synced
+    RealUserSyncState.PENDING -> R.string.real_user_challenge_sync_pending
+    RealUserSyncState.UNKNOWN -> R.string.real_user_challenge_sync_unknown
+}
+
+internal fun String?.toRealUserResult() = when (this) {
+    "win" -> RealUserResult.WIN
+    "loss" -> RealUserResult.LOSS
+    "draw" -> RealUserResult.DRAW
+    "pending" -> RealUserResult.PENDING
+    else -> RealUserResult.UNKNOWN
+}
+
+internal fun String?.toRealUserSyncState() = when (this) {
+    "finalized" -> RealUserSyncState.FINALIZED
+    "synced" -> RealUserSyncState.SYNCED
+    "pending" -> RealUserSyncState.PENDING
+    else -> RealUserSyncState.UNKNOWN
+}
+
+internal fun String?.toRealUserChallengeStatus() = when (this) {
+    "active" -> RealUserChallengeStatus.ACTIVE
+    "finalized", "completed" -> RealUserChallengeStatus.FINALIZED
+    else -> RealUserChallengeStatus.UNKNOWN
+}
+
+internal fun realUserPartnerProgressFromFirestore(data: Map<String, Any?>) = RealUserPartnerProgress(
+    officialSteps = (data["officialSteps"] as? Number)?.toLong() ?: 0,
+    competitionSteps = (data["competitionSteps"] as? Number)?.toLong() ?: 0,
+    rewardSteps = (data["rewardSteps"] as? Number)?.toLong() ?: 0,
+    result = (data["result"] as? String).toRealUserResult(),
+    syncState = (data["syncState"] as? String).toRealUserSyncState(),
+)
+
+internal fun realUserDisplayedSteps(progress: RealUserPartnerProgress, status: RealUserChallengeStatus) =
+    if (status == RealUserChallengeStatus.ACTIVE) progress.officialSteps else progress.competitionSteps
+
+internal fun realUserShowsFinalizedDetails(status: RealUserChallengeStatus) =
+    status == RealUserChallengeStatus.FINALIZED
+
 data class RealUserChallengeState(
     val challengeId: String? = null,
-    val status: String = "none",
+    val status: RealUserChallengeStatus = RealUserChallengeStatus.UNKNOWN,
     val opponentName: String = "Opponent",
     val opponentProgress: RealUserPartnerProgress? = null,
     val error: String? = null,
     val selfDisplayName: String = "You",
     val selfProgress: RealUserPartnerProgress? = null,
-    val challengeStatus: String = status,
+    val challengeStatus: RealUserChallengeStatus = status,
+    val recoveryError: RealUserChallengeRecoveryError? = null,
 )
 
 sealed interface RealUserUiState { data object Idle: RealUserUiState; data object SubmittingProgress: RealUserUiState; data object SearchingPartner: RealUserUiState; data object WaitingForPartner: RealUserUiState; data object CreatingChallenge: RealUserUiState; data object NoPartner: RealUserUiState; data class Active(val challengeId:String):RealUserUiState; data object AuthenticationRequired:RealUserUiState; data object RetryableError:RealUserUiState; data object NonRetryableError:RealUserUiState }
@@ -65,20 +120,36 @@ class RealUserChallengeRemoteDataSource(
     fun observeChallenge(challengeId: String, onState: (RealUserChallengeState) -> Unit): ListenerRegistration {
         var selfRegistration: ListenerRegistration?=null; var opponentRegistration: ListenerRegistration?=null
         var latestSelf: com.google.firebase.firestore.DocumentSnapshot?=null; var latestOpponent: com.google.firebase.firestore.DocumentSnapshot?=null
-        var latestStatus="unknown"; var latestIds: List<String> = emptyList()
+        var latestStatus = RealUserChallengeStatus.UNKNOWN; var latestIds: List<String> = emptyList()
         val challengeRegistration=firestore.collection("challenges").document(challengeId).addSnapshotListener { snapshot, error ->
-            if (error != null) { onState(RealUserChallengeState(error = "listener_error")); return@addSnapshotListener }
-            val data = snapshot?.data ?: return@addSnapshotListener
-            latestStatus=data["status"] as? String ?: "unknown"; val ids = (data["participantIds"] as? List<*>)?.filterIsInstance<String>().orEmpty()
-            val me = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: run { onState(RealUserChallengeState(error="authentication_required")); return@addSnapshotListener }
-            val opponentUid = ids.firstOrNull { it != me } ?: return@addSnapshotListener
+            if (error != null) { onState(RealUserChallengeState(recoveryError = RealUserChallengeRecoveryError.TRANSIENT)); return@addSnapshotListener }
+            val data = snapshot?.data
+            if (data == null) { onState(RealUserChallengeState(challengeId = challengeId, recoveryError = RealUserChallengeRecoveryError.PERMANENT)); return@addSnapshotListener }
+            latestStatus = (data["status"] as? String).toRealUserChallengeStatus(); val rawIds = (data["participantIds"] as? List<*>) ?: emptyList<Any?>()
+            val me = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: run { onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return@addSnapshotListener }
+            val validatedIds = validateRealUserParticipantIds(rawIds, me)
+            val ids = rawIds.filterIsInstance<String>()
+            val opponentUid = validatedIds?.opponentUid
+                ?: run { onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return@addSnapshotListener }
             val participantsUnchanged=ids==latestIds && selfRegistration!=null && opponentRegistration!=null
             if(!participantsUnchanged){latestIds=ids; selfRegistration?.remove(); opponentRegistration?.remove(); latestSelf=null; latestOpponent=null}
             val collection=firestore.collection("challenges").document(challengeId).collection("participants")
-            fun emit(){ val s=latestSelf; val o=latestOpponent; onState(RealUserChallengeState(challengeId,latestStatus,o?.getString("publicDisplayName") ?: "Opponent",o?.let { RealUserPartnerProgress(it.getLong("officialSteps") ?: 0,it.getString("syncState") ?: "unknown",it.getTimestamp("progressUpdatedAt"))},selfDisplayName=s?.getString("publicDisplayName") ?: "You",selfProgress=s?.let { RealUserPartnerProgress(it.getLong("officialSteps") ?: 0,it.getString("syncState") ?: "unknown",it.getTimestamp("progressUpdatedAt"))},challengeStatus=latestStatus)) }
+            fun progress(snapshot: com.google.firebase.firestore.DocumentSnapshot) = realUserPartnerProgressFromFirestore(snapshot.data.orEmpty()).copy(progressUpdatedAt = snapshot.getTimestamp("progressUpdatedAt"))
+            fun emit(){
+                val s=latestSelf; val o=latestOpponent
+                when (classifyParticipantSnapshots(s?.exists(), o?.exists())) {
+                    ParticipantSnapshotState.WAITING -> return
+                    ParticipantSnapshotState.PERMANENT_FAILURE -> {
+                        onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return
+                    }
+                    ParticipantSnapshotState.READY -> Unit
+                }
+                requireNotNull(s); requireNotNull(o)
+                onState(RealUserChallengeState(challengeId,latestStatus,o.getString("publicDisplayName") ?: "Opponent",progress(o),selfDisplayName=s.getString("publicDisplayName") ?: "You",selfProgress=progress(s),challengeStatus=latestStatus))
+            }
             if(participantsUnchanged){emit();return@addSnapshotListener}
-            selfRegistration=collection.document(me).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="listener_error")) else {latestSelf=participant;emit()} }
-            opponentRegistration=collection.document(opponentUid).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(error="listener_error")) else {latestOpponent=participant;emit()} }
+            selfRegistration=collection.document(me).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.TRANSIENT)) else {latestSelf=participant;emit()} }
+            opponentRegistration=collection.document(opponentUid).addSnapshotListener { participant, participantError -> if(participantError!=null) onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.TRANSIENT)) else {latestOpponent=participant;emit()} }
         }
         return object: ListenerRegistration { override fun remove(){challengeRegistration.remove();selfRegistration?.remove();opponentRegistration?.remove()} }
     }
@@ -106,16 +177,41 @@ object RealUserChallengeSession {
 
 @Composable
 fun RealUserChallengeScreen() {
-    val app = LocalContext.current.applicationContext as StepArenaApplication
+    val context = LocalContext.current
+    val app = context.applicationContext as StepArenaApplication
     val repository = remember { RealUserChallengeRepository() }
     val scope = rememberCoroutineScope()
+    val localStore = remember { RealUserChallengeLocalStore(context) }
     var state by remember { mutableStateOf(RealUserChallengeState()) }
     var uiState by remember { mutableStateOf<RealUserUiState>(RealUserUiState.Idle) }
     var listener by remember { mutableStateOf<ListenerRegistration?>(null) }
-    LaunchedEffect(Unit) { listener?.remove() }
+    LaunchedEffect(Unit) {
+        listener?.remove()
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return@LaunchedEffect
+        val saved = localStore.read() ?: return@LaunchedEffect
+        if (!localStore.belongsTo(saved, uid)) {
+            localStore.clear()
+            return@LaunchedEffect
+        }
+        listener = repository.observe(saved.challengeId) { observed ->
+            if (observed.recoveryError == RealUserChallengeRecoveryError.PERMANENT) {
+                scope.launch { localStore.clear() }
+                listener?.remove(); listener = null
+                state = RealUserChallengeState()
+                uiState = RealUserUiState.Idle
+            } else if (observed.recoveryError == RealUserChallengeRecoveryError.TRANSIENT) {
+                state = observed.copy(recoveryError = null)
+                uiState = RealUserUiState.RetryableError
+            } else {
+                state = observed
+                uiState = RealUserUiState.Active(saved.challengeId)
+            }
+        }
+    }
     androidx.compose.runtime.DisposableEffect(Unit) {
         RealUserChallengeSession.resetActiveChallenge = {
             listener?.remove(); listener = null
+            scope.launch { localStore.clear() }
             repository.reset()
             state = RealUserChallengeState()
             uiState = RealUserUiState.Idle
@@ -140,20 +236,29 @@ fun RealUserChallengeScreen() {
                 }
                 message?.let { Text(it) }
                 if (uiState is RealUserUiState.Active) {
-                    state.selfProgress?.let { Text("${state.selfDisplayName}: ${it.officialSteps}") }
-                    state.opponentProgress?.let { Text("${state.opponentName}: ${it.officialSteps}") }
                     val statusLabel = when (state.challengeStatus) {
-                        "active" -> stringResource(R.string.real_user_challenge_status_active)
-                        "completed" -> stringResource(R.string.real_user_challenge_status_completed)
-                        else -> stringResource(R.string.real_user_challenge_status_unknown)
+                        RealUserChallengeStatus.ACTIVE -> stringResource(R.string.real_user_challenge_status_active)
+                        RealUserChallengeStatus.FINALIZED -> stringResource(R.string.real_user_challenge_status_finalized)
+                        RealUserChallengeStatus.UNKNOWN -> stringResource(R.string.real_user_challenge_status_unknown)
                     }
                     Text("${stringResource(R.string.real_user_challenge_status)}: $statusLabel")
-                }
-                state.opponentProgress?.let {
-                    Text("${stringResource(R.string.real_user_challenge_opponent)}: ${state.opponentName}")
-                    Text("${stringResource(R.string.real_user_challenge_official_steps)}: ${it.officialSteps}")
-                    Text("${stringResource(R.string.real_user_challenge_sync_state)}: ${it.syncState}")
-                    Text("${stringResource(R.string.real_user_challenge_updated)}: ${it.progressUpdatedAt?.toDate()?.toInstant() ?: "unknown"}")
+                    @Composable
+                    fun progress(name: String, value: RealUserPartnerProgress) {
+                        Text(name)
+                        Text("${stringResource(R.string.real_user_challenge_official_steps)}: ${value.officialSteps}")
+                        if (realUserShowsFinalizedDetails(state.challengeStatus)) {
+                            Text("${stringResource(R.string.real_user_challenge_competition_steps)}: ${value.competitionSteps}")
+                            Text("${stringResource(R.string.real_user_challenge_reward_steps)}: ${value.rewardSteps}")
+                            Text("${stringResource(R.string.real_user_challenge_result)}: ${stringResource(value.result.resource)}")
+                        }
+                        Text("${stringResource(R.string.real_user_challenge_sync_state)}: ${stringResource(value.syncState.resource)}")
+                        Text("${stringResource(R.string.real_user_challenge_updated)}: ${value.progressUpdatedAt?.toDate()?.toInstant() ?: stringResource(R.string.real_user_challenge_unknown)}")
+                    }
+                    state.selfProgress?.let { progress(state.selfDisplayName, it) }
+                    state.opponentProgress?.let { progress(state.opponentName, it) }
+                    if (realUserShouldShowNextChallenge(state.challengeStatus)) {
+                        Button(onClick = { RealUserChallengeSession.reset() }) { Text(stringResource(R.string.real_user_challenge_next)) }
+                    }
                 }
                 if (uiState !is RealUserUiState.Active) Button(enabled = uiState !is RealUserUiState.SubmittingProgress && uiState !is RealUserUiState.SearchingPartner && uiState !is RealUserUiState.CreatingChallenge, onClick = {
                     uiState = RealUserUiState.SubmittingProgress
@@ -161,7 +266,22 @@ fun RealUserChallengeScreen() {
                         uiState = RealUserUiState.SearchingPartner
                         uiState = RealUserUiState.CreatingChallenge
                         state = runCatching { repository.findAndCreate { com.lazyapps.steparena.official.OfficialProgressRepository(app.activityRepository).submitToday() } }.fold(
-                            onSuccess = { id -> listener?.remove(); listener = repository.observe(id) { observed -> if (observed.error != null) { state = observed.copy(error=null); uiState = RealUserUiState.RetryableError } else { state = observed; uiState = RealUserUiState.Active(id) } }; uiState = RealUserUiState.Active(id); RealUserChallengeState(id, "active") },
+                            onSuccess = { id ->
+                                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                                    ?: error("auth_required")
+                                localStore.save(id, user.uid)
+                                listener?.remove()
+                                listener = repository.observe(id) { observed ->
+                                    if (observed.recoveryError == RealUserChallengeRecoveryError.PERMANENT) {
+                                        scope.launch { localStore.clear() }
+                                        listener?.remove(); listener = null
+                                        state = RealUserChallengeState(); uiState = RealUserUiState.Idle
+                                    } else if (observed.recoveryError == RealUserChallengeRecoveryError.TRANSIENT) {
+                                        state = observed.copy(recoveryError=null); uiState = RealUserUiState.RetryableError
+                                    } else { state = observed; uiState = RealUserUiState.Active(id) }
+                                }
+                                uiState = RealUserUiState.Active(id); RealUserChallengeState(id, RealUserChallengeStatus.ACTIVE)
+                            },
                             onFailure = { when (it.message) { "no_partner" -> uiState = RealUserUiState.NoPartner; "waiting" -> uiState = RealUserUiState.WaitingForPartner; "auth_required" -> uiState = RealUserUiState.AuthenticationRequired; else -> uiState = RealUserUiState.RetryableError }; state.copy(error=null) },
                         )
                     }
