@@ -40,6 +40,34 @@ class RealUserChallengeRecoveryTest {
         assertEquals("uid-b", validateRealUserParticipantIds(listOf("uid-a", "uid-b"), "uid-a")?.opponentUid)
     }
 
+    @Test fun selfUnseenAndOpponentUnseenWaitForInitialSnapshots() {
+        assertEquals(ParticipantSnapshotState.WAITING, classifyParticipantSnapshots(null, null))
+    }
+
+    @Test fun selfArrivesFirstWaitsWithoutDeletingSavedReference() {
+        assertEquals(ParticipantSnapshotState.WAITING, classifyParticipantSnapshots(true, null))
+    }
+
+    @Test fun opponentArrivesFirstWaitsWithoutDeletingSavedReference() {
+        assertEquals(ParticipantSnapshotState.WAITING, classifyParticipantSnapshots(null, true))
+    }
+
+    @Test fun bothExistingSnapshotsAreReadyRegardlessOfArrivalOrder() {
+        assertEquals(ParticipantSnapshotState.READY, classifyParticipantSnapshots(true, true))
+    }
+
+    @Test fun missingSelfIsPermanentAfterBothSnapshotsArrive() {
+        assertEquals(ParticipantSnapshotState.PERMANENT_FAILURE, classifyParticipantSnapshots(false, true))
+    }
+
+    @Test fun missingOpponentIsPermanentAfterBothSnapshotsArrive() {
+        assertEquals(ParticipantSnapshotState.PERMANENT_FAILURE, classifyParticipantSnapshots(true, false))
+    }
+
+    @Test fun missingBothParticipantsIsPermanentAfterBothSnapshotsArrive() {
+        assertEquals(ParticipantSnapshotState.PERMANENT_FAILURE, classifyParticipantSnapshots(false, false))
+    }
+
     @Test fun activeFinalizedAndCompletedStatusMappingIsStable() {
         assertEquals(RealUserChallengeStatus.ACTIVE, "active".toRealUserChallengeStatus())
         assertEquals(RealUserChallengeStatus.FINALIZED, "finalized".toRealUserChallengeStatus())

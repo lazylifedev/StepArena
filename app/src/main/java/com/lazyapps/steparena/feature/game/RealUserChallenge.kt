@@ -137,9 +137,14 @@ class RealUserChallengeRemoteDataSource(
             fun progress(snapshot: com.google.firebase.firestore.DocumentSnapshot) = realUserPartnerProgressFromFirestore(snapshot.data.orEmpty()).copy(progressUpdatedAt = snapshot.getTimestamp("progressUpdatedAt"))
             fun emit(){
                 val s=latestSelf; val o=latestOpponent
-                if (s == null || o == null || !s.exists() || !o.exists()) {
-                    onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return
+                when (classifyParticipantSnapshots(s?.exists(), o?.exists())) {
+                    ParticipantSnapshotState.WAITING -> return
+                    ParticipantSnapshotState.PERMANENT_FAILURE -> {
+                        onState(RealUserChallengeState(recoveryError=RealUserChallengeRecoveryError.PERMANENT)); return
+                    }
+                    ParticipantSnapshotState.READY -> Unit
                 }
+                requireNotNull(s); requireNotNull(o)
                 onState(RealUserChallengeState(challengeId,latestStatus,o.getString("publicDisplayName") ?: "Opponent",progress(o),selfDisplayName=s.getString("publicDisplayName") ?: "You",selfProgress=progress(s),challengeStatus=latestStatus))
             }
             if(participantsUnchanged){emit();return@addSnapshotListener}
