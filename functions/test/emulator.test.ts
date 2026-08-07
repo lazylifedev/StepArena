@@ -125,24 +125,29 @@ describe('Functions emulator integration', {timeout: 30000}, () => {
       const ref = db.doc(`challenges/${id}`);
       await ref.set({participantIds: [`${id}-a`, `${id}-b`], status: 'active', endsAt, startedAt: now});
       await Promise.all([
-        ref.collection('participants').doc(`${id}-a`).set({uid: `${id}-a`, officialSteps: a, result: 'pending', syncState: 'pending'}),
-        ref.collection('participants').doc(`${id}-b`).set({uid: `${id}-b`, officialSteps: b, result: 'pending', syncState: 'pending'}),
+        ref.collection('participants').doc(`${id}-a`).set({uid: `${id}-a`, officialSteps: a, personalGoalSteps: id === 'winner' ? 5000 : 10000, result: 'pending', syncState: 'pending'}),
+        ref.collection('participants').doc(`${id}-b`).set({uid: `${id}-b`, officialSteps: b, personalGoalSteps: id === 'winner' ? 10000 : 10000, result: 'pending', syncState: 'pending'}),
       ]);
       return ref;
     };
     const notExpired = await seedChallenge('not-expired', 32000, 38000, Timestamp.fromMillis(now.toMillis() + 60000));
-    const win = await seedChallenge('winner', 32000, 38000);
-    const draw = await seedChallenge('draw', 100000, 120000);
+    const win = await seedChallenge('winner', 6000, 8000);
+    const cappedWin = await seedChallenge('capped-winner', 99000, 105000);
+    const draw = await seedChallenge('draw', 105000, 120000);
     const malformed = db.doc('challenges/malformed');
     await malformed.set({participantIds: ['malformed-a'], status: 'active', endsAt: now});
     const count = await finalizeExpiredChallenges(db, now);
-    expect(count).toBe(2);
+    expect(count).toBe(3);
     expect((await notExpired.get()).data()?.status).toBe('active');
     const winData = (await win.get()).data();
     expect(winData?.status).toBe('finalized');
     expect(winData?.winnerUid).toBe('winner-b');
-    expect((await win.collection('participants').doc('winner-a').get()).data()).toMatchObject({competitionSteps: 32000, rewardSteps: 30000, result: 'loss'});
-    expect((await win.collection('participants').doc('winner-b').get()).data()).toMatchObject({competitionSteps: 38000, rewardSteps: 30000, result: 'win'});
+    expect((await win.collection('participants').doc('winner-a').get()).data()).toMatchObject({competitionSteps: 6000, rewardSteps: 6000, result: 'loss'});
+    expect((await win.collection('participants').doc('winner-b').get()).data()).toMatchObject({competitionSteps: 8000, rewardSteps: 8000, result: 'win'});
+    const cappedWinData = (await cappedWin.get()).data();
+    expect(cappedWinData?.winnerUid).toBe('capped-winner-b');
+    expect((await cappedWin.collection('participants').doc('capped-winner-a').get()).data()).toMatchObject({competitionSteps: 99000, rewardSteps: 30000, result: 'loss'});
+    expect((await cappedWin.collection('participants').doc('capped-winner-b').get()).data()).toMatchObject({competitionSteps: 100000, rewardSteps: 30000, result: 'win'});
     expect((await draw.get()).data()).toMatchObject({status: 'finalized', winnerUid: null});
     expect((await draw.collection('participants').doc('draw-b').get()).data()).toMatchObject({competitionSteps: 100000, rewardSteps: 30000, result: 'draw'});
     expect((await malformed.get()).data()?.status).toBe('active');

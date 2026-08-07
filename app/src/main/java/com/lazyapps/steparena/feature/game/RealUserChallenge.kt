@@ -18,6 +18,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.lazyapps.steparena.R
@@ -26,6 +27,9 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.functions.FirebaseFunctions
 import com.lazyapps.steparena.BuildConfig
 import com.lazyapps.steparena.app.StepArenaApplication
+import com.lazyapps.steparena.core.designsystem.motion.MotionLevel
+import com.lazyapps.steparena.core.designsystem.theme.StepArenaColors
+import com.lazyapps.steparena.game.OfficialSteps
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
@@ -86,7 +90,11 @@ internal fun realUserPartnerProgressFromFirestore(data: Map<String, Any?>) = Rea
 )
 
 internal fun realUserDisplayedSteps(progress: RealUserPartnerProgress, status: RealUserChallengeStatus) =
-    if (status == RealUserChallengeStatus.ACTIVE) progress.officialSteps else progress.competitionSteps
+    if (status == RealUserChallengeStatus.ACTIVE) {
+        OfficialSteps.competition(progress.officialSteps)
+    } else {
+        OfficialSteps.competition(progress.competitionSteps)
+    }
 
 internal fun realUserShowsFinalizedDetails(status: RealUserChallengeStatus) =
     status == RealUserChallengeStatus.FINALIZED
@@ -102,6 +110,11 @@ data class RealUserChallengeState(
     val challengeStatus: RealUserChallengeStatus = status,
     val recoveryError: RealUserChallengeRecoveryError? = null,
 )
+
+object RealUserChallengeTestTags {
+    const val SELF_PROGRESS = "real_user_self_progress"
+    const val OPPONENT_PROGRESS = "real_user_opponent_progress"
+}
 
 sealed interface RealUserUiState { data object Idle: RealUserUiState; data object SubmittingProgress: RealUserUiState; data object SearchingPartner: RealUserUiState; data object WaitingForPartner: RealUserUiState; data object CreatingChallenge: RealUserUiState; data object NoPartner: RealUserUiState; data class Active(val challengeId:String):RealUserUiState; data object AuthenticationRequired:RealUserUiState; data object RetryableError:RealUserUiState; data object NonRetryableError:RealUserUiState }
 
@@ -245,9 +258,24 @@ fun RealUserChallengeScreen() {
                     @Composable
                     fun progress(name: String, value: RealUserPartnerProgress) {
                         Text(name)
+                        val competitionSteps = realUserDisplayedSteps(value, state.challengeStatus)
+                        Text("${stringResource(R.string.real_user_challenge_competition_steps)}: ${formatNumber(competitionSteps)}")
+                        CompetitionProgressBar(
+                            steps = competitionSteps,
+                            baseColor = if (name == state.selfDisplayName) StepArenaColors.Cyan else StepArenaColors.Violet,
+                            motionLevel = MotionLevel.FULL,
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .testTag(
+                                    if (name == state.selfDisplayName) {
+                                        RealUserChallengeTestTags.SELF_PROGRESS
+                                    } else {
+                                        RealUserChallengeTestTags.OPPONENT_PROGRESS
+                                    },
+                                ),
+                        )
                         Text("${stringResource(R.string.real_user_challenge_official_steps)}: ${value.officialSteps}")
                         if (realUserShowsFinalizedDetails(state.challengeStatus)) {
-                            Text("${stringResource(R.string.real_user_challenge_competition_steps)}: ${value.competitionSteps}")
                             Text("${stringResource(R.string.real_user_challenge_reward_steps)}: ${value.rewardSteps}")
                             Text("${stringResource(R.string.real_user_challenge_result)}: ${stringResource(value.result.resource)}")
                         }

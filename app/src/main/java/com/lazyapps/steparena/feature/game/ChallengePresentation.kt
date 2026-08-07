@@ -21,10 +21,9 @@ data class ChallengeComparison(
 ) {
     val goalAchieved: Boolean get() = partner?.officialSteps?.let { eligibleSteps >= it } ?: false
     val showsTotalBreakdown: Boolean get() = totalSteps != eligibleSteps
-    val completedSegments: Int get() = (eligibleSteps / OfficialSteps.SEGMENT_SIZE).toInt()
-    val remainderSteps: Long get() = eligibleSteps % OfficialSteps.SEGMENT_SIZE
-    val segmentProgress: Float get() = remainderSteps.toFloat() / OfficialSteps.SEGMENT_SIZE
-    val leadDifference: Long? get() = partner?.officialSteps?.let { eligibleSteps - it }
+    val leadDifference: Long? get() = partner?.officialSteps?.let {
+        OfficialSteps.competition(eligibleSteps) - OfficialSteps.competition(it)
+    }
 }
 
 data class ChallengeCelebration(val matchId: String)
@@ -38,7 +37,10 @@ fun challengeComparison(
     val added = healthConnectAddedSteps.coerceAtLeast(0).takeUnless { current.isFinalized } ?: 0
     val displayed = current.displayedUserSteps.coerceAtLeast(0)
     val total = if (Long.MAX_VALUE - displayed < added) Long.MAX_VALUE else displayed + added
-    val target = partner?.officialSteps?.coerceAtLeast(1) ?: partnerTargetSteps.coerceAtLeast(1)
+    val target = partner?.officialSteps
+        ?.let(OfficialSteps::competition)
+        ?.coerceAtLeast(1)
+        ?: partnerTargetSteps.coerceAtLeast(1)
     return ChallengeComparison(
         totalSteps = total,
         eligibleSteps = OfficialSteps.fromEligible(current.eligibleSteps),
