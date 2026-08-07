@@ -5,6 +5,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChallengeResultAndMatchingTest {
+    @Test fun higherCompetitionStepsWinEvenWhenPersonalTargetsWouldSuggestOtherwise() {
+        val result = com.lazyapps.steparena.feature.game.challengeResult(6_000, 8_000)
+        assertEquals(MatchOutcome.LOSS, result.winner)
+        assertEquals(6_000, result.myCompetitionSteps)
+        assertEquals(8_000, result.opponentCompetitionSteps)
+    }
+
+    @Test fun competitionCapDecidesNinetyNineThousandAgainstOneHundredFiveThousand() {
+        val result = com.lazyapps.steparena.feature.game.challengeResult(99_000, 105_000)
+        assertEquals(99_000, result.myCompetitionSteps)
+        assertEquals(100_000, result.opponentCompetitionSteps)
+        assertEquals(MatchOutcome.LOSS, result.winner)
+    }
+
     @Test fun competitionAndRewardStepsAreSeparate() {
         val result = com.lazyapps.steparena.feature.game.challengeResult(32_000, 38_000)
         assertEquals(32_000, result.myCompetitionSteps)
@@ -12,6 +26,13 @@ class ChallengeResultAndMatchingTest {
         assertEquals(30_000, result.myRewardSteps)
         assertEquals(30_000, result.opponentRewardSteps)
         assertEquals(MatchOutcome.LOSS, result.winner)
+    }
+
+    @Test fun rewardStepsAreCappedIndependently() {
+        assertEquals(29_999, OfficialSteps.reward(29_999))
+        assertEquals(30_000, OfficialSteps.reward(30_000))
+        assertEquals(30_000, OfficialSteps.reward(30_001))
+        assertEquals(30_000, OfficialSteps.reward(100_000))
     }
 
     @Test fun competitionClampMakesHundredAndTwentyThousandAStandoff() {

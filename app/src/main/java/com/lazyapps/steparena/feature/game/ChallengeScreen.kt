@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -39,11 +38,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -326,21 +323,19 @@ private fun ChallengeComparisonCard(
     onInformation: () -> Unit,
 ) {
     val userSteps = formatNumber(comparison.eligibleSteps)
-    val partnerSteps = comparison.partner?.officialSteps?.let(::formatNumber)
+    val partnerSteps = comparison.partner?.officialSteps
+        ?.let(OfficialSteps::competition)
+        ?.let(::formatNumber)
         ?: stringResource(R.string.game_partner_sync_waiting)
-    val remainingSteps = formatNumber(comparison.remainingSteps)
     val playerName = publicDisplayName(displayName, stringResource(R.string.game_you))
-    val comparisonAccessibility = if (comparison.partner?.officialSteps == null) {
-        stringResource(R.string.game_partner_sync_waiting)
-    } else if (comparison.goalAchieved) {
-        stringResource(R.string.game_challenge_accessibility_achieved, userSteps, partnerSteps)
-    } else {
-        stringResource(
-            R.string.game_challenge_accessibility_remaining,
-            userSteps,
-            partnerSteps,
-            remainingSteps,
+    val comparisonAccessibility = when {
+        comparison.leadDifference == null -> stringResource(R.string.game_partner_sync_waiting)
+        comparison.leadDifference!! < 0 -> stringResource(
+            R.string.game_steps_behind,
+            formatNumber(-comparison.leadDifference!!),
         )
+        comparison.leadDifference == 0L -> stringResource(R.string.game_steps_tied)
+        else -> stringResource(R.string.game_steps_ahead, formatNumber(comparison.leadDifference!!))
     }
     val accessibility = stringResource(
         R.string.game_challenge_accessibility_named,
@@ -389,13 +384,11 @@ private fun ChallengeComparisonCard(
             ParticipantProgress(
                 label = playerName,
                 steps = userSteps,
-                progress = comparison.segmentProgress,
                 color = StepArenaColors.Cyan,
                 isUser = true,
                 compactTypography = compactTypography,
                 motionLevel = motionLevel,
-                completedSegments = comparison.completedSegments,
-                segmentProgress = comparison.segmentProgress,
+                progressSteps = comparison.eligibleSteps,
                 modifier = Modifier.weight(1f),
             )
             Icon(
@@ -418,13 +411,11 @@ private fun ChallengeComparisonCard(
             ParticipantProgress(
                 label = stringResource(R.string.game_partner),
                 steps = partnerSteps,
-                progress = comparison.partner?.let { it.officialSteps?.let { steps -> (steps % OfficialSteps.DAILY_LIMIT).toFloat() / OfficialSteps.DAILY_LIMIT } } ?: 0f,
                 color = StepArenaColors.Violet,
                 isUser = false,
                 compactTypography = compactTypography,
                 motionLevel = motionLevel,
-                completedSegments = comparison.partner?.officialSteps?.let { (it / OfficialSteps.SEGMENT_SIZE).toInt() } ?: 0,
-                segmentProgress = comparison.partner?.officialSteps?.let { (it % OfficialSteps.SEGMENT_SIZE).toFloat() / OfficialSteps.SEGMENT_SIZE } ?: 0f,
+                progressSteps = comparison.partner?.officialSteps?.let(OfficialSteps::competition) ?: 0L,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -437,19 +428,38 @@ private fun ChallengeComparisonCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                if (comparison.goalAchieved) Icons.Default.CheckCircle else Icons.Default.Flag,
+                if (comparison.leadDifference != null && comparison.leadDifference!! > 0) {
+                    Icons.Default.CheckCircle
+                } else {
+                    Icons.Default.Flag
+                },
                 contentDescription = null,
-                tint = if (comparison.goalAchieved) StepArenaColors.Emerald else StepArenaColors.Cyan,
+                tint = if (comparison.leadDifference != null && comparison.leadDifference!! > 0) {
+                    StepArenaColors.Emerald
+                } else {
+                    StepArenaColors.Cyan
+                },
             )
             Spacer(Modifier.width(StepArenaSpacing.xs))
             Text(
-                if (comparison.goalAchieved) {
-                    stringResource(R.string.game_goal_achieved_compact)
-                } else {
-                    stringResource(R.string.game_steps_remaining, remainingSteps)
+                when {
+                    comparison.leadDifference == null -> stringResource(R.string.game_partner_sync_waiting)
+                    comparison.leadDifference!! < 0 -> stringResource(
+                        R.string.game_steps_behind,
+                        formatNumber(-comparison.leadDifference!!),
+                    )
+                    comparison.leadDifference == 0L -> stringResource(R.string.game_steps_tied)
+                    else -> stringResource(
+                        R.string.game_steps_ahead,
+                        formatNumber(comparison.leadDifference!!),
+                    )
                 },
                 style = MaterialTheme.typography.titleLarge,
-                color = if (comparison.goalAchieved) StepArenaColors.Emerald else StepArenaColors.White,
+                color = if (comparison.leadDifference != null && comparison.leadDifference!! > 0) {
+                    StepArenaColors.Emerald
+                } else {
+                    StepArenaColors.White
+                },
             )
         }
         Text(
@@ -536,27 +546,13 @@ private fun ChallengeComparisonCard(
 private fun ParticipantProgress(
     label: String,
     steps: String,
-    progress: Float,
     color: Color,
     isUser: Boolean,
     compactTypography: Boolean,
     motionLevel: MotionLevel,
-    completedSegments: Int,
-    segmentProgress: Float,
+    progressSteps: Long,
     modifier: Modifier = Modifier,
 ) {
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(
-            durationMillis = when (motionLevel) {
-                MotionLevel.FULL -> StepArenaMotion.expressive
-                MotionLevel.REDUCED -> StepArenaMotion.quick
-                MotionLevel.OFF -> 0
-            },
-            easing = StepArenaMotion.emphasized,
-        ),
-        label = if (isUser) "challengeUserProgress" else "challengePartnerProgress",
-    )
     Column(
         modifier = modifier.clearAndSetSemantics { },
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -590,27 +586,14 @@ private fun ParticipantProgress(
             textAlign = TextAlign.Center,
             maxLines = 1,
         )
-        Row(
-            Modifier.fillMaxWidth().testTag(
+        CompetitionProgressBar(
+            steps = progressSteps,
+            baseColor = color,
+            motionLevel = motionLevel,
+            modifier = Modifier.fillMaxWidth().testTag(
                 if (isUser) ChallengeTestTags.USER_PROGRESS else ChallengeTestTags.PARTNER_PROGRESS,
             ),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            repeat(10) { index ->
-                val fill = when {
-                    index < completedSegments -> 1f
-                    index == completedSegments -> segmentProgress
-                    else -> 0f
-                }
-                LinearProgressIndicator(
-                    progress = { fill },
-                    modifier = Modifier.weight(1f).clip(MaterialTheme.shapes.extraLarge),
-                    color = color,
-                    trackColor = StepArenaColors.Gray800,
-                    strokeCap = StrokeCap.Round,
-                )
-            }
-        }
+        )
     }
 }
 

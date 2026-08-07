@@ -110,6 +110,32 @@ object OfficialSteps {
     fun reward(eligibleSteps: Long): Long = fromEligible(eligibleSteps).coerceAtMost(REWARD_LIMIT)
 }
 
+data class CompetitionProgress(
+    val displaySteps: Long,
+    val currentBand: Int,
+    val currentBandProgress: Float,
+) {
+    /** Number of complete 10,000-step bands before the currently painted band. */
+    val completedBands: Int get() = currentBand
+}
+
+fun competitionProgress(steps: Long): CompetitionProgress {
+    val displaySteps = OfficialSteps.competition(steps)
+    if (displaySteps == 0L) return CompetitionProgress(0L, 0, 0f)
+
+    // Subtract one so an exact boundary keeps the completed band visible rather
+    // than selecting the next band at 0%.
+    val currentBand = ((displaySteps - 1L) / OfficialSteps.SEGMENT_SIZE)
+        .toInt()
+        .coerceIn(0, (OfficialSteps.DAILY_LIMIT / OfficialSteps.SEGMENT_SIZE).toInt() - 1)
+    val stepsInBand = displaySteps - currentBand * OfficialSteps.SEGMENT_SIZE
+    return CompetitionProgress(
+        displaySteps = displaySteps,
+        currentBand = currentBand,
+        currentBandProgress = (stepsInBand.toFloat() / OfficialSteps.SEGMENT_SIZE).coerceIn(0f, 1f),
+    )
+}
+
 enum class MatchCandidateType { BOT, REAL }
 enum class PartnerSyncState { SYNCED, STALE, NO_TODAY_DATA, UNKNOWN }
 

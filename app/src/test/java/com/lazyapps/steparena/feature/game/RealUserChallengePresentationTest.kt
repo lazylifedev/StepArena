@@ -45,6 +45,12 @@ class RealUserChallengePresentationTest {
     }
 
     @Test
+    fun activeCompetitionDisplayUsesTheHundredThousandStepCap() {
+        val value = RealUserPartnerProgress(officialSteps = 105_000, competitionSteps = 0)
+        assertEquals(100_000L, realUserDisplayedSteps(value, RealUserChallengeStatus.ACTIVE))
+    }
+
+    @Test
     fun finalizedUsesCompetitionStepsAndShowsFinalizedDetails() {
         val value = RealUserPartnerProgress(officialSteps = 12_345, competitionSteps = 10_000, rewardSteps = 10_000, result = RealUserResult.DRAW)
         assertEquals(10_000L, realUserDisplayedSteps(value, RealUserChallengeStatus.FINALIZED))
