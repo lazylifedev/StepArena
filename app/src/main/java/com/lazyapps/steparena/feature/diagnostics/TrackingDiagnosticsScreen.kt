@@ -49,6 +49,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.lazyapps.steparena.R
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import com.lazyapps.steparena.qa.telemetry.QaTelemetryClient
 
 object DiagnosticsTestTags { const val SCREEN = "tracking_diagnostics" }
 
@@ -99,8 +100,19 @@ fun TrackingDiagnosticsScreen(state: StepTrackingState = StepTrackingState()) {
     ) {
         Text(stringResource(R.string.diagnostics_title), style = MaterialTheme.typography.headlineMedium)
         if (BuildConfig.FLAVOR == "qa") {
+            val telemetryStatus by app.qaTelemetry.status.collectAsState()
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("QA Telemetry", style = MaterialTheme.typography.titleMedium)
+                    Text("Telemetry: ON")
+                    Text("Last upload: ${telemetryStatus.lastUploadEpochMillis?.let(Instant::ofEpochMilli) ?: unset}")
+                    Text("Pending events: ${telemetryStatus.pendingEvents}")
+                    Text("Last hourly snapshot: ${telemetryStatus.lastSnapshotEpochMillis?.let(Instant::ofEpochMilli) ?: unset}")
+                    Text("Device alias: ${telemetryStatus.deviceAlias}")
+                    Text("Server: steparena-dev")
+                    Button(onClick = {
+                        submitScope.launch { app.qaTelemetry.captureAndUpload() }
+                    }) { Text("Send telemetry now") }
                     Text("Submit official progress to QA", style = MaterialTheme.typography.titleMedium)
                     Text("Submit today's integrity-checked steps to QA.")
                     Button(onClick = {

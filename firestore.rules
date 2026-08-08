@@ -1,6 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /qaTelemetryDevices/{deviceId}/{subcollection}/{documentId} {
+      allow read, write: if false;
+    }
     function owns(uid) { return request.auth != null && request.auth.uid == uid; }
     function createTimes() { return request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time; }
     function updateTimes() { return request.resource.data.createdAt == resource.data.createdAt && request.resource.data.updatedAt == request.time; }

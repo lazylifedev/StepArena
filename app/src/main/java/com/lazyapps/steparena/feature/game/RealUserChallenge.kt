@@ -207,6 +207,21 @@ fun RealUserChallengeScreen() {
             return@LaunchedEffect
         }
         listener = repository.observe(saved.challengeId) { observed ->
+            if (BuildConfig.FLAVOR == "qa") {
+                scope.launch {
+                    app.qaTelemetry.recordEvent(
+                        "CHALLENGE_STATE",
+                        mapOf(
+                            "challenge_state" to observed.challengeStatus.name,
+                            "listener_state" to if (observed.recoveryError == null) "connected" else "error",
+                            "self_competition_steps" to observed.selfProgress?.competitionSteps,
+                            "opponent_competition_steps" to observed.opponentProgress?.competitionSteps,
+                            "self_reward_steps" to observed.selfProgress?.rewardSteps,
+                            "opponent_reward_steps" to observed.opponentProgress?.rewardSteps,
+                        ),
+                    )
+                }
+            }
             if (observed.recoveryError == RealUserChallengeRecoveryError.PERMANENT) {
                 scope.launch { localStore.clear() }
                 listener?.remove(); listener = null

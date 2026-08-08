@@ -27,6 +27,8 @@ import com.lazyapps.steparena.auth.AccountAuthState
 import com.lazyapps.steparena.backup.*
 import java.time.Duration
 import com.lazyapps.steparena.official.OfficialProgressRepository
+import com.lazyapps.steparena.qa.telemetry.QaTelemetryClient
+import com.lazyapps.steparena.BuildConfig
 
 interface AppGraph {
     val database: StepArenaDatabase
@@ -89,6 +91,7 @@ open class StepArenaApplication : Application(), AppGraph {
         )
     }
     val officialProgressRepository by lazy { OfficialProgressRepository(activityRepository) }
+    val qaTelemetry by lazy { QaTelemetryClient(this, activityRepository) }
     override val installationId: String? = null
     override val isolatedScenario: Boolean = false
     override val gameRepository by lazy {
@@ -100,9 +103,16 @@ open class StepArenaApplication : Application(), AppGraph {
         super.onCreate()
         AppCheckInitialization.initialize()
         scheduleBackgroundWork()
+        QaTelemetryClient.schedule(this)
         accountAuthRepository.initialize()
+        if (BuildConfig.FLAVOR == "qa") {
+            applicationScope.launch { qaTelemetry.recordProcessStart() }
+        }
         applicationScope.launch {
             accountAuthRepository.state.collect { auth ->
+                if (BuildConfig.FLAVOR == "qa") {
+                    qaTelemetry.uploadPending()
+                }
                 if (auth is AccountAuthState.GoogleLinked) {
                     if (existingAccountSafetyStore.isPendingReview(auth.account.uid)) {
                         cloudRestoreRepository.clearForAccountChange()
