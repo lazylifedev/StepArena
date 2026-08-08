@@ -1,15 +1,31 @@
-import {initializeApp} from 'firebase-admin/app';
+import {getApp,initializeApp} from 'firebase-admin/app';
 import {FieldValue,getFirestore,Timestamp} from 'firebase-admin/firestore';
 import {onCall,HttpsError} from 'firebase-functions/v2/https';
 import {onSchedule} from 'firebase-functions/v2/scheduler';
 import {randomBytes} from 'crypto';
-import {progressInput,requestIdInput,strictObject} from './validation/input';
-import {officialSteps} from './domain/models';
+import {progressInput,qaTelemetryInput,requestIdInput,strictObject} from './validation/input';
+import {challengeDurationForProject,officialSteps,QA_PROJECT_ID} from './domain/models';
 import {findPartner,createChallenge} from './services/matching';
 import {finalizeExpiredChallenges} from './services/finalize';
 initializeApp(); const db=getFirestore();
 const opts={enforceAppCheck:process.env.FUNCTIONS_EMULATOR !== 'true'};
 export const submitOfficialProgress=onCall(opts,async req=>{const uid=req.auth?.uid??req.auth?.token?.uid??req.auth?.token?.sub??req.auth?.token?.user_id;if(!uid)throw new HttpsError('unauthenticated','auth_required');const d=progressInput(req.data);const ref=db.doc(`officialProgress/${uid}/days/${d.localDate}`),dedup=db.doc(`requestDeduplication/${uid}/requests/${d.requestId}`),profile=db.doc(`matchProfiles/${uid}`);return db.runTransaction(async tx=>{const prior=(await tx.get(dedup));if(prior.exists){if(prior.data()?.operation!=='submitOfficialProgress')throw new HttpsError('already-exists','request_conflict');return {status:'duplicate'};}const now=Timestamp.now(),before=(await tx.get(ref)).data(),oldProfile=(await tx.get(profile)).data(),challengeRef=oldProfile?.activeChallengeId?db.doc(`challenges/${oldProfile.activeChallengeId}`):null,challengeData=challengeRef?(await tx.get(challengeRef)).data():null;const reservationRef=oldProfile?.reservationId?db.doc(`matchReservations/${oldProfile.reservationId}`):null,reservation=reservationRef?(await tx.get(reservationRef)).data():null;if(before?.sourceRevision&&before.sourceRevision>d.sourceRevision)return {status:'stale'};const steps=officialSteps(d.eligibleSteps);tx.set(ref,{uid,localDate:d.localDate,timezone:d.timezone,officialSteps:steps,eligibleSteps:d.eligibleSteps,restrictedSteps:d.restrictedSteps,excludedSteps:d.excludedSteps,integrityVersion:d.integrityVersion,sourceRevision:d.sourceRevision,updatedAt:now,serverUpdatedAt:now},{merge:true});const validReservation=oldProfile?.reservationId&&reservation?.status==='reserved'&&reservation.expiresAt.toMillis()>Date.now();const matchingStatus=challengeRef&&challengeData?.status==='active'?'matched':validReservation?'reserved':'available';const profileData={matchingStatus,league:oldProfile?.league||'UNRANKED',division:oldProfile?.division||1,recentOfficialSteps:steps,lastActiveAt:now,localDate:d.localDate,timezone:d.timezone,publicDisplayName:oldProfile?.publicDisplayName||`Walker-${randomBytes(4).toString('hex').toUpperCase()}`,updatedAt:now};if(!validReservation&&oldProfile?.reservationId){profileData.matchingStatus='available';(profileData as any).reservationId=FieldValue.delete();(profileData as any).reservationExpiresAt=FieldValue.delete();}tx.set(profile,profileData,{merge:true});if(challengeRef&&challengeData?.status==='active')tx.set(challengeRef.collection('participants').doc(uid),{officialSteps:steps,syncState:'synced',progressUpdatedAt:now,localDate:d.localDate,timezone:d.timezone},{merge:true});tx.create(dedup,{requestId:d.requestId,operation:'submitOfficialProgress',createdAt:now,expiresAt:Timestamp.fromMillis(now.toMillis()+86400000)});return {status:'accepted',officialSteps:steps}})});
 export const findChallengePartner=onCall(opts,async req=>{if(!req.auth)throw new HttpsError('unauthenticated','auth_required');strictObject(req.data??{},[]);return findPartner(db,req.auth.uid)});
-export const createChallengeCallable=onCall(opts,async req=>{if(!req.auth)throw new HttpsError('unauthenticated','auth_required');const d=requestIdInput(req.data);try{return {challengeId:await createChallenge(db,req.auth.uid,d.reservationId,d.requestId)}}catch(e){throw new HttpsError('failed-precondition',(e as Error).message)}});
+export const createChallengeCallable=onCall(opts,async req=>{if(!req.auth)throw new HttpsError('unauthenticated','auth_required');const d=requestIdInput(req.data);try{return {challengeId:await createChallenge(db,req.auth.uid,d.reservationId,d.requestId,challengeDurationForProject(getApp().options.projectId))}}catch(e){throw new HttpsError('failed-precondition',(e as Error).message)}});
+export const submitQaTelemetry=onCall(opts,async req=>{
+ if(!req.auth)throw new HttpsError('unauthenticated','auth_required');
+ if(getApp().options.projectId!==QA_PROJECT_ID)throw new HttpsError('failed-precondition','qa_project_only');
+ const input=qaTelemetryInput(req.data);
+ const requestRef=db.doc(`qaTelemetryDevices/${input.anonymousDeviceId}/requests/${input.requestId}`);
+ return db.runTransaction(async tx=>{
+  const prior=await tx.get(requestRef); if(prior.exists)return {status:'duplicate',acceptedEvents:0};
+  const eventRefs=input.events.map(event=>db.doc(`qaTelemetryDevices/${input.anonymousDeviceId}/events/${event.eventId}`));
+  const snapshotRef=input.snapshot?db.doc(`qaTelemetryDevices/${input.anonymousDeviceId}/snapshots/${input.snapshot.snapshotId}`):null;
+  const existing=await Promise.all([...eventRefs.map(ref=>tx.get(ref)),...(snapshotRef?[tx.get(snapshotRef)]:[])]);
+  input.events.forEach((event,index)=>{if(existing[index].exists)return;tx.create(eventRefs[index],{...event.data,type:event.type,eventTimestamp:Timestamp.fromDate(new Date(event.timestamp)),serverReceivedAt:FieldValue.serverTimestamp()})});
+  if(input.snapshot&&snapshotRef&&!existing[eventRefs.length]?.exists)tx.create(snapshotRef,{...input.snapshot.data,snapshotTimestamp:Timestamp.fromDate(new Date(input.snapshot.timestamp)),serverReceivedAt:FieldValue.serverTimestamp()});
+  tx.create(requestRef,{requestId:input.requestId,acceptedEvents:input.events.length,createdAt:FieldValue.serverTimestamp()});
+  return {status:'accepted',acceptedEvents:input.events.length};
+ });
+});
 export const finalizeChallenges=onSchedule('every 15 minutes',async()=>{await finalizeExpiredChallenges(db)});

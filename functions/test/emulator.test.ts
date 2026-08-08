@@ -54,6 +54,17 @@ describe('Functions emulator integration', {timeout: 30000}, () => {
     expect(result.body.error?.status).toBe('UNAUTHENTICATED');
   });
 
+  it('rejects unauthenticated QA telemetry and blocks non-QA projects', async () => {
+    const unauthenticated = await call('submitQaTelemetry', '', {});
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.body.error?.status).toBe('UNAUTHENTICATED');
+    const user = await createUser();
+    created.push(user.localId);
+    const productionGuard = await call('submitQaTelemetry', user.idToken, {});
+    expect(productionGuard.status).toBe(400);
+    expect(productionGuard.body.error?.status).toBe('FAILED_PRECONDITION');
+  });
+
   it('preserves idempotency and rejects stale revisions without changing the stored document', async () => {
     const user = await createUser();
     created.push(user.localId);
